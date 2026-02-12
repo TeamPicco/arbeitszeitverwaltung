@@ -1,0 +1,28 @@
+# Streamlit Framework
+streamlit==1.31.0
+
+# Supabase Client
+supabase==2.3.4
+
+# Passwort-Hashing
+bcrypt==4.1.2
+
+# Datenverarbeitung
+pandas==2.2.0
+numpy==1.26.3
+
+# PDF-Generierung
+reportlab==4.0.9
+fpdf2==2.7.7
+
+# Datum/Zeit-Verarbeitung
+python-dateutil==2.8.2
+
+# Feiertags-Berechnung (Deutschland)
+holidays==0.40
+
+# Umgebungsvariablen
+python-dotenv==1.0.1
+
+# Zusätzliche Utilities
+Pillow==10.2.0
