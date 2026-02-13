@@ -1,7 +1,6 @@
 streamlit==1.31.0
 supabase==2.3.4
 bcrypt==4.1.2
-pandas==1.5.3
 reportlab==4.0.9
 python-dateutil==2.8.2
 holidays==0.40
