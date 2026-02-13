@@ -1,0 +1,5 @@
+[server]
+headleww = true
+port = 8501
+[browser]
+gatherUsageStats = false
