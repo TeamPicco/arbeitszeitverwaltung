@@ -5,7 +5,6 @@ Zentrale Verwaltung aller Mitarbeiter, Zeiterfassung und Lohnabrechnung
 
 import streamlit as st
 from datetime import datetime, date, timedelta
-import pandas as pd
 from typing import Optional
 
 from utils.database import (
@@ -156,25 +155,20 @@ def show_mitarbeiterverwaltung():
     # Zeige Mitarbeiter-Tabelle
     st.subheader("Mitarbeiter-Übersicht")
     
-    # Konvertiere zu DataFrame
-    df = pd.DataFrame(mitarbeiter_list)
+    # Erstelle Tabellen-Daten
+    table_data = []
+    for m in mitarbeiter_list:
+        table_data.append({
+            'Personalnr.': m['personalnummer'],
+            'Vorname': m['vorname'],
+            'Nachname': m['nachname'],
+            'E-Mail': m['email'],
+            'Soll-Std.': m['monatliche_soll_stunden'],
+            'Stundenlohn': f"{m['stundenlohn_brutto']:.2f} €",
+            'Urlaubstage': m['jahres_urlaubstage']
+        })
     
-    # Wähle relevante Spalten
-    display_columns = [
-        'personalnummer', 'vorname', 'nachname', 'email',
-        'monatliche_soll_stunden', 'stundenlohn_brutto', 'jahres_urlaubstage'
-    ]
-    
-    df_display = df[display_columns].copy()
-    df_display.columns = [
-        'Personalnr.', 'Vorname', 'Nachname', 'E-Mail',
-        'Soll-Std.', 'Stundenlohn', 'Urlaubstage'
-    ]
-    
-    # Formatiere Währung
-    df_display['Stundenlohn'] = df_display['Stundenlohn'].apply(lambda x: f"{x:.2f} €")
-    
-    st.dataframe(df_display, use_container_width=True, hide_index=True)
+    st.dataframe(table_data, use_container_width=True, hide_index=True)
     
     # Details anzeigen
     st.subheader("Mitarbeiter-Details")

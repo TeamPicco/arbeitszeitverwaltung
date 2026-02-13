@@ -5,7 +5,6 @@ Zeiterfassung, Urlaubsanträge und persönliche Daten
 
 import streamlit as st
 from datetime import datetime, date, time, timedelta
-import pandas as pd
 from typing import Optional
 
 from utils.database import (
@@ -173,8 +172,7 @@ def show_dashboard(mitarbeiter: dict):
                     'Stunden': format_stunden(stunden) if stunden > 0 else '-'
                 })
             
-            df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df_data, use_container_width=True, hide_index=True)
         else:
             st.info("Noch keine Zeiterfassungen vorhanden.")
         
@@ -365,8 +363,7 @@ def show_zeiterfassung(mitarbeiter: dict):
                     'Feiertag': '✅' if z['ist_feiertag'] else ''
                 })
             
-            df = pd.DataFrame(df_data)
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df_data, use_container_width=True, hide_index=True)
             
             st.info(f"📊 **Gesamt:** {format_stunden(gesamt_stunden)} Stunden")
         else:
