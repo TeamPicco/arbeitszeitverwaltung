@@ -7,6 +7,7 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 import calendar
 from utils.database import get_supabase_client, get_all_mitarbeiter
+from utils.calculations import berechne_arbeitsstunden_mit_pause
 
 
 def show_dienstplanung():
@@ -17,12 +18,15 @@ def show_dienstplanung():
     supabase = get_supabase_client()
     
     # Tab-Navigation
-    tabs = st.tabs(["📆 Monatsplan", "⚙️ Schichtvorlagen"])
+    tabs = st.tabs(["📆 Monatsplan", "📊 Monatsübersicht (Tabelle)", "⚙️ Schichtvorlagen"])
     
     with tabs[0]:
         show_monatsplan(supabase)
     
     with tabs[1]:
+        show_monatsuebersicht_tabelle(supabase)
+    
+    with tabs[2]:
         show_schichtvorlagen(supabase)
 
 
@@ -199,7 +203,7 @@ def show_schichtvorlagen(supabase):
     
     st.subheader("⚙️ Schichtvorlagen")
     
-    st.info("💡 Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
+    st.info("💡 Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht, Urlaub) für schnellere Dienstplanung.")
     
     # Lade Schichtvorlagen
     vorlagen = supabase.table('schichtvorlagen').select('*').eq(
@@ -212,15 +216,29 @@ def show_schichtvorlagen(supabase):
             col1, col2 = st.columns(2)
             
             with col1:
-                name = st.text_input("Name", placeholder="z.B. Frühschicht")
+                name = st.text_input("Name", placeholder="z.B. Frühschicht oder Urlaub")
                 beschreibung = st.text_area("Beschreibung (optional)", placeholder="z.B. Frühschicht 08:00 - 16:00")
+                ist_urlaub = st.checkbox("🏖️ Urlaub-Schicht (keine festen Zeiten)", help="Für Urlaubstage - Stunden werden automatisch berechnet")
             
             with col2:
-                start_zeit = st.time_input("Startzeit", value=datetime.strptime("08:00", "%H:%M").time())
-                ende_zeit = st.time_input("Endzeit", value=datetime.strptime("16:00", "%H:%M").time())
-                pause_minuten = st.number_input("Pause (Minuten)", min_value=0, max_value=240, value=30, step=15)
+                if not ist_urlaub:
+                    start_zeit = st.time_input("Startzeit", value=datetime.strptime("08:00", "%H:%M").time(), key="neue_vorlage_start")
+                    ende_zeit = st.time_input("Endzeit", value=datetime.strptime("16:00", "%H:%M").time(), key="neue_vorlage_ende")
+                    
+                    # Berechne automatische Pause nach ArbZG
+                    if start_zeit and ende_zeit:
+                        brutto_stunden, vorgeschlagene_pause = berechne_arbeitsstunden_mit_pause(start_zeit, ende_zeit)
+                        st.info(f"⚙️ **Gesetzliche Pause:** {vorgeschlagene_pause} Min (bei {brutto_stunden:.1f}h Arbeitszeit)")
+                        pause_minuten = st.number_input("Pause (Minuten)", min_value=0, max_value=240, value=vorgeschlagene_pause, step=15, help="Gesetzlich vorgeschrieben nach § 4 ArbZG")
+                    else:
+                        pause_minuten = st.number_input("Pause (Minuten)", min_value=0, max_value=240, value=30, step=15)
+                else:
+                    st.info("💡 Bei Urlaub werden Zeiten automatisch aus Mitarbeiterprofil berechnet")
+                    start_zeit = datetime.strptime("00:00", "%H:%M").time()
+                    ende_zeit = datetime.strptime("00:00", "%H:%M").time()
+                    pause_minuten = 0
             
-            farbe = st.color_picker("Farbe für Kalender", value="#0d6efd")
+            farbe = st.color_picker("Farbe für Kalender", value="#ffeb3b" if ist_urlaub else "#0d6efd")
             
             submit = st.form_submit_button("💾 Vorlage speichern", use_container_width=True)
             
@@ -233,7 +251,8 @@ def show_schichtvorlagen(supabase):
                         'start_zeit': start_zeit.strftime('%H:%M:%S'),
                         'ende_zeit': ende_zeit.strftime('%H:%M:%S'),
                         'pause_minuten': pause_minuten,
-                        'farbe': farbe
+                        'farbe': farbe,
+                        'ist_urlaub': ist_urlaub
                     }).execute()
                     st.success("✅ Schichtvorlage erstellt!")
                     st.rerun()
@@ -324,3 +343,208 @@ def show_schichtvorlagen(supabase):
                                 st.error(f"Fehler: {str(e)}")
     else:
         st.info("Noch keine Schichtvorlagen vorhanden. Erstellen Sie Ihre erste Vorlage!")
+
+
+
+def show_monatsuebersicht_tabelle(supabase):
+    """Zeigt Monatsübersicht aller Mitarbeiter in Tabellenform"""
+    
+    st.subheader("📊 Monatsübersicht (Tabelle)")
+    
+    st.info("💡 Übersicht aller Mitarbeiter und deren Schichten für den gesamten Monat in Tabellenform.")
+    
+    # Monat auswählen
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        jahr = st.selectbox("Jahr", range(2024, 2031), index=date.today().year - 2024, key="tabelle_jahr")
+    
+    with col2:
+        monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1, 
+                            format_func=lambda x: calendar.month_name[x], key="tabelle_monat")
+    
+    with col3:
+        if st.button("🔄 Aktualisieren", use_container_width=True, key="tabelle_refresh"):
+            st.rerun()
+    
+    # Lade Mitarbeiter
+    mitarbeiter_liste = get_all_mitarbeiter()
+    
+    if not mitarbeiter_liste:
+        st.warning("Keine Mitarbeiter gefunden.")
+        return
+    
+    # Lade Schichtvorlagen
+    schichtvorlagen = supabase.table('schichtvorlagen').select('*').eq(
+        'betrieb_id', st.session_state.betrieb_id
+    ).execute()
+    
+    vorlagen_dict = {v['id']: v for v in schichtvorlagen.data} if schichtvorlagen.data else {}
+    
+    # Lade Dienstpläne für den Monat
+    erster_tag = date(jahr, monat, 1)
+    letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
+    
+    dienstplaene = supabase.table('dienstplaene').select('*').eq(
+        'betrieb_id', st.session_state.betrieb_id
+    ).gte('datum', erster_tag.isoformat()).lte('datum', letzter_tag.isoformat()).execute()
+    
+    # Lade Urlaubsanträge für den Monat
+    urlaube = supabase.table('urlaubsantraege').select('*').eq(
+        'status', 'Genehmigt'
+    ).gte('bis_datum', erster_tag.isoformat()).lte('von_datum', letzter_tag.isoformat()).execute()
+    
+    # Organisiere Dienstpläne nach Mitarbeiter und Datum
+    dienste_map = {}
+    if dienstplaene.data:
+        for dienst in dienstplaene.data:
+            key = (dienst['mitarbeiter_id'], dienst['datum'])
+            dienste_map[key] = dienst
+    
+    # Organisiere Urlaube nach Mitarbeiter
+    urlaub_map = {}
+    if urlaube.data:
+        for urlaub in urlaube.data:
+            von = datetime.fromisoformat(urlaub['von_datum']).date()
+            bis = datetime.fromisoformat(urlaub['bis_datum']).date()
+            
+            # Erstelle Eintrag für jeden Urlaubstag
+            aktuelles_datum = von
+            while aktuelles_datum <= bis:
+                if erster_tag <= aktuelles_datum <= letzter_tag:
+                    key = (urlaub['mitarbeiter_id'], aktuelles_datum.isoformat())
+                    urlaub_map[key] = urlaub
+                aktuelles_datum += timedelta(days=1)
+    
+    st.markdown("---")
+    
+    # Erstelle Tabelle
+    anzahl_tage = calendar.monthrange(jahr, monat)[1]
+    
+    # HTML-Tabelle erstellen
+    html = '<div style="overflow-x: auto;"><table style="width:100%; border-collapse: collapse; font-size: 0.85rem;">'
+    
+    # Header-Zeile
+    html += '<thead><tr>'
+    html += '<th style="border: 1px solid #ddd; padding: 8px; background-color: #1e3a5f; color: white; position: sticky; left: 0; z-index: 10;">Mitarbeiter</th>'
+    
+    for tag in range(1, anzahl_tage + 1):
+        tag_datum = date(jahr, monat, tag)
+        wochentag_kurz = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'][tag_datum.weekday()]
+        
+        # Ruhetage (Mo/Di) hervorheben
+        if tag_datum.weekday() in [0, 1]:
+            bg_color = '#f0f0f0'
+        else:
+            bg_color = '#1e3a5f'
+        
+        html += f'<th style="border: 1px solid #ddd; padding: 6px; background-color: {bg_color}; color: white; text-align: center; min-width: 60px;">{tag}<br><small>{wochentag_kurz}</small></th>'
+    
+    html += '</tr></thead>'
+    
+    # Body - Mitarbeiter-Zeilen
+    html += '<tbody>'
+    
+    for mitarbeiter in mitarbeiter_liste:
+        html += '<tr>'
+        html += f'<td style="border: 1px solid #ddd; padding: 8px; background-color: #f8f9fa; font-weight: bold; position: sticky; left: 0; z-index: 5;">{mitarbeiter["vorname"]} {mitarbeiter["nachname"]}</td>'
+        
+        for tag in range(1, anzahl_tage + 1):
+            tag_datum = date(jahr, monat, tag)
+            key = (mitarbeiter['id'], tag_datum.isoformat())
+            
+            # Prüfe ob Urlaub
+            if key in urlaub_map:
+                html += '<td style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #ffeb3b;" title="Urlaub"><strong>U</strong></td>'
+            # Prüfe ob Dienst
+            elif key in dienste_map:
+                dienst = dienste_map[key]
+                
+                # Hole Schichtvorlage
+                if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
+                    vorlage = vorlagen_dict[dienst['schichtvorlage_id']]
+                    kuerzel = vorlage['name'][:1].upper()  # Erster Buchstabe
+                    zeiten = f"{dienst['start_zeit'][:5]}-{dienst['ende_zeit'][:5]}"
+                    farbe = vorlage.get('farbe', '#0d6efd')
+                    title = f"{vorlage['name']}: {zeiten}"
+                else:
+                    kuerzel = 'D'
+                    zeiten = f"{dienst['start_zeit'][:5]}-{dienst['ende_zeit'][:5]}"
+                    farbe = '#6c757d'
+                    title = f"Dienst: {zeiten}"
+                
+                html += f'<td style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: {farbe}20;" title="{title}"><strong>{kuerzel}</strong><br><small>{zeiten}</small></td>'
+            # Ruhetag (Mo/Di)
+            elif tag_datum.weekday() in [0, 1]:
+                html += '<td style="border: 1px solid #ddd; padding: 6px; text-align: center; background-color: #f0f0f0; color: #999;">-</td>'
+            # Frei
+            else:
+                html += '<td style="border: 1px solid #ddd; padding: 6px; text-align: center;"></td>'
+        
+        html += '</tr>'
+    
+    html += '</tbody></table></div>'
+    
+    st.markdown(html, unsafe_allow_html=True)
+    
+    # Legende
+    st.markdown("---")
+    st.markdown("### 📋 Legende")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.markdown("**U** = Urlaub")
+    
+    with col2:
+        st.markdown("**-** = Ruhetag (Mo/Di)")
+    
+    with col3:
+        st.markdown("**Kürzel** = Schichtname")
+    
+    with col4:
+        st.markdown("**Zeiten** = Start-Ende")
+    
+    # Export-Optionen
+    st.markdown("---")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("📥 Als CSV exportieren", use_container_width=True):
+            # Erstelle CSV
+            csv_data = "Mitarbeiter," + ",".join([str(tag) for tag in range(1, anzahl_tage + 1)]) + "\n"
+            
+            for mitarbeiter in mitarbeiter_liste:
+                row = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
+                
+                for tag in range(1, anzahl_tage + 1):
+                    tag_datum = date(jahr, monat, tag)
+                    key = (mitarbeiter['id'], tag_datum.isoformat())
+                    
+                    if key in urlaub_map:
+                        row += ",U"
+                    elif key in dienste_map:
+                        dienst = dienste_map[key]
+                        if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
+                            vorlage = vorlagen_dict[dienst['schichtvorlage_id']]
+                            row += f",{vorlage['name'][:1]} {dienst['start_zeit'][:5]}-{dienst['ende_zeit'][:5]}"
+                        else:
+                            row += f",D {dienst['start_zeit'][:5]}-{dienst['ende_zeit'][:5]}"
+                    elif tag_datum.weekday() in [0, 1]:
+                        row += ",-"
+                    else:
+                        row += ","
+                
+                csv_data += row + "\n"
+            
+            st.download_button(
+                label="💾 CSV herunterladen",
+                data=csv_data,
+                file_name=f"dienstplan_{calendar.month_name[monat]}_{jahr}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    
+    with col2:
+        st.info("💡 PDF-Export folgt in Kürze")

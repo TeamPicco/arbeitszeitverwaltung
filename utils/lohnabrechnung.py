@@ -62,6 +62,18 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'mitarbeiter_id', mitarbeiter_id
         ).gte('datum', von_datum.isoformat()).lt('datum', bis_datum.isoformat()).execute()
         
+        # Lade Dienstpläne für Urlaubstage
+        dienstplaene = supabase.table('dienstplaene').select(
+            '*, schichtvorlage:schichtvorlagen(ist_urlaub)'
+        ).eq('mitarbeiter_id', mitarbeiter_id).gte(
+            'datum', von_datum.isoformat()
+        ).lt('datum', bis_datum.isoformat()).execute()
+        
+        # Berechne Stunden pro Urlaubstag (Soll-Stunden / Arbeitstage)
+        # 5-Tage-Woche (Mi-So) = ca. 20 Arbeitstage pro Monat
+        arbeitstage_pro_monat = 20
+        stunden_pro_urlaubstag = float(mitarbeiter['monatliche_soll_stunden']) / arbeitstage_pro_monat
+        
         # Berechne Stunden
         ist_stunden = 0
         sonntagsstunden = 0
@@ -83,6 +95,15 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
                 
                 if z['ist_feiertag'] and mitarbeiter['feiertagszuschlag_aktiv']:
                     feiertagsstunden += stunden
+        
+        # Zähle Urlaubstage aus Dienstplan und addiere Stunden
+        urlaubstage_aus_dienstplan = 0
+        if dienstplaene.data:
+            for dienst in dienstplaene.data:
+                # Prüfe ob Urlaub-Schicht
+                if dienst.get('schichtvorlage') and dienst['schichtvorlage'].get('ist_urlaub'):
+                    urlaubstage_aus_dienstplan += 1
+                    ist_stunden += stunden_pro_urlaubstag
         
         # Lade genommene Urlaubstage
         urlaub_response = supabase.table('urlaubsantraege').select('anzahl_tage').eq(

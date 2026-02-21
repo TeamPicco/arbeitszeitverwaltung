@@ -287,3 +287,55 @@ def get_wochentag(datum: date) -> str:
     """
     wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     return wochentage[datum.weekday()]
+
+
+
+def berechne_gesetzliche_pause(arbeitsstunden: float) -> int:
+    """
+    Berechnet die gesetzlich vorgeschriebene Pausenzeit nach § 4 ArbZG
+    
+    Gesetzliche Regelung:
+    - Bis 6 Stunden: Keine Pause erforderlich (0 Min)
+    - 6-9 Stunden: Mindestens 30 Minuten Pause
+    - Über 9 Stunden: Mindestens 45 Minuten Pause
+    
+    Args:
+        arbeitsstunden: Geplante oder geleistete Arbeitsstunden
+        
+    Returns:
+        int: Pausenzeit in Minuten
+    """
+    if arbeitsstunden <= 6:
+        return 0
+    elif arbeitsstunden <= 9:
+        return 30
+    else:
+        return 45
+
+
+def berechne_arbeitsstunden_mit_pause(start_zeit: time, ende_zeit: time) -> tuple[float, int]:
+    """
+    Berechnet Arbeitsstunden und schlägt gesetzliche Pause vor
+    
+    Args:
+        start_zeit: Startzeit
+        ende_zeit: Endzeit
+        
+    Returns:
+        tuple: (brutto_stunden, vorgeschlagene_pause_minuten)
+    """
+    # Konvertiere zu datetime für Berechnung
+    start_dt = datetime.combine(date.today(), start_zeit)
+    ende_dt = datetime.combine(date.today(), ende_zeit)
+    
+    # Wenn Ende vor Start liegt, addiere einen Tag (Nachtschicht)
+    if ende_dt < start_dt:
+        ende_dt += timedelta(days=1)
+    
+    # Berechne Brutto-Stunden (ohne Pause)
+    brutto_stunden = (ende_dt - start_dt).total_seconds() / 3600.0
+    
+    # Berechne gesetzliche Pause
+    pause_minuten = berechne_gesetzliche_pause(brutto_stunden)
+    
+    return round(brutto_stunden, 2), pause_minuten
