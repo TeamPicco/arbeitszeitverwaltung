@@ -6,8 +6,13 @@ import streamlit as st
 from supabase import create_client, Client
 import bcrypt
 import os
+import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+
+# Konfiguriere Logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def init_supabase_client() -> Client:
@@ -126,41 +131,43 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
         betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
         
         if not betrieb_response.data or len(betrieb_response.data) == 0:
-            print(f"DEBUG: Betrieb mit Nummer {betriebsnummer} nicht gefunden")
+            logger.error(f"DEBUG: Betrieb mit Nummer {betriebsnummer} nicht gefunden")
             return None
         
         betrieb = betrieb_response.data[0]
         betrieb_id = betrieb['id']
-        print(f"DEBUG: Betrieb gefunden - ID: {betrieb_id}, Name: {betrieb['name']}")
+        logger.info(f"DEBUG: Betrieb gefunden - ID: {betrieb_id}, Name: {betrieb['name']}")
         
         # Hole Benutzerdaten für diesen Betrieb
         user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
         
         if not user_response.data or len(user_response.data) == 0:
-            print(f"DEBUG: User {username} nicht gefunden oder nicht aktiv für Betrieb {betrieb_id}")
+            logger.error(f"DEBUG: User {username} nicht gefunden oder nicht aktiv für Betrieb {betrieb_id}")
             return None
         
         user = user_response.data[0]
-        print(f"DEBUG: User gefunden - ID: {user['id']}, Username: {user['username']}")
-        print(f"DEBUG: Password Hash: {user['password_hash'][:20]}...")
+        logger.info(f"DEBUG: User gefunden - ID: {user['id']}, Username: {user['username']}")
+        logger.info(f"DEBUG: Password Hash: {user['password_hash'][:20]}...")
         
         # Verifiziere Passwort
         password_valid = verify_password(password, user['password_hash'])
-        print(f"DEBUG: Passwort gültig: {password_valid}")
+        logger.info(f"DEBUG: Passwort gültig: {password_valid}")
         
         if password_valid:
             # Füge Betriebsinfo hinzu
             user['betrieb_id'] = betrieb_id
             user['betrieb_name'] = betrieb['name']
             user['betrieb_logo'] = betrieb.get('logo_url')
-            print(f"DEBUG: Login erfolgreich für {username}")
+            logger.info(f"DEBUG: Login erfolgreich für {username}")
             return user
         
-        print(f"DEBUG: Passwort ungültig für {username}")
+        logger.error(f"DEBUG: Passwort ungültig für {username}")
         return None
         
     except Exception as e:
-        print(f"DEBUG ERROR: {str(e)}")
+        logger.error(f"DEBUG ERROR: {str(e)}")
+        import traceback
+        logger.error(f"DEBUG TRACEBACK: {traceback.format_exc()}")
         st.error(f"Fehler bei der Authentifizierung: {str(e)}")
         return None
 
