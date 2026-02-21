@@ -76,7 +76,7 @@ def apply_custom_css():
     
     /* ===== GLOBALE STYLES ===== */
     .stApp {{
-        background-color: {COLORS['background']};
+        background-color: {COLORS['background']} !important;
     }}
     
     /* Hauptcontainer */
@@ -84,6 +84,27 @@ def apply_custom_css():
         padding-top: 2rem;
         padding-bottom: 2rem;
         max-width: 1200px;
+    }}
+    
+    /* ALLE TEXTE DUNKEL */
+    .stMarkdown, .stMarkdown p, .stMarkdown div, .stMarkdown span,
+    .stText, .element-container, label, .stSelectbox label,
+    [data-testid="stMarkdownContainer"], [data-testid="stText"] {{
+        color: {COLORS['text_primary']} !important;
+    }}
+    
+    /* Selectbox Dropdown */
+    .stSelectbox > div > div > div,
+    .stSelectbox > div > div > div > div,
+    [data-baseweb="select"] {{
+        color: {COLORS['text_primary']} !important;
+        background-color: {COLORS['background']} !important;
+    }}
+    
+    /* Date Input */
+    .stDateInput > div > div > div,
+    .stDateInput label {{
+        color: {COLORS['text_primary']} !important;
     }}
     
     /* ===== BUTTONS ===== */
@@ -148,22 +169,26 @@ def apply_custom_css():
     
     /* ===== METRICS ===== */
     .stMetric {{
-        background-color: {COLORS['surface']};
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid {COLORS['accent']};
+        background-color: {COLORS['surface']} !important;
+        padding: 1rem !important;
+        border-radius: 8px !important;
+        border-left: 4px solid {COLORS['accent']} !important;
     }}
     
     .stMetric label {{
-        color: {COLORS['text_secondary']};
-        font-size: 0.9rem;
-        font-weight: 500;
+        color: {COLORS['text_primary']} !important;
+        font-size: 0.9rem !important;
+        font-weight: 500 !important;
     }}
     
     .stMetric [data-testid="stMetricValue"] {{
-        color: {COLORS['text_primary']};
-        font-size: 1.8rem;
-        font-weight: 600;
+        color: {COLORS['text_primary']} !important;
+        font-size: 1.8rem !important;
+        font-weight: 600 !important;
+    }}
+    
+    .stMetric div {{
+        color: {COLORS['text_primary']} !important;
     }}
     
     /* ===== EXPANDER ===== */
