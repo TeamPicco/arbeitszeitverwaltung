@@ -37,7 +37,29 @@ def get_base64_image(image_path):
 
 
 # CSS für besseres Design
-def apply_custom_css(hide_sidebar=True):
+def inject_pwa_headers():
+    """Fügt PWA-Meta-Tags und Manifest ein"""
+    st.markdown("""
+    <link rel="manifest" href="/static/manifest.json">
+    <meta name="theme-color" content="#1f77b4">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="CrewBase">
+    <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+    <script>
+        // Service Worker registrieren
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/static/sw.js')
+                    .then(reg => console.log('Service Worker registriert:', reg))
+                    .catch(err => console.log('Service Worker Fehler:', err));
+            });
+        }
+    </script>
+    """, unsafe_allow_html=True)
+
+
+def apply_custom_css(hide_sidebar: bool = False):
     """Wendet benutzerdefiniertes CSS an"""
     
     sidebar_css = """
@@ -152,6 +174,9 @@ def apply_custom_css(hide_sidebar=True):
 def login_page():
     """Zeigt die Login-Seite an"""
     
+    # PWA-Headers einfügen
+    inject_pwa_headers()
+    
     # Wende CSS an mit versteckter Seitenleiste
     apply_custom_css(hide_sidebar=True)
     
@@ -159,44 +184,36 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # Logo anzeigen
-        logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.jpeg")
+        # CrewBase Logo anzeigen
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "crewbase_logo.png")
         
         if os.path.exists(logo_path):
-            # Versuche Base64-Encoding
-            base64_img = get_base64_image(logo_path)
-            if base64_img:
-                st.markdown(
-                    f'<div class="logo-container"><img src="data:image/jpeg;base64,{base64_img}" alt="Steakhouse Piccolo Logo"></div>',
-                    unsafe_allow_html=True
-                )
-            else:
-                # Fallback zu st.image
-                st.image(logo_path, use_container_width=True)
+            st.image(logo_path, use_container_width=True)
         else:
-            # Fallback wenn Logo nicht gefunden
-            st.markdown('<div class="main-header">🥩 Steakhouse Piccolo</div>', unsafe_allow_html=True)
+            # Fallback
+            st.markdown('<div class="main-header">CrewBase</div>', unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # App-Name CrewBase
-        st.markdown('<div style="text-align: center; font-size: 2rem; font-weight: bold; color: #1f77b4; margin-bottom: 2rem;">CrewBase</div>', unsafe_allow_html=True)
+        # Hinweistext in weißem Kasten
+        st.markdown('<div style="background-color: #ffffff; padding: 1rem; border-radius: 8px; text-align: center; margin-bottom: 1.5rem; border: 1px solid #dee2e6;"><span style="color: #000000; font-size: 1.1rem;">Bitte gib deine Login-Daten ein:</span></div>', unsafe_allow_html=True)
         
         # Login-Formular
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.subheader("Anmeldung")
         
         with st.form("login_form"):
+            betriebsnummer = st.text_input("Betriebsnummer", key="login_betriebsnummer", placeholder="z.B. 20262204")
             username = st.text_input("Benutzername", key="login_username")
             password = st.text_input("Passwort", type="password", key="login_password")
-            submit = st.form_submit_button("Anmelden")
+            submit = st.form_submit_button("🔑 Anmelden", use_container_width=True)
             
             if submit:
-                if not username or not password:
-                    st.error("Bitte geben Sie Benutzername und Passwort ein.")
+                if not betriebsnummer or not username or not password:
+                    st.error("⚠️ Bitte geben Sie Betriebsnummer, Benutzername und Passwort ein.")
                 else:
-                    # Verifiziere Anmeldedaten
-                    user_data = verify_credentials(username, password)
+                    # Verifiziere Anmeldedaten mit Betriebsnummer
+                    from utils.database import verify_credentials_with_betrieb
+                    user_data = verify_credentials_with_betrieb(betriebsnummer, username, password)
                     
                     if user_data:
                         # Speichere Benutzerdaten in Session
@@ -204,16 +221,18 @@ def login_page():
                         st.session_state.user_id = user_data['id']
                         st.session_state.username = user_data['username']
                         st.session_state.role = user_data['role']
+                        st.session_state.betrieb_id = user_data['betrieb_id']
+                        st.session_state.betrieb_name = user_data['betrieb_name']
                         st.session_state.login_time = datetime.now()
                         
                         # Aktualisiere letzten Login in Datenbank
                         from utils.database import update_last_login
                         update_last_login(user_data['id'])
                         
-                        st.success(f"Willkommen, {username}!")
+                        st.success(f"✅ Willkommen, {username}!")
                         st.rerun()
                     else:
-                        st.error("Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.")
+                        st.error("❌ Ungültige Anmeldedaten. Bitte prüfen Sie Betriebsnummer, Benutzername und Passwort.")
         
         st.markdown('</div>', unsafe_allow_html=True)
         

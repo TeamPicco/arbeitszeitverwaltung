@@ -107,6 +107,53 @@ def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]
         return None
 
 
+def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password: str) -> Optional[Dict[str, Any]]:
+    """
+    Verifiziert Betriebsnummer, Benutzername und Passwort (Multi-Tenancy)
+    
+    Args:
+        betriebsnummer: Betriebsnummer
+        username: Benutzername
+        password: Passwort
+        
+    Returns:
+        Optional[Dict]: Benutzerdaten inkl. Betriebsinfo wenn erfolgreich, sonst None
+    """
+    try:
+        supabase = get_supabase_client()
+        
+        # Prüfe zuerst ob Betrieb existiert und aktiv ist
+        betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
+        
+        if not betrieb_response.data or len(betrieb_response.data) == 0:
+            return None
+        
+        betrieb = betrieb_response.data[0]
+        betrieb_id = betrieb['id']
+        
+        # Hole Benutzerdaten für diesen Betrieb
+        user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
+        
+        if not user_response.data or len(user_response.data) == 0:
+            return None
+        
+        user = user_response.data[0]
+        
+        # Verifiziere Passwort
+        if verify_password(password, user['password_hash']):
+            # Füge Betriebsinfo hinzu
+            user['betrieb_id'] = betrieb_id
+            user['betrieb_name'] = betrieb['name']
+            user['betrieb_logo'] = betrieb.get('logo_url')
+            return user
+        
+        return None
+        
+    except Exception as e:
+        st.error(f"Fehler bei der Authentifizierung: {str(e)}")
+        return None
+
+
 def update_last_login(user_id: str) -> bool:
     """
     Aktualisiert den letzten Login-Zeitstempel
