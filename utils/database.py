@@ -122,17 +122,30 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
     try:
         supabase = get_supabase_client()
         
-        # Prüfe zuerst ob Betrieb existiert und aktiv ist
-        betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
-        
-        if not betrieb_response.data or len(betrieb_response.data) == 0:
-            return None
-        
-        betrieb = betrieb_response.data[0]
-        betrieb_id = betrieb['id']
-        
-        # Hole Benutzerdaten für diesen Betrieb
-        user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
+        # Prüfe ob betriebe-Tabelle existiert
+        try:
+            betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
+            
+            if not betrieb_response.data or len(betrieb_response.data) == 0:
+                # Fallback: Wenn Tabelle existiert aber Betrieb nicht gefunden
+                return None
+            
+            betrieb = betrieb_response.data[0]
+            betrieb_id = betrieb['id']
+            
+            # Hole Benutzerdaten für diesen Betrieb
+            user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
+            
+        except Exception as table_error:
+            # Fallback: betriebe-Tabelle existiert nicht - verwende einfachen Login
+            # Nur für Piccolo (20262204)
+            if betriebsnummer != '20262204':
+                st.error("Multi-Tenancy noch nicht eingerichtet. Bitte SQL-Skripte ausführen.")
+                return None
+            
+            # Einfacher Login ohne betrieb_id-Filter
+            user_response = supabase.table('users').select('*').eq('username', username).eq('is_active', True).execute()
+            betrieb_id = 1  # Dummy-ID für Piccolo
         
         if not user_response.data or len(user_response.data) == 0:
             return None
@@ -143,8 +156,8 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
         if verify_password(password, user['password_hash']):
             # Füge Betriebsinfo hinzu
             user['betrieb_id'] = betrieb_id
-            user['betrieb_name'] = betrieb['name']
-            user['betrieb_logo'] = betrieb.get('logo_url')
+            user['betrieb_name'] = 'Steakhouse Piccolo'  # Fallback
+            user['betrieb_logo'] = None
             return user
         
         return None
