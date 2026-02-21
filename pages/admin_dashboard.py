@@ -113,7 +113,7 @@ def show():
         show_mastergeraete()
     
     with tabs[10]:
-        show_einstellungen_admin()raete()
+        show_einstellungen_admin()
     
     with tabs[9]:
         show_einstellungen()
