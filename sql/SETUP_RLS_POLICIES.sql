@@ -38,12 +38,12 @@ ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 -- Policy: Benutzer können ihre eigenen Daten lesen
 CREATE POLICY "Benutzer können eigene Daten lesen"
 ON public.users FOR SELECT
-USING (auth.uid()::text = id);
+USING (auth.uid() = id::uuid);
 
 -- Policy: Benutzer können ihre eigenen Daten aktualisieren
 CREATE POLICY "Benutzer können eigene Daten aktualisieren"
 ON public.users FOR UPDATE
-USING (auth.uid()::text = id);
+USING (auth.uid() = id::uuid);
 
 -- Policy: Service Role hat vollen Zugriff
 CREATE POLICY "Service Role kann Users verwalten"
@@ -59,12 +59,12 @@ ALTER TABLE public.mitarbeiter ENABLE ROW LEVEL SECURITY;
 -- Policy: Mitarbeiter können ihre eigenen Daten lesen
 CREATE POLICY "Mitarbeiter können eigene Daten lesen"
 ON public.mitarbeiter FOR SELECT
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Mitarbeiter können ihre eigenen Daten aktualisieren
 CREATE POLICY "Mitarbeiter können eigene Daten aktualisieren"
 ON public.mitarbeiter FOR UPDATE
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Service Role hat vollen Zugriff
 CREATE POLICY "Service Role kann Mitarbeiter verwalten"
@@ -84,12 +84,12 @@ BEGIN
         -- Policy: Mitarbeiter können ihre eigenen Zeiterfassungen lesen
         EXECUTE 'CREATE POLICY "Mitarbeiter können eigene Zeiterfassungen lesen"
         ON public.zeiterfassungen FOR SELECT
-        USING (auth.uid()::text IN (SELECT user_id FROM public.mitarbeiter WHERE id = zeiterfassungen.mitarbeiter_id))';
+        USING (auth.uid() IN (SELECT user_id::uuid FROM public.mitarbeiter WHERE id = zeiterfassungen.mitarbeiter_id))';
         
         -- Policy: Mitarbeiter können ihre eigenen Zeiterfassungen erstellen
         EXECUTE 'CREATE POLICY "Mitarbeiter können eigene Zeiterfassungen erstellen"
         ON public.zeiterfassungen FOR INSERT
-        WITH CHECK (auth.uid()::text IN (SELECT user_id FROM public.mitarbeiter WHERE id = zeiterfassungen.mitarbeiter_id))';
+        WITH CHECK (auth.uid() IN (SELECT user_id::uuid FROM public.mitarbeiter WHERE id = zeiterfassungen.mitarbeiter_id))';
         
         -- Policy: Service Role hat vollen Zugriff
         EXECUTE 'CREATE POLICY "Service Role kann Zeiterfassungen verwalten"
@@ -114,12 +114,12 @@ BEGIN
         -- Policy: Mitarbeiter können ihre eigenen Anträge lesen
         EXECUTE 'CREATE POLICY "Mitarbeiter können eigene Urlaubsanträge lesen"
         ON public.urlaubsantraege FOR SELECT
-        USING (auth.uid()::text IN (SELECT user_id FROM public.mitarbeiter WHERE id = urlaubsantraege.mitarbeiter_id))';
+        USING (auth.uid() IN (SELECT user_id::uuid FROM public.mitarbeiter WHERE id = urlaubsantraege.mitarbeiter_id))';
         
         -- Policy: Mitarbeiter können ihre eigenen Anträge erstellen
         EXECUTE 'CREATE POLICY "Mitarbeiter können eigene Urlaubsanträge erstellen"
         ON public.urlaubsantraege FOR INSERT
-        WITH CHECK (auth.uid()::text IN (SELECT user_id FROM public.mitarbeiter WHERE id = urlaubsantraege.mitarbeiter_id))';
+        WITH CHECK (auth.uid() IN (SELECT user_id::uuid FROM public.mitarbeiter WHERE id = urlaubsantraege.mitarbeiter_id))';
         
         -- Policy: Service Role hat vollen Zugriff
         EXECUTE 'CREATE POLICY "Service Role kann Urlaubsanträge verwalten"
@@ -141,12 +141,12 @@ ALTER TABLE public.benachrichtigungen ENABLE ROW LEVEL SECURITY;
 -- Policy: Benutzer können ihre eigenen Benachrichtigungen lesen
 CREATE POLICY "Benutzer können eigene Benachrichtigungen lesen"
 ON public.benachrichtigungen FOR SELECT
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Benutzer können ihre eigenen Benachrichtigungen aktualisieren
 CREATE POLICY "Benutzer können eigene Benachrichtigungen aktualisieren"
 ON public.benachrichtigungen FOR UPDATE
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Service Role hat vollen Zugriff
 CREATE POLICY "Service Role kann Benachrichtigungen verwalten"
@@ -167,12 +167,12 @@ USING (true);
 -- Policy: Benutzer können Chat-Nachrichten erstellen
 CREATE POLICY "Benutzer können Chat-Nachrichten erstellen"
 ON public.plauderecke FOR INSERT
-WITH CHECK (auth.uid()::text = user_id);
+WITH CHECK (auth.uid() = user_id::uuid);
 
 -- Policy: Benutzer können ihre eigenen Nachrichten löschen
 CREATE POLICY "Benutzer können eigene Chat-Nachrichten löschen"
 ON public.plauderecke FOR DELETE
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Service Role hat vollen Zugriff
 CREATE POLICY "Service Role kann Chat-Nachrichten verwalten"
@@ -188,12 +188,12 @@ ALTER TABLE public.aenderungsanfragen ENABLE ROW LEVEL SECURITY;
 -- Policy: Mitarbeiter können ihre eigenen Anfragen lesen
 CREATE POLICY "Mitarbeiter können eigene Änderungsanfragen lesen"
 ON public.aenderungsanfragen FOR SELECT
-USING (auth.uid()::text = user_id);
+USING (auth.uid() = user_id::uuid);
 
 -- Policy: Mitarbeiter können ihre eigenen Anfragen erstellen
 CREATE POLICY "Mitarbeiter können eigene Änderungsanfragen erstellen"
 ON public.aenderungsanfragen FOR INSERT
-WITH CHECK (auth.uid()::text = user_id);
+WITH CHECK (auth.uid() = user_id::uuid);
 
 -- Policy: Service Role hat vollen Zugriff
 CREATE POLICY "Service Role kann Änderungsanfragen verwalten"
