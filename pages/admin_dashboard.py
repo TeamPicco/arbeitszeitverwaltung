@@ -58,6 +58,7 @@ def show():
         "💬 Plauderecke",
         "⏰ Zeiterfassung",
         "💰 Lohnabrechnung",
+        "🖥️ Mastergeräte",
         "⚙️ Einstellungen"
     ])
     
@@ -80,6 +81,10 @@ def show():
         show_lohnabrechnung()
     
     with tabs[6]:
+        from pages.admin_mastergeraete import show_mastergeraete
+        show_mastergeraete()
+    
+    with tabs[7]:
         show_einstellungen()
 
 

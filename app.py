@@ -18,7 +18,7 @@ from utils.session import init_session_state, check_session_timeout
 from pages import admin_dashboard, mitarbeiter_dashboard
 
 # Seiten-Konfiguration
-favicon_path = os.path.join(os.path.dirname(__file__), "assets", "favicon.png")
+favicon_path = os.path.join(os.path.dirname(__file__), "assets", "favicon.ico")
 st.set_page_config(
     page_title="CrewBase - Arbeitszeitverwaltung",
     page_icon=favicon_path if os.path.exists(favicon_path) else "⏰",
