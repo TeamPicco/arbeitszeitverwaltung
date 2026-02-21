@@ -18,9 +18,10 @@ from utils.session import init_session_state, check_session_timeout
 from pages import admin_dashboard, mitarbeiter_dashboard
 
 # Seiten-Konfiguration
+favicon_path = os.path.join(os.path.dirname(__file__), "assets", "favicon.png")
 st.set_page_config(
-    page_title=os.getenv("APP_TITLE", "Arbeitszeitverwaltung"),
-    page_icon=os.getenv("APP_ICON", "⏰"),
+    page_title="CrewBase - Arbeitszeitverwaltung",
+    page_icon=favicon_path if os.path.exists(favicon_path) else "⏰",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -178,6 +179,9 @@ def login_page():
         
         st.markdown("<br>", unsafe_allow_html=True)
         
+        # App-Name CrewBase
+        st.markdown('<div style="text-align: center; font-size: 2rem; font-weight: bold; color: #1f77b4; margin-bottom: 2rem;">CrewBase</div>', unsafe_allow_html=True)
+        
         # Login-Formular
         st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.subheader("Anmeldung")
@@ -213,10 +217,10 @@ def login_page():
         
         st.markdown('</div>', unsafe_allow_html=True)
         
-        # DSGVO-Hinweis
+        # Datenschutzhinweis mit besserer Lesbarkeit
         st.markdown("""
-        <div class="privacy-notice">
-            <strong>Datenschutzhinweis:</strong><br>
+        <div style="margin-top: 2rem; padding: 1.5rem; background-color: #ffffff; border: 1px solid #dee2e6; border-radius: 8px; color: #000000; font-size: 0.9rem; line-height: 1.6;">
+            <strong style="color: #000000;">Datenschutzhinweis:</strong><br>
             Ihre Daten werden verschlüsselt übertragen und gemäß DSGVO verarbeitet. 
             Die Zeiterfassung erfolgt nach den Vorgaben des EuGH-Urteils zur Arbeitszeiterfassung.
         </div>
