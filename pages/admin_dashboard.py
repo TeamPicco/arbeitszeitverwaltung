@@ -1147,51 +1147,36 @@ def show_plauderecke_admin():
 
 
 def show_urlaubskalender_admin():
-    """Zeigt Urlaubskalender aller Mitarbeiter an (Admin-Ansicht)"""
-    st.markdown('<div class="section-header">📅 Urlaubskalender - Übersicht aller Mitarbeiter</div>', unsafe_allow_html=True)
+    """Zeigt Urlaubskalender aller Mitarbeiter an (Admin-Ansicht) - JAHRESÜBERSICHT"""
+    st.markdown('<div class="section-header">📅 Urlaubskalender - Jahresübersicht</div>', unsafe_allow_html=True)
     
-    st.info("ℹ️ Übersicht aller genehmigten Urlaube. Hilft bei der Personalplanung und Dienstplan-Erstellung.")
+    st.info("ℹ️ Jahresübersicht aller genehmigten Urlaube. Hilft bei der Personalplanung und Dienstplan-Erstellung.")
     
-    # Zeitraum-Auswahl
-    col1, col2, col3 = st.columns(3)
+    # Nur Jahr-Auswahl (keine Monatsauswahl mehr)
+    col1, col2 = st.columns([1, 2])
     
     with col1:
-        # Aktueller Monat als Standard
         heute = date.today()
-        jahr = st.selectbox("Jahr", range(heute.year - 1, heute.year + 2), index=1, key="admin_jahr")
+        jahr = st.selectbox("Jahr", range(heute.year - 1, heute.year + 3), index=1, key="admin_jahr")
     
     with col2:
-        monate = [
-            "Januar", "Februar", "März", "April", "Mai", "Juni",
-            "Juli", "August", "September", "Oktober", "November", "Dezember"
-        ]
-        monat = st.selectbox("Monat", range(1, 13), format_func=lambda x: monate[x-1], index=heute.month-1, key="admin_monat")
+        st.markdown(f"### 📆 Urlaubsübersicht für das Jahr {jahr}")
     
-    with col3:
-        # Filter nach Status
-        status_filter = st.selectbox("Status", ["Genehmigt", "Alle"], key="admin_status")
-    
-    # Lade Urlaube für den gewählten Zeitraum
+    # Lade Urlaube für das gesamte Jahr
     supabase = get_supabase_client()
     
-    # Berechne Start- und Enddatum des Monats
-    from calendar import monthrange
-    erster_tag = date(jahr, monat, 1)
-    letzter_tag = date(jahr, monat, monthrange(jahr, monat)[1])
+    # Berechne Start- und Enddatum des Jahres
+    erster_tag = date(jahr, 1, 1)
+    letzter_tag = date(jahr, 12, 31)
     
     try:
-        # Lade Urlaubsanträge
-        query = supabase.table('urlaubsantraege').select(
+        # Lade ALLE genehmigten Urlaubsanträge für das gesamte Jahr
+        urlaube_response = supabase.table('urlaubsantraege').select(
             'id, mitarbeiter_id, von_datum, bis_datum, status, grund, mitarbeiter(vorname, nachname)'
-        ).gte('bis_datum', str(erster_tag)).lte('von_datum', str(letzter_tag))
-        
-        if status_filter == "Genehmigt":
-            query = query.eq('status', 'Genehmigt')
-        
-        urlaube_response = query.execute()
+        ).gte('bis_datum', str(erster_tag)).lte('von_datum', str(letzter_tag)).eq('status', 'Genehmigt').execute()
         
         if not urlaube_response.data:
-            st.info(f"📭 Keine Urlaube im {monate[monat-1]} {jahr}")
+            st.info(f"📬 Keine genehmigten Urlaube im Jahr {jahr}")
             return
         
         # Erstelle Kalender-Ansicht
@@ -1266,55 +1251,66 @@ def show_urlaubskalender_admin():
             genehmigt_count = len([u for urlaube in urlaube_nach_mitarbeiter.values() for u in urlaube if u['status'] == 'Genehmigt'])
             st.metric("Genehmigte Anträge", genehmigt_count)
         
-        # Kalender-Ansicht
+        # Jahres-Kalender-Ansicht (12 Monate)
         st.markdown("---")
-        st.markdown("### 📆 Kalender-Ansicht")
+        st.markdown("### 📆 Jahreskalender-Ansicht")
         
-        # Erstelle einfache Kalender-Tabelle
         import calendar
-        cal = calendar.monthcalendar(jahr, monat)
         
-        # Wochentage als Header
-        wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        monate = [
+            "Januar", "Februar", "März", "April", "Mai", "Juni",
+            "Juli", "August", "September", "Oktober", "November", "Dezember"
+        ]
         
-        # Erstelle HTML-Tabelle
-        html = '<table style="width:100%; border-collapse: collapse;">'
-        html += '<tr>' + ''.join([f'<th style="border: 1px solid #ddd; padding: 8px; text-align: center; background-color: #f0f0f0;">{tag}</th>' for tag in wochentage]) + '</tr>'
-        
-        for woche in cal:
-            html += '<tr>'
-            for tag in woche:
-                if tag == 0:
-                    html += '<td style="border: 1px solid #ddd; padding: 8px;"></td>'
-                else:
-                    aktuelles_datum = date(jahr, monat, tag)
-                    
-                    # Prüfe ob an diesem Tag jemand im Urlaub ist
-                    urlaub_heute = []
-                    for urlaub in urlaube_response.data:
-                        if urlaub['status'] == 'Genehmigt':  # Nur genehmigte Urlaube
-                            von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
-                            bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
-                            if von <= aktuelles_datum <= bis:
-                                urlaub_heute.append(f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}")
-                    
-                    # Färbe Zelle wenn Urlaub
-                    if urlaub_heute:
-                        # Je mehr Mitarbeiter, desto dunkler
-                        if len(urlaub_heute) >= 3:
-                            bg_color = '#ff9800'  # Orange für viele
-                        else:
-                            bg_color = '#ffeb3b'  # Gelb für wenige
-                        title = f"{len(urlaub_heute)} im Urlaub: {', '.join(urlaub_heute)}"
-                        html += f'<td style="border: 1px solid #ddd; padding: 8px; background-color: {bg_color}; text-align: center;" title="{title}"><strong>{tag}</strong><br><small>🏖️ {len(urlaub_heute)}</small></td>'
-                    else:
-                        html += f'<td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{tag}</td>'
-            html += '</tr>'
-        
-        html += '</table>'
-        st.markdown(html, unsafe_allow_html=True)
+        # Zeige 12 Monate in 3 Spalten
+        for quartal in range(4):  # 4 Quartale
+            cols = st.columns(3)
+            for i in range(3):
+                monat_nr = quartal * 3 + i + 1
+                if monat_nr <= 12:
+                    with cols[i]:
+                        st.markdown(f"**{monate[monat_nr-1]} {jahr}**")
+                        
+                        # Erstelle Monatskalender
+                        cal = calendar.monthcalendar(jahr, monat_nr)
+                        wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+                        
+                        html = '<table style="width:100%; border-collapse: collapse; font-size: 0.8rem;">'
+                        html += '<tr>' + ''.join([f'<th style="border: 1px solid #ddd; padding: 4px; text-align: center; background-color: #1e3a5f; color: white;">{tag}</th>' for tag in wochentage]) + '</tr>'
+                        
+                        for woche in cal:
+                            html += '<tr>'
+                            for tag in woche:
+                                if tag == 0:
+                                    html += '<td style="border: 1px solid #ddd; padding: 4px;"></td>'
+                                else:
+                                    aktuelles_datum = date(jahr, monat_nr, tag)
+                                    
+                                    # Prüfe ob an diesem Tag jemand im Urlaub ist
+                                    urlaub_heute = []
+                                    for urlaub in urlaube_response.data:
+                                        von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
+                                        bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
+                                        if von <= aktuelles_datum <= bis:
+                                            urlaub_heute.append(f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}")
+                                    
+                                    # Färbe Zelle wenn Urlaub
+                                    if urlaub_heute:
+                                        if len(urlaub_heute) >= 3:
+                                            bg_color = '#ff9800'  # Orange
+                                        else:
+                                            bg_color = '#ffeb3b'  # Gelb
+                                        title = f"{len(urlaub_heute)} im Urlaub: {', '.join(urlaub_heute)}"
+                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; background-color: {bg_color}; text-align: center;" title="{title}"><strong>{tag}</strong></td>'
+                                    else:
+                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; text-align: center;">{tag}</td>'
+                            html += '</tr>'
+                        
+                        html += '</table>'
+                        st.markdown(html, unsafe_allow_html=True)
         
         st.caption("💡 Tipp: Gelb = 1-2 Mitarbeiter im Urlaub | Orange = 3+ Mitarbeiter im Urlaub. Fahre mit der Maus über die Zelle für Details.")
+        st.markdown("---")
         
         # Export-Funktion
         st.markdown("---")
@@ -1335,7 +1331,7 @@ def show_urlaubskalender_admin():
             st.download_button(
                 label="💾 CSV herunterladen",
                 data=csv_data,
-                file_name=f"urlaubsplan_{monate[monat-1]}_{jahr}.csv",
+                file_name=f"urlaubsplan_{jahr}.csv",
                 mime="text/csv"
             )
         
