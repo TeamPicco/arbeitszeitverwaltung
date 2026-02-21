@@ -27,10 +27,14 @@ from utils.calculations import (
 from utils.session import get_current_user_id
 from utils.push_notifications import show_notifications_widget
 from utils.chat_notifications import get_unread_chat_count
+from utils.styles import apply_custom_css, get_icon, COLORS
 
 
 def show():
     """Zeigt das Mitarbeiter-Dashboard an"""
+    
+    # Wende Custom CSS an
+    apply_custom_css()
     
     # Zeige Benachrichtigungen in Sidebar
     if hasattr(st.session_state, 'user_id'):
@@ -66,26 +70,23 @@ def show():
                     unsafe_allow_html=True
                 )
     
-    st.markdown(
-        f'<div class="main-header">👤 Willkommen, {mitarbeiter["vorname"]} {mitarbeiter["nachname"]}</div>',
-        unsafe_allow_html=True
-    )
+    st.title(f"{get_icon('mitarbeiter')} Willkommen, {mitarbeiter['vorname']} {mitarbeiter['nachname']}")
     
     # Zähle ungelesene Chat-Nachrichten
     last_read = st.session_state.get('chat_last_read', None)
     unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
     chat_badge = f" ({unread_count})" if unread_count > 0 else ""
     
-    # Tab-Navigation
+    # Tab-Navigation mit einheitlichen Icons
     tabs = st.tabs([
-        "📊 Dashboard",
-        "⏰ Zeiterfassung",
-        "📅 Mein Dienstplan",
-        "🏞️ Urlaub",
-        "📅 Urlaubskalender",
-        f"💬 Plauderecke{chat_badge}",
-        "📄 Dokumente",
-        "⚙️ Einstellungen"
+        f"{get_icon('dashboard')} Dashboard",
+        f"{get_icon('zeit')} Zeiterfassung",
+        f"{get_icon('dienstplan')} Mein Dienstplan",
+        f"{get_icon('urlaub')} Urlaub",
+        f"{get_icon('dienstplan')} Urlaubskalender",
+        f"{get_icon('chat')} Plauderecke{chat_badge}",
+        f"{get_icon('dokument')} Dokumente",
+        f"{get_icon('einstellungen')} Einstellungen"
     ])
     
     with tabs[0]:

@@ -25,10 +25,14 @@ from utils.calculations import (
 )
 from utils.push_notifications import show_notifications_widget
 from utils.chat_notifications import get_unread_chat_count
+from utils.styles import apply_custom_css, get_icon, COLORS
 
 
 def show():
     """Zeigt das Administrator-Dashboard an"""
+    
+    # Wende Custom CSS an
+    apply_custom_css()
     
     # Zeige Benachrichtigungen in Sidebar
     if hasattr(st.session_state, 'user_id'):
@@ -54,25 +58,25 @@ def show():
                     unsafe_allow_html=True
                 )
     
-    st.markdown('<div class="main-header">⚖️ Administrator-Dashboard</div>', unsafe_allow_html=True)
+    st.title(f"{get_icon('dashboard')} Administrator-Dashboard")
     
     # Zähle ungelesene Chat-Nachrichten
     last_read = st.session_state.get('chat_last_read', None)
     unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
     chat_badge = f" ({unread_count})" if unread_count > 0 else ""
     
-    # Tab-Navigation
+    # Tab-Navigation mit einheitlichen Icons
     tabs = st.tabs([
-        "📊 Übersicht",
-        "👥 Mitarbeiterverwaltung",
-        "📅 Dienstplanung",
-        "🏞️ Urlaubsgenehmigung",
-        "📅 Urlaubskalender",
-        f"💬 Plauderecke{chat_badge}",
-        "⏰ Zeiterfassung",
-        "💰 Lohnabrechnung",
-        "🖥️ Mastergeräte",
-        "⚙️ Einstellungen"
+        f"{get_icon('dashboard')} Übersicht",
+        f"{get_icon('mitarbeiter')} Mitarbeiterverwaltung",
+        f"{get_icon('dienstplan')} Dienstplanung",
+        f"{get_icon('urlaub')} Urlaubsgenehmigung",
+        f"{get_icon('dienstplan')} Urlaubskalender",
+        f"{get_icon('chat')} Plauderecke{chat_badge}",
+        f"{get_icon('zeit')} Zeiterfassung",
+        f"{get_icon('lohn')} Lohnabrechnung",
+        f"{get_icon('mastergeraete')} Mastergeräte",
+        f"{get_icon('einstellungen')} Einstellungen"
     ])
     
     with tabs[0]:
@@ -554,81 +558,7 @@ def show_mitarbeiter_details(mitarbeiter: dict):
                     logger.error(f"DEBUG ERROR beim Löschen: {e}", exc_info=True)
                     st.error(f"Fehler: {str(e)}")
     
-    st.markdown("---")
-    
-    # Arbeitsvertrag
-    st.markdown("**📄 Arbeitsvertrag**")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Arbeitsvertrag hochladen (PDF)",
-            type=['pdf'],
-            key=f"vertrag_{mitarbeiter['id']}"
-        )
-    
-    with col2:
-        if st.button("Hochladen", key=f"upload_{mitarbeiter['id']}"):
-            if uploaded_file:
-                # Lade Datei hoch
-                file_path = f"{mitarbeiter['id']}/{mitarbeiter['personalnummer']}_vertrag.pdf"
-                result = upload_file_to_storage('arbeitsvertraege', file_path, uploaded_file.getvalue())
-                
-                if result:
-                    # Aktualisiere Mitarbeiter-Datensatz
-                    update_mitarbeiter(mitarbeiter['id'], {'vertrag_pdf_path': file_path})
-                    st.success("Arbeitsvertrag erfolgreich hochgeladen!")
-                    st.rerun()
-            else:
-                st.warning("Bitte wählen Sie eine PDF-Datei aus.")
-    
-    # Zeige vorhandenen Vertrag
-    if mitarbeiter.get('vertrag_pdf_path'):
-        st.info(f"✅ Vertrag vorhanden: {mitarbeiter['vertrag_pdf_path']}")
-        
-        col_dl, col_view = st.columns(2)
-        
-        with col_dl:
-            # Download-Button
-            try:
-                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
-                if pdf_data:
-                    st.download_button(
-                        label="📥 Vertrag herunterladen",
-                        data=pdf_data,
-                        file_name=f"{mitarbeiter['personalnummer']}_vertrag.pdf",
-                        mime="application/pdf",
-                        key=f"download_{mitarbeiter['id']}",
-                        use_container_width=True
-                    )
-            except Exception as e:
-                st.error(f"Fehler beim Herunterladen: {str(e)}")
-        
-        with col_view:
-            # Anzeige-Button
-            if st.button("👁️ Vertrag anzeigen", key=f"view_{mitarbeiter['id']}", use_container_width=True):
-                st.session_state[f"show_vertrag_{mitarbeiter['id']}"] = True
-        
-        # PDF anzeigen wenn Button geklickt
-        if st.session_state.get(f"show_vertrag_{mitarbeiter['id']}", False):
-            try:
-                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
-                if pdf_data:
-                    st.markdown("---")
-                    st.markdown("**Vertragsansicht**")
-                    
-                    # PDF in einem iframe anzeigen
-                    import base64
-                    base64_pdf = base64.b64encode(pdf_data).decode('utf-8')
-                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
-                    st.markdown(pdf_display, unsafe_allow_html=True)
-                    
-                    if st.button("❌ Ansicht schließen", key=f"close_{mitarbeiter['id']}"):
-                        st.session_state[f"show_vertrag_{mitarbeiter['id']}"] = False
-                        st.rerun()
-            except Exception as e:
-                st.error(f"Fehler beim Anzeigen: {str(e)}")
+
 
 
 def show_urlaubsgenehmigung():

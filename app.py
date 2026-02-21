@@ -15,6 +15,7 @@ load_dotenv()
 # Importiere Module
 from utils.database import init_supabase_client, verify_credentials
 from utils.session import init_session_state, check_session_timeout
+from utils.styles import apply_custom_css
 from pages import admin_dashboard, mitarbeiter_dashboard
 
 # Seiten-Konfiguration
@@ -177,8 +178,8 @@ def login_page():
     # PWA-Headers einfügen
     inject_pwa_headers()
     
-    # Wende CSS an mit versteckter Seitenleiste
-    apply_custom_css(hide_sidebar=True)
+    # Wende CSS an
+    apply_custom_css()
     
     # Zentriertes Logo
     col1, col2, col3 = st.columns([1, 2, 1])
