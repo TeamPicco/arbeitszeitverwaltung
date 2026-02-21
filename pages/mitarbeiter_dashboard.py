@@ -530,18 +530,47 @@ def show_dokumente(mitarbeiter: dict):
     if mitarbeiter.get('vertrag_pdf_path'):
         st.success("✅ Ihr Arbeitsvertrag ist hinterlegt.")
         
-        if st.button("📥 Arbeitsvertrag herunterladen"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Download-Button
             try:
                 pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
                 if pdf_data:
                     st.download_button(
-                        label="Download starten",
+                        label="📥 Arbeitsvertrag herunterladen",
                         data=pdf_data,
                         file_name=f"Arbeitsvertrag_{mitarbeiter['personalnummer']}.pdf",
-                        mime="application/pdf"
+                        mime="application/pdf",
+                        use_container_width=True
                     )
             except Exception as e:
                 st.error(f"Fehler beim Herunterladen: {str(e)}")
+        
+        with col2:
+            # Anzeige-Button
+            if st.button("👁️ Vertrag anzeigen", use_container_width=True):
+                st.session_state.show_vertrag = True
+        
+        # PDF anzeigen wenn Button geklickt
+        if st.session_state.get('show_vertrag', False):
+            try:
+                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
+                if pdf_data:
+                    st.markdown("---")
+                    st.markdown("**Vertragsansicht**")
+                    
+                    # PDF in einem iframe anzeigen
+                    import base64
+                    base64_pdf = base64.b64encode(pdf_data).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    
+                    if st.button("❌ Ansicht schließen"):
+                        st.session_state.show_vertrag = False
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Anzeigen: {str(e)}")
     else:
         st.info("Noch kein Arbeitsvertrag hinterlegt. Bitte wenden Sie sich an Ihren Administrator.")
     

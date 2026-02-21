@@ -28,13 +28,13 @@ from utils.calculations import (
 def show():
     """Zeigt das Administrator-Dashboard an"""
     
-    st.markdown('<div class="main-header">👨‍💼 Administrator-Dashboard</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-header">⚖️ Administrator-Dashboard</div>', unsafe_allow_html=True)
     
     # Tab-Navigation
     tabs = st.tabs([
         "📊 Übersicht",
         "👥 Mitarbeiterverwaltung",
-        "✅ Urlaubsgenehmigung",
+        "🏖️ Urlaubsgenehmigung",
         "⏰ Zeiterfassung",
         "💰 Lohnabrechnung",
         "⚙️ Einstellungen"
@@ -433,21 +433,54 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     if mitarbeiter.get('vertrag_pdf_path'):
         st.info(f"✅ Vertrag vorhanden: {mitarbeiter['vertrag_pdf_path']}")
         
-        if st.button("📥 Vertrag herunterladen", key=f"download_{mitarbeiter['id']}"):
-            pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
-            if pdf_data:
-                st.download_button(
-                    label="Download starten",
-                    data=pdf_data,
-                    file_name=f"{mitarbeiter['personalnummer']}_vertrag.pdf",
-                    mime="application/pdf"
-                )
+        col_dl, col_view = st.columns(2)
+        
+        with col_dl:
+            # Download-Button
+            try:
+                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
+                if pdf_data:
+                    st.download_button(
+                        label="📥 Vertrag herunterladen",
+                        data=pdf_data,
+                        file_name=f"{mitarbeiter['personalnummer']}_vertrag.pdf",
+                        mime="application/pdf",
+                        key=f"download_{mitarbeiter['id']}",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Fehler beim Herunterladen: {str(e)}")
+        
+        with col_view:
+            # Anzeige-Button
+            if st.button("👁️ Vertrag anzeigen", key=f"view_{mitarbeiter['id']}", use_container_width=True):
+                st.session_state[f"show_vertrag_{mitarbeiter['id']}"] = True
+        
+        # PDF anzeigen wenn Button geklickt
+        if st.session_state.get(f"show_vertrag_{mitarbeiter['id']}", False):
+            try:
+                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
+                if pdf_data:
+                    st.markdown("---")
+                    st.markdown("**Vertragsansicht**")
+                    
+                    # PDF in einem iframe anzeigen
+                    import base64
+                    base64_pdf = base64.b64encode(pdf_data).decode('utf-8')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+                    
+                    if st.button("❌ Ansicht schließen", key=f"close_{mitarbeiter['id']}"):
+                        st.session_state[f"show_vertrag_{mitarbeiter['id']}"] = False
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Anzeigen: {str(e)}")
 
 
 def show_urlaubsgenehmigung():
     """Zeigt die Urlaubsgenehmigung an"""
     
-    st.subheader("✅ Urlaubsgenehmigung")
+    st.subheader("🏖️ Urlaubsgenehmigung")
     
     supabase = get_supabase_client()
     
