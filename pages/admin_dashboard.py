@@ -75,7 +75,6 @@ def show():
         f"{get_icon('chat')} Plauderecke{chat_badge}",
         f"{get_icon('zeit')} Zeiterfassung",
         f"{get_icon('lohn')} Lohnabrechnung",
-        "📦 Inventur",
         f"{get_icon('mastergeraete')} Mastergeräte",
         f"{get_icon('einstellungen')} Einstellungen"
     ])
@@ -106,13 +105,9 @@ def show():
         show_lohnabrechnung()
     
     with tabs[8]:
-        from pages.admin_inventur import show_inventur
-        show_inventur()
-    
-    with tabs[9]:
         show_mastergeraete()
     
-    with tabs[10]:
+    with tabs[9]:
         show_einstellungen_admin()
     
     with tabs[9]:
