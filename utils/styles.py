@@ -123,20 +123,27 @@ def apply_custom_css():
     .stTextInput > div > div > input,
     .stNumberInput > div > div > input,
     .stSelectbox > div > div > select,
+    .stSelectbox > div > div,
     .stDateInput > div > div > input,
     .stTimeInput > div > div > input {{
-        border: 1px solid {COLORS['border']};
-        border-radius: 6px;
-        padding: 0.5rem;
-        background-color: {COLORS['background']};
-        color: {COLORS['text_primary']};
+        border: 1px solid {COLORS['border']} !important;
+        border-radius: 6px !important;
+        padding: 0.5rem !important;
+        background-color: {COLORS['background']} !important;
+        color: {COLORS['text_primary']} !important;
+    }}
+    
+    /* Selectbox Text */
+    .stSelectbox label,
+    .stSelectbox > div > div > div {{
+        color: {COLORS['text_primary']} !important;
     }}
     
     .stTextInput > div > div > input:focus,
     .stNumberInput > div > div > input:focus,
     .stSelectbox > div > div > select:focus {{
-        border-color: {COLORS['primary']};
-        box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.1);
+        border-color: {COLORS['primary']} !important;
+        box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.1) !important;
     }}
     
     /* ===== METRICS ===== */
@@ -161,17 +168,23 @@ def apply_custom_css():
     
     /* ===== EXPANDER ===== */
     .streamlit-expanderHeader {{
-        background-color: {COLORS['surface']};
-        border: 1px solid {COLORS['border']};
-        border-radius: 8px;
-        padding: 0.75rem;
-        font-weight: 500;
-        color: {COLORS['text_primary']};
+        background-color: {COLORS['surface']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        border-radius: 8px !important;
+        padding: 0.75rem !important;
+        font-weight: 500 !important;
+        color: {COLORS['text_primary']} !important;
     }}
     
     .streamlit-expanderHeader:hover {{
-        background-color: {COLORS['primary']};
-        color: {COLORS['text_light']};
+        background-color: {COLORS['primary']} !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Expander Content */
+    .streamlit-expanderContent {{
+        background-color: {COLORS['background']} !important;
+        color: {COLORS['text_primary']} !important;
     }}
     
     /* ===== TABS ===== */
