@@ -1035,7 +1035,7 @@ def show_plauderecke_admin():
     st.caption("Interner Chat für alle Mitarbeiter und Administrator")
     
     # Lade Chat-Nachrichten
-    nachrichten = get_chat_nachrichten(limit=100)
+    nachrichten = get_chat_nachrichten(limit=100, betrieb_id=st.session_state.betrieb_id)
     
     # Chat-Container
     chat_container = st.container()
@@ -1044,10 +1044,10 @@ def show_plauderecke_admin():
         if nachrichten:
             for msg in nachrichten:
                 # Hole Mitarbeiter-Info
-                mitarbeiter_info = msg.get('mitarbeiter', [])
-                if mitarbeiter_info and len(mitarbeiter_info) > 0:
-                    vorname = mitarbeiter_info[0].get('vorname', 'Administrator')
-                    nachname = mitarbeiter_info[0].get('nachname', '')
+                mitarbeiter_info = msg.get('mitarbeiter', {})
+                if mitarbeiter_info:
+                    vorname = mitarbeiter_info.get('vorname', 'Administrator')
+                    nachname = mitarbeiter_info.get('nachname', '')
                 else:
                     vorname = "Administrator"
                     nachname = ""
@@ -1095,7 +1095,7 @@ def show_plauderecke_admin():
         submit = st.form_submit_button("📤 Senden", use_container_width=True)
         
         if submit and nachricht.strip():
-            if send_chat_nachricht(st.session_state.user_id, nachricht.strip()):
+            if send_chat_nachricht(st.session_state.user_id, nachricht.strip(), st.session_state.betrieb_id):
                 st.success("✅ Nachricht gesendet!")
                 st.rerun()
             else:
