@@ -706,7 +706,7 @@ def show_zeiterfassung_admin():
         
         query = query.gte('datum', filter_datum_von.isoformat())
         query = query.lte('datum', filter_datum_bis.isoformat())
-        query = query.order('datum', desc=True).order('check_in', desc=True)
+        query = query.order('datum', desc=True).order('check_in_zeit', desc=True)
         
         response = query.execute()
         zeiterfassungen = response.data if response.data else []
@@ -722,14 +722,14 @@ def show_zeiterfassung_admin():
             with st.expander(
                 f"👤 {ze['mitarbeiter']['vorname']} {ze['mitarbeiter']['nachname']} - "
                 f"{datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')} - "
-                f"{ze['check_in'][:5]} bis {ze['check_out'][:5] if ze['check_out'] else 'Offen'}"
+                f"{ze['check_in_zeit'][:5]} bis {ze['check_out_zeit'][:5] if ze['check_out_zeit'] else 'Offen'}"
             ):
                 col1, col2 = st.columns(2)
                 
                 with col1:
                     st.write(f"**Datum:** {datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')}")
-                    st.write(f"**Check-In:** {ze['check_in']}")
-                    st.write(f"**Check-Out:** {ze['check_out'] if ze['check_out'] else '❌ Noch nicht ausgestempelt'}")
+                    st.write(f"**Check-In:** {ze['check_in_zeit']}")
+                    st.write(f"**Check-Out:** {ze['check_out_zeit'] if ze['check_out_zeit'] else '❌ Noch nicht ausgestempelt'}")
                     
                     if ze.get('arbeitsstunden'):
                         st.write(f"**Arbeitsstunden:** {ze['arbeitsstunden']:.2f} h")
@@ -749,12 +749,12 @@ def show_zeiterfassung_admin():
                     with col1:
                         new_check_in = st.time_input(
                             "Check-In",
-                            value=datetime.strptime(ze['check_in'], '%H:%M:%S').time()
+                            value=datetime.strptime(ze['check_in_zeit'], '%H:%M:%S').time()
                         )
                     
                     with col2:
-                        if ze['check_out']:
-                            default_checkout = datetime.strptime(ze['check_out'], '%H:%M:%S').time()
+                        if ze['check_out_zeit']:
+                            default_checkout = datetime.strptime(ze['check_out_zeit'], '%H:%M:%S').time()
                         else:
                             default_checkout = datetime.now().time()
                         
@@ -797,8 +797,8 @@ def show_zeiterfassung_admin():
                                 
                                 # Aktualisiere Zeiterfassung
                                 update_data = {
-                                    'check_in': new_check_in.strftime('%H:%M:%S'),
-                                    'check_out': new_check_out.strftime('%H:%M:%S'),
+                                    'check_in_zeit': new_check_in.strftime('%H:%M:%S'),
+                                    'check_out_zeit': new_check_out.strftime('%H:%M:%S'),
                                     'pause_minuten': new_pause,
                                     'arbeitsstunden': arbeitsstunden,
                                     'korrigiert_von_admin': True,

@@ -53,12 +53,24 @@ def apply_custom_css():
         
         /* Kleinere Abstände */
         .block-container {{
-            padding: 1rem !important;
+            padding: 0.5rem !important;
         }}
         
         /* Tabellen scrollbar */
         .dataframe {{
             overflow-x: auto !important;
+        }}
+        
+        /* Titel auf Mobile */
+        h1 {{
+            font-size: 1.5rem !important;
+            word-wrap: break-word !important;
+        }}
+        
+        /* Tabs auf Mobile */
+        .stTabs [data-baseweb="tab"] {{
+            font-size: 12px !important;
+            padding: 0.4rem 0.6rem !important;
         }}
     }}
     
@@ -188,22 +200,34 @@ def apply_custom_css():
         border: 1px solid {COLORS['border']};
         border-radius: 8px;
         overflow: hidden;
+        background-color: {COLORS['background']};
     }}
     
     .dataframe thead tr th {{
-        background-color: {COLORS['primary']};
-        color: {COLORS['text_light']};
-        font-weight: 600;
-        padding: 0.75rem;
-        text-align: left;
+        background-color: {COLORS['primary']} !important;
+        color: {COLORS['text_light']} !important;
+        font-weight: 600 !important;
+        padding: 0.75rem !important;
+        text-align: left !important;
+        border-bottom: 2px solid {COLORS['accent']} !important;
+    }}
+    
+    .dataframe tbody tr {{
+        background-color: {COLORS['background']} !important;
     }}
     
     .dataframe tbody tr:nth-child(even) {{
-        background-color: {COLORS['surface']};
+        background-color: {COLORS['surface']} !important;
     }}
     
     .dataframe tbody tr:hover {{
-        background-color: rgba(30, 58, 95, 0.05);
+        background-color: rgba(212, 175, 55, 0.1) !important;
+    }}
+    
+    .dataframe tbody td {{
+        color: {COLORS['text_primary']} !important;
+        padding: 0.75rem !important;
+        border-bottom: 1px solid {COLORS['border']} !important;
     }}
     
     /* ===== SIDEBAR ===== */
