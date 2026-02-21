@@ -184,11 +184,14 @@ def login_page():
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        # CrewBase Logo anzeigen
-        logo_path = os.path.join(os.path.dirname(__file__), "assets", "crewbase_logo.png")
+        # CrewBase Logo anzeigen (optimiert und zentriert)
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "crewbase_logo_optimized.png")
         
         if os.path.exists(logo_path):
-            st.image(logo_path, use_container_width=True)
+            # Zentriere Logo mit fester Breite
+            col_logo1, col_logo2, col_logo3 = st.columns([1, 2, 1])
+            with col_logo2:
+                st.image(logo_path, use_container_width=True)
         else:
             # Fallback
             st.markdown('<div class="main-header">CrewBase</div>', unsafe_allow_html=True)
@@ -198,11 +201,10 @@ def login_page():
         # Hinweistext in weißem Kasten
         st.markdown('<div style="background-color: #ffffff; padding: 1rem; border-radius: 8px; text-align: center; margin-bottom: 1.5rem; border: 1px solid #dee2e6;"><span style="color: #000000; font-size: 1.1rem;">Bitte gib deine Login-Daten ein:</span></div>', unsafe_allow_html=True)
         
-        # Login-Formular
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        # Login-Formular (ohne extra Container)
         
         with st.form("login_form"):
-            betriebsnummer = st.text_input("Betriebsnummer", key="login_betriebsnummer", placeholder="z.B. 20262204")
+            betriebsnummer = st.text_input("Betriebsnummer", key="login_betriebsnummer", placeholder="Ihre Betriebsnummer")
             username = st.text_input("Benutzername", key="login_username")
             password = st.text_input("Passwort", type="password", key="login_password")
             submit = st.form_submit_button("🔑 Anmelden", use_container_width=True)
@@ -233,8 +235,6 @@ def login_page():
                         st.rerun()
                     else:
                         st.error("❌ Ungültige Anmeldedaten. Bitte prüfen Sie Betriebsnummer, Benutzername und Passwort.")
-        
-        st.markdown('</div>', unsafe_allow_html=True)
         
         # Datenschutzhinweis mit besserer Lesbarkeit
         st.markdown("""
