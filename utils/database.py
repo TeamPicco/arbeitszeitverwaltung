@@ -400,6 +400,53 @@ def update_mitarbeiter(mitarbeiter_id: str, mitarbeiter_data: Dict[str, Any]) ->
         return False
 
 
+def delete_mitarbeiter(mitarbeiter_id: int) -> bool:
+    """
+    Löscht einen Mitarbeiter und dessen Benutzerkonto
+    
+    Args:
+        mitarbeiter_id: Mitarbeiter-ID
+        
+    Returns:
+        bool: True wenn erfolgreich
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        supabase = get_supabase_client()
+        
+        logger.info(f"DEBUG: Starte Löschung von Mitarbeiter ID {mitarbeiter_id}")
+        
+        # Hole user_id vom Mitarbeiter
+        mitarbeiter = supabase.table('mitarbeiter').select('user_id').eq('id', mitarbeiter_id).execute()
+        
+        if not mitarbeiter.data:
+            logger.error(f"DEBUG: Mitarbeiter {mitarbeiter_id} nicht gefunden")
+            st.error("Mitarbeiter nicht gefunden.")
+            return False
+        
+        user_id = mitarbeiter.data[0].get('user_id')
+        logger.info(f"DEBUG: User-ID: {user_id}")
+        
+        # Lösche Mitarbeiter (CASCADE löscht automatisch abhängige Daten)
+        logger.info(f"DEBUG: Lösche Mitarbeiter-Eintrag...")
+        supabase.table('mitarbeiter').delete().eq('id', mitarbeiter_id).execute()
+        
+        # Lösche Benutzerkonto
+        if user_id:
+            logger.info(f"DEBUG: Lösche Benutzerkonto...")
+            supabase.table('users').delete().eq('id', user_id).execute()
+        
+        logger.info(f"DEBUG: Mitarbeiter erfolgreich gelöscht")
+        return True
+        
+    except Exception as e:
+        logger.error(f"DEBUG ERROR beim Löschen des Mitarbeiters: {e}", exc_info=True)
+        st.error(f"Fehler beim Löschen des Mitarbeiters: {str(e)}")
+        return False
+
+
 def change_password(user_id: str, new_password: str) -> bool:
     """
     Ändert das Passwort eines Benutzers
@@ -438,23 +485,36 @@ def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -
     Returns:
         Optional[str]: Öffentlicher Pfad wenn erfolgreich
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         supabase = get_supabase_client()
+        
+        logger.info(f"DEBUG: Upload Datei zu Bucket '{bucket_name}', Pfad: {file_path}, Größe: {len(file_data)} bytes")
         
         # Lösche existierende Datei falls vorhanden
         try:
             supabase.storage.from_(bucket_name).remove([file_path])
-        except:
-            pass
+            logger.info(f"DEBUG: Alte Datei gelöscht: {file_path}")
+        except Exception as e:
+            logger.info(f"DEBUG: Keine alte Datei zu löschen: {e}")
         
         # Lade neue Datei hoch
+        logger.info(f"DEBUG: Starte Upload...")
         response = supabase.storage.from_(bucket_name).upload(file_path, file_data)
         
+        logger.info(f"DEBUG: Upload Response: {response}")
+        
         if response:
+            logger.info(f"DEBUG: Upload erfolgreich! Pfad: {file_path}")
             return file_path
-        return None
+        else:
+            logger.error(f"DEBUG: Upload fehlgeschlagen, keine Response")
+            return None
         
     except Exception as e:
+        logger.error(f"DEBUG ERROR beim Hochladen: {e}", exc_info=True)
         st.error(f"Fehler beim Hochladen der Datei: {str(e)}")
         return None
 

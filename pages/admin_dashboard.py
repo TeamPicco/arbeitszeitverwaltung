@@ -174,15 +174,22 @@ def show_uebersicht():
                         
                         with col1:
                             if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True, type="primary"):
+                                import logging
+                                logger = logging.getLogger(__name__)
                                 try:
-                                    supabase.table('urlaubsantraege').update({
-                                        'status': 'genehmigt',
+                                    logger.info(f"DEBUG: Genehmige Urlaubsantrag ID {antrag['id']}")
+                                    
+                                    response = supabase.table('urlaubsantraege').update({
+                                        'status': 'Genehmigt',
                                         'bearbeitet_am': datetime.now().isoformat()
                                     }).eq('id', antrag['id']).execute()
+                                    
+                                    logger.info(f"DEBUG: Update Response: {response}")
                                     
                                     # Benachrichtigung für Mitarbeiter
                                     mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
                                     if mitarbeiter_user.data:
+                                        logger.info(f"DEBUG: Erstelle Benachrichtigung für User {mitarbeiter_user.data[0]['user_id']}")
                                         supabase.table('benachrichtigungen').insert({
                                             'user_id': mitarbeiter_user.data[0]['user_id'],
                                             'typ': 'urlaubsantrag',
@@ -193,8 +200,10 @@ def show_uebersicht():
                                         }).execute()
                                     
                                     st.success("✅ Urlaubsantrag genehmigt!")
+                                    logger.info("DEBUG: Urlaubsantrag erfolgreich genehmigt, rerun...")
                                     st.rerun()
                                 except Exception as e:
+                                    logger.error(f"DEBUG ERROR bei Urlaubsgenehmigung: {e}", exc_info=True)
                                     st.error(f"Fehler: {str(e)}")
                         
                         with col2:
@@ -511,11 +520,39 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     
     st.markdown("---")
     
-    # Bearbeiten-Button
-    if st.button("✏️ Mitarbeiter bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True):
-        st.session_state.edit_mitarbeiter_id = mitarbeiter['id']
-        st.session_state.show_mitarbeiter_form = True
-        st.rerun()
+    # Bearbeiten und Löschen-Buttons
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✏️ Mitarbeiter bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True):
+            st.session_state.edit_mitarbeiter_id = mitarbeiter['id']
+            st.session_state.show_mitarbeiter_form = True
+            st.rerun()
+    
+    with col2:
+        if st.button("🗑️ Mitarbeiter löschen", key=f"delete_{mitarbeiter['id']}", use_container_width=True, type="secondary"):
+            # Bestätigung erforderlich
+            if not st.session_state.get(f"confirm_delete_mitarbeiter_{mitarbeiter['id']}", False):
+                st.session_state[f"confirm_delete_mitarbeiter_{mitarbeiter['id']}"] = True
+                st.warning("⚠️ Bitte klicken Sie erneut zum Bestätigen!")
+                st.rerun()
+            else:
+                # Lösche Mitarbeiter
+                import logging
+                logger = logging.getLogger(__name__)
+                try:
+                    from utils.database import delete_mitarbeiter
+                    logger.info(f"DEBUG: Lösche Mitarbeiter ID {mitarbeiter['id']}")
+                    
+                    if delete_mitarbeiter(mitarbeiter['id']):
+                        st.success(f"✅ Mitarbeiter {mitarbeiter['vorname']} {mitarbeiter['nachname']} gelöscht!")
+                        st.session_state.pop(f"confirm_delete_mitarbeiter_{mitarbeiter['id']}", None)
+                        st.rerun()
+                    else:
+                        st.error("Fehler beim Löschen des Mitarbeiters.")
+                except Exception as e:
+                    logger.error(f"DEBUG ERROR beim Löschen: {e}", exc_info=True)
+                    st.error(f"Fehler: {str(e)}")
     
     st.markdown("---")
     
