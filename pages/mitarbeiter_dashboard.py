@@ -40,6 +40,26 @@ def show():
     # Speichere in Session State für schnelleren Zugriff
     st.session_state.mitarbeiter_data = mitarbeiter
     
+    # Zeige Betriebslogo für Piccolo (Betriebsnummer 20262204)
+    import os
+    import base64
+    
+    # Prüfe ob Piccolo-Betrieb
+    if hasattr(st.session_state, 'betrieb_id'):
+        supabase = get_supabase_client()
+        betrieb_response = supabase.table('betriebe').select('betriebsnummer').eq('id', st.session_state.betrieb_id).execute()
+        
+        if betrieb_response.data and betrieb_response.data[0].get('betriebsnummer') == '20262204':
+            # Zeige Piccolo-Logo
+            logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+            if os.path.exists(logo_path):
+                with open(logo_path, "rb") as f:
+                    logo_data = base64.b64encode(f.read()).decode()
+                st.markdown(
+                    f'<div style="text-align: center; margin-bottom: 1rem;"><img src="data:image/jpeg;base64,{logo_data}" style="max-width: 300px; height: auto;"></div>',
+                    unsafe_allow_html=True
+                )
+    
     st.markdown(
         f'<div class="main-header">👤 Willkommen, {mitarbeiter["vorname"]} {mitarbeiter["nachname"]}</div>',
         unsafe_allow_html=True

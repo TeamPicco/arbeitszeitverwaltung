@@ -99,3 +99,13 @@ def get_current_username() -> str:
         str: Benutzername
     """
     return st.session_state.get('username', '')
+
+
+def get_current_betrieb_id() -> int:
+    """
+    Gibt die Betrieb-ID des aktuell angemeldeten Benutzers zurück
+    
+    Returns:
+        int: Betrieb-ID
+    """
+    return st.session_state.get('betrieb_id', None)

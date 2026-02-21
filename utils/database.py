@@ -197,16 +197,28 @@ def get_mitarbeiter_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def get_all_mitarbeiter() -> List[Dict[str, Any]]:
+def get_all_mitarbeiter(betrieb_id: int = None) -> List[Dict[str, Any]]:
     """
     Holt alle Mitarbeiter (nur für Admin)
     
+    Args:
+        betrieb_id: Betrieb-ID für Multi-Tenancy (optional, aus Session wenn None)
+    
     Returns:
-        List[Dict]: Liste aller Mitarbeiter
+        List[Dict]: Liste aller Mitarbeiter des Betriebs
     """
     try:
+        # Hole betrieb_id aus Session wenn nicht übergeben
+        if betrieb_id is None:
+            from utils.session import get_current_betrieb_id
+            betrieb_id = get_current_betrieb_id()
+        
+        if betrieb_id is None:
+            st.error("Keine Betrieb-ID gefunden.")
+            return []
+        
         supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').order('eintrittsdatum', desc=False).execute()
+        response = supabase.table('mitarbeiter').select('*').eq('betrieb_id', betrieb_id).order('eintrittsdatum', desc=False).execute()
         return response.data if response.data else []
         
     except Exception as e:
