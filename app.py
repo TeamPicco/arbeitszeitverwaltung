@@ -21,12 +21,17 @@ st.set_page_config(
     page_title=os.getenv("APP_TITLE", "Arbeitszeitverwaltung"),
     page_icon=os.getenv("APP_ICON", "⏰"),
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"  # Seitenleiste standardmäßig eingeklappt
 )
 
 # CSS für besseres Design
 st.markdown("""
 <style>
+    /* Verstecke Seitenleiste auf Login-Seite */
+    [data-testid="stSidebar"] {
+        display: none;
+    }
+    
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -34,6 +39,23 @@ st.markdown("""
         text-align: center;
         padding: 1rem 0;
     }
+    
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        margin: 2rem 0;
+    }
+    
+    .login-container {
+        max-width: 500px;
+        margin: 0 auto;
+        padding: 2rem;
+        background-color: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    
     .info-box {
         background-color: #e7f3ff;
         border-left: 5px solid #1f77b4;
@@ -41,6 +63,7 @@ st.markdown("""
         margin: 1rem 0;
         border-radius: 5px;
     }
+    
     .warning-box {
         background-color: #fff3cd;
         border-left: 5px solid #ffc107;
@@ -48,6 +71,7 @@ st.markdown("""
         margin: 1rem 0;
         border-radius: 5px;
     }
+    
     .success-box {
         background-color: #d4edda;
         border-left: 5px solid #28a745;
@@ -55,6 +79,7 @@ st.markdown("""
         margin: 1rem 0;
         border-radius: 5px;
     }
+    
     .error-box {
         background-color: #f8d7da;
         border-left: 5px solid #dc3545;
@@ -62,6 +87,7 @@ st.markdown("""
         margin: 1rem 0;
         border-radius: 5px;
     }
+    
     .stButton>button {
         width: 100%;
         background-color: #1f77b4;
@@ -71,8 +97,18 @@ st.markdown("""
         padding: 0.5rem 1rem;
         border: none;
     }
+    
     .stButton>button:hover {
         background-color: #155a8a;
+    }
+    
+    .privacy-notice {
+        margin-top: 2rem;
+        padding: 1rem;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+        font-size: 0.85rem;
+        text-align: center;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -81,19 +117,21 @@ st.markdown("""
 def login_page():
     """Zeigt die Login-Seite an"""
     
-    st.markdown('<div class="main-header">🕐 Arbeitszeitverwaltung</div>', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div class="info-box">
-        <strong>Willkommen zur Arbeitszeitverwaltung</strong><br>
-        Diese Anwendung erfüllt die Anforderungen des deutschen Arbeitsrechts und ist DSGVO-konform.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Login-Formular
+    # Zentriertes Logo
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
+        # Logo anzeigen
+        logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.jpeg")
+        if os.path.exists(logo_path):
+            st.image(logo_path, use_container_width=True)
+        else:
+            st.markdown('<div class="main-header">🕐 Steakhouse Piccolo</div>', unsafe_allow_html=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Login-Formular
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
         st.subheader("Anmeldung")
         
         with st.form("login_form"):
@@ -125,9 +163,11 @@ def login_page():
                     else:
                         st.error("Ungültige Anmeldedaten. Bitte versuchen Sie es erneut.")
         
+        st.markdown('</div>', unsafe_allow_html=True)
+        
         # DSGVO-Hinweis
         st.markdown("""
-        <div style="margin-top: 2rem; padding: 1rem; background-color: #f8f9fa; border-radius: 5px; font-size: 0.85rem;">
+        <div class="privacy-notice">
             <strong>Datenschutzhinweis:</strong><br>
             Ihre Daten werden verschlüsselt übertragen und gemäß DSGVO verarbeitet. 
             Die Zeiterfassung erfolgt nach den Vorgaben des EuGH-Urteils zur Arbeitszeiterfassung.
@@ -162,7 +202,7 @@ def main():
         logout()
         return
     
-    # Sidebar mit Benutzerinformationen
+    # Sidebar mit Benutzerinformationen (nur nach Login sichtbar)
     with st.sidebar:
         st.markdown(f"### Angemeldet als")
         st.markdown(f"**{st.session_state.username}**")
