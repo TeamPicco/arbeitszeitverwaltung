@@ -140,9 +140,21 @@ def show_mitarbeiterverwaltung():
         if st.button("➕ Neuer Mitarbeiter", use_container_width=True):
             st.session_state.show_mitarbeiter_form = True
     
-    # Zeige Formular für neuen Mitarbeiter
+    # Zeige Formular für neuen/bearbeiteten Mitarbeiter
     if st.session_state.get('show_mitarbeiter_form', False):
-        show_mitarbeiter_form()
+        # Prüfe ob Bearbeitung oder Neuanlage
+        edit_id = st.session_state.get('edit_mitarbeiter_id', None)
+        if edit_id:
+            # Lade Mitarbeiterdaten für Bearbeitung
+            mitarbeiter_to_edit = next((m for m in get_all_mitarbeiter() if m['id'] == edit_id), None)
+            if mitarbeiter_to_edit:
+                show_mitarbeiter_form(mitarbeiter_to_edit)
+            else:
+                st.error("Mitarbeiter nicht gefunden.")
+                st.session_state.show_mitarbeiter_form = False
+                st.session_state.edit_mitarbeiter_id = None
+        else:
+            show_mitarbeiter_form()
         st.markdown("---")
     
     # Lade alle Mitarbeiter
@@ -292,6 +304,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
         with col2:
             if st.form_submit_button("Abbrechen", use_container_width=True):
                 st.session_state.show_mitarbeiter_form = False
+                st.session_state.edit_mitarbeiter_id = None
                 st.rerun()
         
         if submit:
@@ -329,6 +342,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 if update_mitarbeiter(mitarbeiter_data['id'], mitarbeiter_daten):
                     st.success("Mitarbeiter erfolgreich aktualisiert!")
                     st.session_state.show_mitarbeiter_form = False
+                    st.session_state.edit_mitarbeiter_id = None
                     st.rerun()
             else:
                 # Erstelle neuen Benutzer
@@ -371,6 +385,14 @@ def show_mitarbeiter_details(mitarbeiter: dict):
         st.markdown("**Zuschläge**")
         st.write(f"Sonntagszuschlag: {'✅ Aktiv' if mitarbeiter['sonntagszuschlag_aktiv'] else '❌ Inaktiv'}")
         st.write(f"Feiertagszuschlag: {'✅ Aktiv' if mitarbeiter['feiertagszuschlag_aktiv'] else '❌ Inaktiv'}")
+    
+    st.markdown("---")
+    
+    # Bearbeiten-Button
+    if st.button("✏️ Mitarbeiter bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True):
+        st.session_state.edit_mitarbeiter_id = mitarbeiter['id']
+        st.session_state.show_mitarbeiter_form = True
+        st.rerun()
     
     st.markdown("---")
     
