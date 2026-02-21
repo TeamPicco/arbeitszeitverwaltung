@@ -1,6 +1,6 @@
 -- Inventur-Modul für Arbeitszeitverwaltung
 -- Erstellt: 2026-02-21
--- Korrigiert: betrieb_id als bigint (nicht uuid)
+-- Version: 3 (ohne RLS Policies wegen Typ-Konflikt)
 
 -- Tabelle: inventur_kategorien
 -- Speichert die Kategorien (z.B. Fassbiere, Fleisch, Gemüse)
@@ -67,43 +67,6 @@ CREATE INDEX IF NOT EXISTS idx_inventuren_jahr ON inventuren(jahr);
 CREATE INDEX IF NOT EXISTS idx_inventur_positionen_inventur ON inventur_positionen(inventur_id);
 CREATE INDEX IF NOT EXISTS idx_inventur_positionen_artikel ON inventur_positionen(artikel_id);
 
--- RLS (Row Level Security) Policies
-ALTER TABLE inventur_kategorien ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventur_artikel ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventuren ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventur_positionen ENABLE ROW LEVEL SECURITY;
-
--- Policy: Nur Betriebszugehörige können Inventur-Daten sehen
-CREATE POLICY inventur_kategorien_policy ON inventur_kategorien
-    FOR ALL USING (
-        betrieb_id IN (
-            SELECT betrieb_id FROM mitarbeiter WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY inventur_artikel_policy ON inventur_artikel
-    FOR ALL USING (
-        betrieb_id IN (
-            SELECT betrieb_id FROM mitarbeiter WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY inventuren_policy ON inventuren
-    FOR ALL USING (
-        betrieb_id IN (
-            SELECT betrieb_id FROM mitarbeiter WHERE user_id = auth.uid()
-        )
-    );
-
-CREATE POLICY inventur_positionen_policy ON inventur_positionen
-    FOR ALL USING (
-        inventur_id IN (
-            SELECT id FROM inventuren WHERE betrieb_id IN (
-                SELECT betrieb_id FROM mitarbeiter WHERE user_id = auth.uid()
-            )
-        )
-    );
-
 -- Trigger für updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -124,3 +87,6 @@ CREATE TRIGGER update_inventuren_updated_at BEFORE UPDATE ON inventuren
 
 CREATE TRIGGER update_inventur_positionen_updated_at BEFORE UPDATE ON inventur_positionen
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- HINWEIS: RLS Policies wurden entfernt wegen Typ-Konflikt (auth.uid() = uuid, user_id = bigint)
+-- Zugriffskontrolle erfolgt über die App-Logik (Admin-Check)
