@@ -80,6 +80,7 @@ def show():
     tabs = st.tabs([
         "📊 Dashboard",
         "⏰ Zeiterfassung",
+        "📅 Mein Dienstplan",
         "🏞️ Urlaub",
         "📅 Urlaubskalender",
         f"💬 Plauderecke{chat_badge}",
@@ -94,18 +95,22 @@ def show():
         show_zeiterfassung(mitarbeiter)
     
     with tabs[2]:
-        show_urlaub(mitarbeiter)
+        from pages.mitarbeiter_dienstplan import show_mitarbeiter_dienstplan
+        show_mitarbeiter_dienstplan(mitarbeiter)
     
     with tabs[3]:
-        show_urlaubskalender()
+        show_urlaub(mitarbeiter)
     
     with tabs[4]:
-        show_plauderecke()
+        show_urlaubskalender()
     
     with tabs[5]:
-        show_dokumente(mitarbeiter)
+        show_plauderecke()
     
     with tabs[6]:
+        show_dokumente(mitarbeiter)
+    
+    with tabs[7]:
         show_einstellungen_mitarbeiter()
 
 
@@ -251,8 +256,26 @@ def show_dashboard(mitarbeiter: dict):
 
 def show_zeiterfassung(mitarbeiter: dict):
     """Zeigt die Zeiterfassung an"""
+    from utils.device_management import check_device_or_mobile_permission, show_device_activation_dialog
     
     st.subheader("⏰ Zeiterfassung")
+    
+    # Prüfe Mastergerät oder mobile Berechtigung
+    allowed, reason = check_device_or_mobile_permission(mitarbeiter, st.session_state.betrieb_id)
+    
+    if not allowed:
+        st.error("❌ Zeiterfassung auf diesem Gerät nicht erlaubt.")
+        st.info("📱 Sie haben keine mobile Zeiterfassung aktiviert und dieses Gerät ist kein registriertes Mastergerät.")
+        
+        # Zeige Aktivierungs-Dialog
+        show_device_activation_dialog(st.session_state.betrieb_id)
+        return
+    
+    # Zeige Info über Zugriffsmethode
+    if mitarbeiter.get('mobile_zeiterfassung', False):
+        st.success(f"✅ {reason}")
+    else:
+        st.info(f"🖥️ {reason}")
     
     supabase = get_supabase_client()
     

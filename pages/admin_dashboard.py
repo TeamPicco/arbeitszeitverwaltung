@@ -65,6 +65,7 @@ def show():
     tabs = st.tabs([
         "📊 Übersicht",
         "👥 Mitarbeiterverwaltung",
+        "📅 Dienstplanung",
         "🏞️ Urlaubsgenehmigung",
         "📅 Urlaubskalender",
         f"💬 Plauderecke{chat_badge}",
@@ -81,25 +82,29 @@ def show():
         show_mitarbeiterverwaltung()
     
     with tabs[2]:
-        show_urlaubsgenehmigung()
+        from pages.admin_dienstplan import show_dienstplanung
+        show_dienstplanung()
     
     with tabs[3]:
-        show_urlaubskalender_admin()
+        show_urlaubsgenehmigung()
     
     with tabs[4]:
-        show_plauderecke_admin()
+        show_urlaubskalender_admin()
     
     with tabs[5]:
-        show_zeiterfassung_admin()
+        show_plauderecke_admin()
     
     with tabs[6]:
-        show_lohnabrechnung()
+        show_zeiterfassung_admin()
     
     with tabs[7]:
+        show_lohnabrechnung()
+    
+    with tabs[8]:
         from pages.admin_mastergeraete import show_mastergeraete
         show_mastergeraete()
     
-    with tabs[8]:
+    with tabs[9]:
         show_einstellungen()
 
 
