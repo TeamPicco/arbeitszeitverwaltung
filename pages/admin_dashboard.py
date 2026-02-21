@@ -458,16 +458,25 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                     st.rerun()
             else:
                 # Erstelle neuen Benutzer
-                user_id = create_user(username, password, 'mitarbeiter')
-                
-                if user_id:
-                    # Erstelle Mitarbeiter
-                    mitarbeiter_id = create_mitarbeiter(user_id, mitarbeiter_daten)
+                try:
+                    user_id = create_user(username, password, 'mitarbeiter')
                     
-                    if mitarbeiter_id:
-                        st.success(f"Mitarbeiter {vorname} {nachname} erfolgreich angelegt!")
-                        st.session_state.show_mitarbeiter_form = False
-                        st.rerun()
+                    if user_id:
+                        # Erstelle Mitarbeiter
+                        mitarbeiter_id = create_mitarbeiter(user_id, mitarbeiter_daten)
+                        
+                        if mitarbeiter_id:
+                            st.success(f"Mitarbeiter {vorname} {nachname} erfolgreich angelegt!")
+                            st.session_state.show_mitarbeiter_form = False
+                            st.rerun()
+                        else:
+                            st.error("Fehler beim Erstellen des Mitarbeiters. Bitte prüfen Sie die Logs.")
+                    else:
+                        st.error("Fehler beim Erstellen des Benutzerkontos. Möglicherweise existiert der Benutzername bereits.")
+                except Exception as e:
+                    st.error(f"Fehler beim Anlegen des Mitarbeiters: {str(e)}")
+                    import logging
+                    logging.error(f"Fehler beim Anlegen des Mitarbeiters: {e}", exc_info=True)
 
 
 def show_mitarbeiter_details(mitarbeiter: dict):

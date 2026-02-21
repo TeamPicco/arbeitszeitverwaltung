@@ -276,18 +276,27 @@ def create_user(username: str, password: str, role: str) -> Optional[str]:
     Returns:
         Optional[str]: User-ID wenn erfolgreich, sonst None
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         supabase = get_supabase_client()
+        
+        logger.info(f"DEBUG: Versuche Benutzer '{username}' anzulegen...")
         
         # Prüfe, ob Benutzername bereits existiert
         existing = supabase.table('users').select('id').eq('username', username).execute()
         if existing.data and len(existing.data) > 0:
+            logger.warning(f"DEBUG: Benutzername '{username}' existiert bereits")
             st.error(f"Benutzername '{username}' existiert bereits.")
             return None
         
         # Erstelle Benutzer
         from utils.session import get_current_betrieb_id
         password_hash = hash_password(password)
+        
+        betrieb_id = get_current_betrieb_id()
+        logger.info(f"DEBUG: Betrieb-ID: {betrieb_id}")
         
         user_data = {
             'username': username,
@@ -297,17 +306,26 @@ def create_user(username: str, password: str, role: str) -> Optional[str]:
         }
         
         # Füge betrieb_id hinzu
-        betrieb_id = get_current_betrieb_id()
         if betrieb_id:
             user_data['betrieb_id'] = betrieb_id
+        else:
+            logger.error("DEBUG: Keine Betrieb-ID gefunden!")
+            st.error("Fehler: Keine Betrieb-ID gefunden. Bitte melden Sie sich neu an.")
+            return None
         
+        logger.info(f"DEBUG: Erstelle User mit Daten: {user_data}")
         response = supabase.table('users').insert(user_data).execute()
         
         if response.data and len(response.data) > 0:
-            return response.data[0]['id']
-        return None
+            user_id = response.data[0]['id']
+            logger.info(f"DEBUG: User erfolgreich erstellt mit ID: {user_id}")
+            return user_id
+        else:
+            logger.error(f"DEBUG: Keine Daten in Response: {response}")
+            return None
         
     except Exception as e:
+        logger.error(f"DEBUG ERROR beim Erstellen des Benutzers: {e}", exc_info=True)
         st.error(f"Fehler beim Erstellen des Benutzers: {str(e)}")
         return None
 
@@ -323,23 +341,40 @@ def create_mitarbeiter(user_id: str, mitarbeiter_data: Dict[str, Any]) -> Option
     Returns:
         Optional[str]: Mitarbeiter-ID wenn erfolgreich
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         from utils.session import get_current_betrieb_id
         supabase = get_supabase_client()
         
+        logger.info(f"DEBUG: Erstelle Mitarbeiter für User-ID: {user_id}")
+        
         # Füge user_id und betrieb_id hinzu
         mitarbeiter_data['user_id'] = user_id
         betrieb_id = get_current_betrieb_id()
+        
         if betrieb_id:
             mitarbeiter_data['betrieb_id'] = betrieb_id
+            logger.info(f"DEBUG: Betrieb-ID: {betrieb_id}")
+        else:
+            logger.error("DEBUG: Keine Betrieb-ID gefunden!")
+            st.error("Fehler: Keine Betrieb-ID gefunden.")
+            return None
         
+        logger.info(f"DEBUG: Mitarbeiter-Daten: {mitarbeiter_data}")
         response = supabase.table('mitarbeiter').insert(mitarbeiter_data).execute()
         
         if response.data and len(response.data) > 0:
-            return response.data[0]['id']
-        return None
+            mitarbeiter_id = response.data[0]['id']
+            logger.info(f"DEBUG: Mitarbeiter erfolgreich erstellt mit ID: {mitarbeiter_id}")
+            return mitarbeiter_id
+        else:
+            logger.error(f"DEBUG: Keine Daten in Response: {response}")
+            return None
         
     except Exception as e:
+        logger.error(f"DEBUG ERROR beim Erstellen des Mitarbeiters: {e}", exc_info=True)
         st.error(f"Fehler beim Erstellen des Mitarbeiters: {str(e)}")
         return None
 
