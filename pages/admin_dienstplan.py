@@ -236,25 +236,79 @@ def show_schichtvorlagen(supabase):
         
         for vorlage in vorlagen.data:
             with st.expander(f"🏷️ {vorlage['name']}", expanded=False):
-                col1, col2, col3 = st.columns([2, 2, 1])
+                # Prüfe ob Bearbeiten-Modus aktiv
+                edit_mode = st.session_state.get(f"edit_vorlage_{vorlage['id']}", False)
                 
-                with col1:
-                    st.write(f"**Zeiten:** {vorlage['start_zeit']} - {vorlage['ende_zeit']}")
-                    if vorlage.get('pause_minuten', 0) > 0:
-                        st.write(f"**Pause:** {vorlage['pause_minuten']} Minuten")
-                
-                with col2:
-                    if vorlage.get('beschreibung'):
-                        st.write(f"**Beschreibung:** {vorlage['beschreibung']}")
-                    st.markdown(f"**Farbe:** <span style='background-color: {vorlage['farbe']}; padding: 2px 10px; border-radius: 3px; color: white;'>{vorlage['farbe']}</span>", unsafe_allow_html=True)
-                
-                with col3:
-                    if st.button("🗑️ Löschen", key=f"del_vorlage_{vorlage['id']}"):
-                        try:
-                            supabase.table('schichtvorlagen').delete().eq('id', vorlage['id']).execute()
-                            st.success("✅ Vorlage gelöscht!")
+                if edit_mode:
+                    # Bearbeiten-Formular
+                    with st.form(f"edit_vorlage_form_{vorlage['id']}"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            name = st.text_input("Name", value=vorlage['name'])
+                            beschreibung = st.text_area("Beschreibung (optional)", value=vorlage.get('beschreibung', ''))
+                        
+                        with col2:
+                            start_zeit = st.time_input("Startzeit", value=datetime.strptime(vorlage['start_zeit'], '%H:%M:%S').time())
+                            ende_zeit = st.time_input("Endzeit", value=datetime.strptime(vorlage['ende_zeit'], '%H:%M:%S').time())
+                            pause_minuten = st.number_input("Pause (Minuten)", min_value=0, max_value=240, value=vorlage.get('pause_minuten', 0), step=15)
+                        
+                        farbe = st.color_picker("Farbe für Kalender", value=vorlage.get('farbe', '#0d6efd'))
+                        
+                        col_save, col_cancel = st.columns(2)
+                        
+                        with col_save:
+                            submit = st.form_submit_button("💾 Speichern", use_container_width=True, type="primary")
+                        
+                        with col_cancel:
+                            cancel = st.form_submit_button("❌ Abbrechen", use_container_width=True)
+                        
+                        if submit and name:
+                            try:
+                                supabase.table('schichtvorlagen').update({
+                                    'name': name,
+                                    'beschreibung': beschreibung if beschreibung else None,
+                                    'start_zeit': start_zeit.strftime('%H:%M:%S'),
+                                    'ende_zeit': ende_zeit.strftime('%H:%M:%S'),
+                                    'pause_minuten': pause_minuten,
+                                    'farbe': farbe,
+                                    'updated_at': 'now()'
+                                }).eq('id', vorlage['id']).execute()
+                                
+                                st.session_state[f"edit_vorlage_{vorlage['id']}"] = False
+                                st.success("✅ Vorlage aktualisiert!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Fehler: {str(e)}")
+                        
+                        if cancel:
+                            st.session_state[f"edit_vorlage_{vorlage['id']}"] = False
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"Fehler: {str(e)}")
+                else:
+                    # Ansicht-Modus
+                    col1, col2, col3 = st.columns([2, 2, 1])
+                    
+                    with col1:
+                        st.write(f"**Zeiten:** {vorlage['start_zeit']} - {vorlage['ende_zeit']}")
+                        if vorlage.get('pause_minuten', 0) > 0:
+                            st.write(f"**Pause:** {vorlage['pause_minuten']} Minuten")
+                    
+                    with col2:
+                        if vorlage.get('beschreibung'):
+                            st.write(f"**Beschreibung:** {vorlage['beschreibung']}")
+                        st.markdown(f"**Farbe:** <span style='background-color: {vorlage['farbe']}; padding: 2px 10px; border-radius: 3px; color: white;'>{vorlage['farbe']}</span>", unsafe_allow_html=True)
+                    
+                    with col3:
+                        if st.button("✏️", key=f"edit_btn_{vorlage['id']}", help="Bearbeiten"):
+                            st.session_state[f"edit_vorlage_{vorlage['id']}"] = True
+                            st.rerun()
+                        
+                        if st.button("🗑️", key=f"del_vorlage_{vorlage['id']}", help="Löschen"):
+                            try:
+                                supabase.table('schichtvorlagen').delete().eq('id', vorlage['id']).execute()
+                                st.success("✅ Vorlage gelöscht!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Fehler: {str(e)}")
     else:
         st.info("Noch keine Schichtvorlagen vorhanden. Erstellen Sie Ihre erste Vorlage!")
