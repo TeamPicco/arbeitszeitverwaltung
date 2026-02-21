@@ -226,7 +226,8 @@ def show_zeiterfassung(mitarbeiter: dict):
         datum = st.date_input(
             "Datum",
             value=date.today(),
-            max_value=date.today()
+            max_value=date.today(),
+            format="DD.MM.YYYY"
         )
     
     with col2:
@@ -321,14 +322,16 @@ def show_zeiterfassung(mitarbeiter: dict):
         von_datum = st.date_input(
             "Von",
             value=date.today() - timedelta(days=30),
-            key="zeit_von"
+            key="zeit_von",
+            format="DD.MM.YYYY"
         )
     
     with col2:
         bis_datum = st.date_input(
             "Bis",
             value=date.today(),
-            key="zeit_bis"
+            key="zeit_bis",
+            format="DD.MM.YYYY"
         )
     
     # Lade Zeiterfassungen
@@ -421,14 +424,16 @@ def show_urlaub(mitarbeiter: dict):
                 von_datum = st.date_input(
                     "Von",
                     value=date.today() + timedelta(days=7),
-                    min_value=date.today()
+                    min_value=date.today(),
+                    format="DD.MM.YYYY"
                 )
             
             with col2:
                 bis_datum = st.date_input(
                     "Bis",
                     value=date.today() + timedelta(days=7),
-                    min_value=date.today()
+                    min_value=date.today(),
+                    format="DD.MM.YYYY"
                 )
             
             # Berechne Urlaubstage

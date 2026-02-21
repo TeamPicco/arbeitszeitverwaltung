@@ -213,28 +213,32 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 "Geburtsdatum*",
                 value=datetime.fromisoformat(mitarbeiter_data['geburtsdatum']) if is_edit else date(1990, 1, 1),
                 min_value=date(1950, 1, 1),
-                max_value=date.today()
+                max_value=date.today(),
+                format="DD.MM.YYYY"
             )
             
             st.markdown("**Kontaktdaten**")
-            email = st.text_input("E-Mail*", value=mitarbeiter_data.get('email', '') if is_edit else '')
+            email = st.text_input("E-Mail", value=mitarbeiter_data.get('email', '') if is_edit else '')
             telefon = st.text_input("Telefon", value=mitarbeiter_data.get('telefon', '') if is_edit else '')
         
         with col2:
             st.markdown("**Adresse**")
-            strasse = st.text_input("Straße & Hausnummer*", value=mitarbeiter_data.get('strasse', '') if is_edit else '')
-            plz = st.text_input("PLZ*", value=mitarbeiter_data.get('plz', '') if is_edit else '')
-            ort = st.text_input("Ort*", value=mitarbeiter_data.get('ort', '') if is_edit else '')
+            strasse = st.text_input("Straße & Hausnummer", value=mitarbeiter_data.get('strasse', '') if is_edit else '')
+            plz = st.text_input("PLZ", value=mitarbeiter_data.get('plz', '') if is_edit else '')
+            ort = st.text_input("Ort", value=mitarbeiter_data.get('ort', '') if is_edit else '')
             
             st.markdown("**Beschäftigung**")
             personalnummer = st.text_input(
-                "Personalnummer*",
+                "Personalnummer",
                 value=mitarbeiter_data.get('personalnummer', '') if is_edit else '',
                 disabled=is_edit
             )
             eintrittsdatum = st.date_input(
-                "Eintrittsdatum*",
-                value=datetime.fromisoformat(mitarbeiter_data['eintrittsdatum']) if is_edit else date.today()
+                "Eintrittsdatum",
+                value=datetime.fromisoformat(mitarbeiter_data['eintrittsdatum']) if is_edit else date.today(),
+                min_value=date(1995, 1, 1),
+                max_value=date.today(),
+                format="DD.MM.YYYY"
             )
         
         st.markdown("---")
@@ -308,9 +312,9 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 st.rerun()
         
         if submit:
-            # Validierung
-            if not all([vorname, nachname, email, strasse, plz, ort, personalnummer]):
-                st.error("Bitte füllen Sie alle Pflichtfelder aus.")
+            # Validierung - nur Name und Vorname sind Pflichtfelder
+            if not vorname or not nachname:
+                st.error("Bitte füllen Sie mindestens Vorname und Nachname aus.")
                 return
             
             if not is_edit and (not username or not password):
@@ -366,8 +370,9 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     with col1:
         st.markdown("**Persönliche Daten**")
         st.write(f"**Name:** {mitarbeiter['vorname']} {mitarbeiter['nachname']}")
-        st.write(f"**Geburtsdatum:** {mitarbeiter['geburtsdatum']}")
-        st.write(f"**E-Mail:** {mitarbeiter['email']}")
+        geburtsdatum_formatted = datetime.fromisoformat(mitarbeiter['geburtsdatum']).strftime('%d.%m.%Y')
+        st.write(f"**Geburtsdatum:** {geburtsdatum_formatted}")
+        st.write(f"**E-Mail:** {mitarbeiter.get('email', 'Nicht angegeben')}")
         st.write(f"**Telefon:** {mitarbeiter.get('telefon', 'Nicht angegeben')}")
         
         st.markdown("**Adresse**")
@@ -376,8 +381,9 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     
     with col2:
         st.markdown("**Vertragsdaten**")
-        st.write(f"**Personalnummer:** {mitarbeiter['personalnummer']}")
-        st.write(f"**Eintrittsdatum:** {mitarbeiter['eintrittsdatum']}")
+        st.write(f"**Personalnummer:** {mitarbeiter.get('personalnummer', 'Nicht angegeben')}")
+        eintrittsdatum_formatted = datetime.fromisoformat(mitarbeiter['eintrittsdatum']).strftime('%d.%m.%Y') if mitarbeiter.get('eintrittsdatum') else 'Nicht angegeben'
+        st.write(f"**Eintrittsdatum:** {eintrittsdatum_formatted}")
         st.write(f"**Soll-Stunden/Monat:** {mitarbeiter['monatliche_soll_stunden']}")
         st.write(f"**Stundenlohn:** {format_waehrung(mitarbeiter['stundenlohn_brutto'])}")
         st.write(f"**Urlaubstage/Jahr:** {mitarbeiter['jahres_urlaubstage']}")
