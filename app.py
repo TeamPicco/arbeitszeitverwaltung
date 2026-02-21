@@ -297,4 +297,12 @@ def main():
 
 
 if __name__ == "__main__":
+    # Automatischer Import von Inventur-Artikeln beim ersten Start
+    try:
+        from utils.inventur_auto_import import auto_import_inventur_artikel
+        auto_import_inventur_artikel()
+    except Exception as e:
+        import logging
+        logging.error(f"Fehler beim Auto-Import: {e}")
+    
     main()
