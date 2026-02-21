@@ -7,6 +7,7 @@ import streamlit as st
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+import base64
 
 # Lade Umgebungsvariablen
 load_dotenv()
@@ -21,101 +22,137 @@ st.set_page_config(
     page_title=os.getenv("APP_TITLE", "Arbeitszeitverwaltung"),
     page_icon=os.getenv("APP_ICON", "⏰"),
     layout="wide",
-    initial_sidebar_state="collapsed"  # Seitenleiste standardmäßig eingeklappt
+    initial_sidebar_state="collapsed"
 )
 
+
+def get_base64_image(image_path):
+    """Konvertiert ein Bild zu Base64"""
+    try:
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    except:
+        return None
+
+
 # CSS für besseres Design
-st.markdown("""
-<style>
-    /* Verstecke Seitenleiste auf Login-Seite */
+def apply_custom_css(hide_sidebar=True):
+    """Wendet benutzerdefiniertes CSS an"""
+    
+    sidebar_css = """
+    /* Verstecke Seitenleiste komplett auf Login-Seite */
     [data-testid="stSidebar"] {
-        display: none;
+        display: none !important;
     }
+    [data-testid="collapsedControl"] {
+        display: none !important;
+    }
+    section[data-testid="stSidebar"] {
+        display: none !important;
+    }
+    """ if hide_sidebar else ""
     
-    .main-header {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #1f77b4;
-        text-align: center;
-        padding: 1rem 0;
-    }
-    
-    .logo-container {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        margin: 2rem 0;
-    }
-    
-    .login-container {
-        max-width: 500px;
-        margin: 0 auto;
-        padding: 2rem;
-        background-color: #ffffff;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-    
-    .info-box {
-        background-color: #e7f3ff;
-        border-left: 5px solid #1f77b4;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 5px;
-    }
-    
-    .warning-box {
-        background-color: #fff3cd;
-        border-left: 5px solid #ffc107;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 5px;
-    }
-    
-    .success-box {
-        background-color: #d4edda;
-        border-left: 5px solid #28a745;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 5px;
-    }
-    
-    .error-box {
-        background-color: #f8d7da;
-        border-left: 5px solid #dc3545;
-        padding: 1rem;
-        margin: 1rem 0;
-        border-radius: 5px;
-    }
-    
-    .stButton>button {
-        width: 100%;
-        background-color: #1f77b4;
-        color: white;
-        font-weight: bold;
-        border-radius: 5px;
-        padding: 0.5rem 1rem;
-        border: none;
-    }
-    
-    .stButton>button:hover {
-        background-color: #155a8a;
-    }
-    
-    .privacy-notice {
-        margin-top: 2rem;
-        padding: 1rem;
-        background-color: #f8f9fa;
-        border-radius: 5px;
-        font-size: 0.85rem;
-        text-align: center;
-    }
-</style>
-""", unsafe_allow_html=True)
+    st.markdown(f"""
+    <style>
+        {sidebar_css}
+        
+        /* Verstecke Streamlit-Menü und Footer */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
+        
+        .main-header {{
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #1f77b4;
+            text-align: center;
+            padding: 1rem 0;
+        }}
+        
+        .logo-container {{
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2rem auto;
+            max-width: 600px;
+        }}
+        
+        .logo-container img {{
+            max-width: 100%;
+            height: auto;
+        }}
+        
+        .login-container {{
+            max-width: 500px;
+            margin: 0 auto;
+            padding: 2rem;
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }}
+        
+        .info-box {{
+            background-color: #e7f3ff;
+            border-left: 5px solid #1f77b4;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+        }}
+        
+        .warning-box {{
+            background-color: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+        }}
+        
+        .success-box {{
+            background-color: #d4edda;
+            border-left: 5px solid #28a745;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+        }}
+        
+        .error-box {{
+            background-color: #f8d7da;
+            border-left: 5px solid #dc3545;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 5px;
+        }}
+        
+        .stButton>button {{
+            width: 100%;
+            background-color: #1f77b4;
+            color: white;
+            font-weight: bold;
+            border-radius: 5px;
+            padding: 0.5rem 1rem;
+            border: none;
+        }}
+        
+        .stButton>button:hover {{
+            background-color: #155a8a;
+        }}
+        
+        .privacy-notice {{
+            margin-top: 2rem;
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            text-align: center;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def login_page():
     """Zeigt die Login-Seite an"""
+    
+    # Wende CSS an mit versteckter Seitenleiste
+    apply_custom_css(hide_sidebar=True)
     
     # Zentriertes Logo
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -123,10 +160,21 @@ def login_page():
     with col2:
         # Logo anzeigen
         logo_path = os.path.join(os.path.dirname(__file__), "assets", "logo.jpeg")
+        
         if os.path.exists(logo_path):
-            st.image(logo_path, use_container_width=True)
+            # Versuche Base64-Encoding
+            base64_img = get_base64_image(logo_path)
+            if base64_img:
+                st.markdown(
+                    f'<div class="logo-container"><img src="data:image/jpeg;base64,{base64_img}" alt="Steakhouse Piccolo Logo"></div>',
+                    unsafe_allow_html=True
+                )
+            else:
+                # Fallback zu st.image
+                st.image(logo_path, use_container_width=True)
         else:
-            st.markdown('<div class="main-header">🕐 Steakhouse Piccolo</div>', unsafe_allow_html=True)
+            # Fallback wenn Logo nicht gefunden
+            st.markdown('<div class="main-header">🥩 Steakhouse Piccolo</div>', unsafe_allow_html=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -196,13 +244,16 @@ def main():
         login_page()
         return
     
+    # Nach Login: Zeige Seitenleiste
+    apply_custom_css(hide_sidebar=False)
+    
     # Prüfe Session-Timeout
     if check_session_timeout():
         st.warning("Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.")
         logout()
         return
     
-    # Sidebar mit Benutzerinformationen (nur nach Login sichtbar)
+    # Sidebar mit Benutzerinformationen
     with st.sidebar:
         st.markdown(f"### Angemeldet als")
         st.markdown(f"**{st.session_state.username}**")

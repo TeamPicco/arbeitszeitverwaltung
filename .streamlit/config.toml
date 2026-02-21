@@ -1,5 +1,13 @@
 [server]
-headleww = true
+headless = true
 port = 8501
+
 [browser]
 gatherUsageStats = false
+
+[client]
+showSidebarNavigation = false
+
+[ui]
+hideTopBar = false
+hideSidebarNav = true
