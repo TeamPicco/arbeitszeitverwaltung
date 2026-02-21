@@ -135,7 +135,7 @@ def apply_custom_css():
     /* ===== BUTTONS ===== */
     .stButton > button {{
         background-color: {COLORS['primary']};
-        color: {COLORS['text_light']};
+        color: {COLORS['text_light']} !important;
         border: none;
         border-radius: 8px;
         padding: 0.5rem 1.5rem;
@@ -146,16 +146,18 @@ def apply_custom_css():
     .stButton > button:hover {{
         background-color: {COLORS['primary_light']};
         box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        color: {COLORS['text_light']} !important;
     }}
     
     /* Primary Button */
     .stButton > button[kind="primary"] {{
         background-color: {COLORS['accent']};
-        color: {COLORS['text_primary']};
+        color: {COLORS['text_light']} !important;
     }}
     
     .stButton > button[kind="primary"]:hover {{
         background-color: {COLORS['accent_light']};
+        color: {COLORS['text_light']} !important;
     }}
     
     /* Secondary Button */
@@ -378,12 +380,19 @@ def apply_custom_css():
     }}
     
     [data-testid="stSidebar"] .stMarkdown {{
-        color: {COLORS['text_light']};
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    [data-testid="stSidebar"] .stMarkdown p,
+    [data-testid="stSidebar"] .stMarkdown div,
+    [data-testid="stSidebar"] .stMarkdown span,
+    [data-testid="stSidebar"] * {{
+        color: {COLORS['text_light']} !important;
     }}
     
     [data-testid="stSidebar"] .stButton > button {{
         background-color: {COLORS['accent']};
-        color: {COLORS['text_primary']};
+        color: {COLORS['text_light']} !important;
     }}
     
     /* ===== ALERTS ===== */
