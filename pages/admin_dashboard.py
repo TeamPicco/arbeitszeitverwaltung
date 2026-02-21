@@ -24,6 +24,7 @@ from utils.calculations import (
     berechne_arbeitsstunden
 )
 from utils.push_notifications import show_notifications_widget
+from utils.chat_notifications import get_unread_chat_count
 
 
 def show():
@@ -55,13 +56,18 @@ def show():
     
     st.markdown('<div class="main-header">⚖️ Administrator-Dashboard</div>', unsafe_allow_html=True)
     
+    # Zähle ungelesene Chat-Nachrichten
+    last_read = st.session_state.get('chat_last_read', None)
+    unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
+    chat_badge = f" ({unread_count})" if unread_count > 0 else ""
+    
     # Tab-Navigation
     tabs = st.tabs([
         "📊 Übersicht",
         "👥 Mitarbeiterverwaltung",
         "🏞️ Urlaubsgenehmigung",
         "📅 Urlaubskalender",
-        "💬 Plauderecke",
+        f"💬 Plauderecke{chat_badge}",
         "⏰ Zeiterfassung",
         "💰 Lohnabrechnung",
         "🖥️ Mastergeräte",
@@ -150,18 +156,66 @@ def show_uebersicht():
             if urlaub_data.data:
                 for antrag in urlaub_data.data:
                     mitarbeiter = antrag['mitarbeiter']
-                    col1, col2, col3 = st.columns([2, 3, 1])
                     
-                    with col1:
-                        st.write(f"**{mitarbeiter['vorname']} {mitarbeiter['nachname']}**")
-                    
-                    with col2:
-                        st.write(f"{antrag['von_datum']} bis {antrag['bis_datum']} ({antrag['anzahl_tage']} Tage)")
-                    
-                    with col3:
-                        if st.button("Bearbeiten", key=f"urlaub_{antrag['id']}"):
-                            st.session_state.selected_urlaub = antrag['id']
-                            st.rerun()
+                    with st.expander(f"📅 {mitarbeiter['vorname']} {mitarbeiter['nachname']} - {antrag['von_datum']} bis {antrag['bis_datum']} ({antrag['anzahl_tage']} Tage)"):
+                        st.write(f"**Beantragt am:** {antrag['beantragt_am']}")
+                        if antrag.get('bemerkung_mitarbeiter'):
+                            st.write(f"**Bemerkung:** {antrag['bemerkung_mitarbeiter']}")
+                        
+                        st.markdown("---")
+                        
+                        # Genehmigung/Ablehnung
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True, type="primary"):
+                                try:
+                                    supabase.table('urlaubsantraege').update({
+                                        'status': 'genehmigt',
+                                        'bearbeitet_am': datetime.now().isoformat()
+                                    }).eq('id', antrag['id']).execute()
+                                    
+                                    # Benachrichtigung für Mitarbeiter
+                                    mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
+                                    if mitarbeiter_user.data:
+                                        supabase.table('benachrichtigungen').insert({
+                                            'user_id': mitarbeiter_user.data[0]['user_id'],
+                                            'typ': 'urlaubsantrag',
+                                            'titel': 'Urlaubsantrag genehmigt',
+                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde genehmigt.",
+                                            'gelesen': False,
+                                            'betrieb_id': st.session_state.betrieb_id
+                                        }).execute()
+                                    
+                                    st.success("✅ Urlaubsantrag genehmigt!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Fehler: {str(e)}")
+                        
+                        with col2:
+                            if st.button("❌ Ablehnen", key=f"reject_{antrag['id']}", use_container_width=True):
+                                try:
+                                    supabase.table('urlaubsantraege').update({
+                                        'status': 'abgelehnt',
+                                        'bearbeitet_am': datetime.now().isoformat()
+                                    }).eq('id', antrag['id']).execute()
+                                    
+                                    # Benachrichtigung für Mitarbeiter
+                                    mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
+                                    if mitarbeiter_user.data:
+                                        supabase.table('benachrichtigungen').insert({
+                                            'user_id': mitarbeiter_user.data[0]['user_id'],
+                                            'typ': 'urlaubsantrag',
+                                            'titel': 'Urlaubsantrag abgelehnt',
+                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde abgelehnt.",
+                                            'gelesen': False,
+                                            'betrieb_id': st.session_state.betrieb_id
+                                        }).execute()
+                                    
+                                    st.success("❌ Urlaubsantrag abgelehnt.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Fehler: {str(e)}")
         else:
             st.info("✅ Keine offenen Urlaubsanträge")
         
@@ -1030,6 +1084,10 @@ def show_benachrichtigungen_widget():
 def show_plauderecke_admin():
     """Zeigt die Plauderecke für Administrator an"""
     from utils.chat import get_chat_nachrichten, send_chat_nachricht, delete_chat_nachricht
+    from utils.chat_notifications import mark_chat_as_read
+    
+    # Markiere Chat als gelesen
+    mark_chat_as_read(st.session_state.user_id)
     
     st.subheader("💬 Plauderecke")
     st.caption("Interner Chat für alle Mitarbeiter und Administrator")
@@ -1063,10 +1121,10 @@ def show_plauderecke_admin():
                     col1, col2 = st.columns([1, 3])
                     with col2:
                         st.markdown(f"""
-                        <div style="background-color: #d1e7dd; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; text-align: right;">
-                            <strong>Sie (Admin)</strong><br>
-                            {msg['nachricht']}<br>
-                            <small style="color: #6c757d;">{timestamp}</small>
+                        <div style="background-color: #198754; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; text-align: right;">
+                            <strong style="color: #ffffff;">Sie (Admin)</strong><br>
+                            <span style="color: #ffffff;">{msg['nachricht']}</span><br>
+                            <small style="color: #e0e0e0;">{timestamp}</small>
                         </div>
                         """, unsafe_allow_html=True)
                         
@@ -1078,9 +1136,9 @@ def show_plauderecke_admin():
                     col1, col2 = st.columns([3, 1])
                     with col1:
                         st.markdown(f"""
-                        <div style="background-color: #f8f9fa; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">
-                            <strong>{vorname} {nachname}</strong><br>
-                            {msg['nachricht']}<br>
+                        <div style="background-color: #e9ecef; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; border: 1px solid #dee2e6;">
+                            <strong style="color: #212529;">{vorname} {nachname}</strong><br>
+                            <span style="color: #212529;">{msg['nachricht']}</span><br>
                             <small style="color: #6c757d;">{timestamp}</small>
                         </div>
                         """, unsafe_allow_html=True)
