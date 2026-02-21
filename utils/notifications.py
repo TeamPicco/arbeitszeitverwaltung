@@ -79,12 +79,40 @@ def get_pending_aenderungsanfragen():
     """Holt alle offenen Änderungsanfragen"""
     try:
         supabase = get_supabase_client()
-        result = supabase.table('aenderungsanfragen').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer)'
-        ).eq('status', 'pending').order('erstellt_am', desc=True).execute()
-        return result.data if result.data else []
+        # Lade Änderungsanfragen ohne JOIN (mitarbeiter-Daten werden separat geladen)
+        result = supabase.table('aenderungsanfragen').select('*').eq(
+            'status', 'pending'
+        ).order('erstellt_am', desc=True).execute()
+        
+        if not result.data:
+            return []
+        
+        # Lade Mitarbeiter-Daten separat für jede Anfrage
+        from utils.database import get_all_mitarbeiter
+        mitarbeiter_liste = get_all_mitarbeiter()
+        mitarbeiter_dict = {m['id']: m for m in mitarbeiter_liste}
+        
+        # Füge Mitarbeiter-Daten hinzu
+        for anfrage in result.data:
+            mitarbeiter_id = anfrage.get('mitarbeiter_id')
+            if mitarbeiter_id and mitarbeiter_id in mitarbeiter_dict:
+                mitarbeiter = mitarbeiter_dict[mitarbeiter_id]
+                anfrage['mitarbeiter'] = {
+                    'vorname': mitarbeiter['vorname'],
+                    'nachname': mitarbeiter['nachname'],
+                    'personalnummer': mitarbeiter.get('personalnummer', '')
+                }
+            else:
+                anfrage['mitarbeiter'] = {
+                    'vorname': 'Unbekannt',
+                    'nachname': '',
+                    'personalnummer': ''
+                }
+        
+        return result.data
     except Exception as e:
-        print(f"Fehler beim Laden der Änderungsanfragen: {e}")
+        import logging
+        logging.error(f"Fehler beim Laden der Änderungsanfragen: {e}", exc_info=True)
         return []
 
 

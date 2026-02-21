@@ -732,7 +732,7 @@ def show_zeiterfassung_admin():
     supabase = get_supabase_client()
     
     try:
-        query = supabase.table('zeiterfassungen').select('*, mitarbeiter(vorname, nachname)')
+        query = supabase.table('zeiterfassung').select('*, mitarbeiter(vorname, nachname)')
         
         if selected_mitarbeiter_id:
             query = query.eq('mitarbeiter_id', selected_mitarbeiter_id)
@@ -839,7 +839,7 @@ def show_zeiterfassung_admin():
                                     'korrektur_datum': datetime.now().isoformat()
                                 }
                                 
-                                supabase.table('zeiterfassungen').update(update_data).eq('id', ze['id']).execute()
+                                supabase.table('zeiterfassung').update(update_data).eq('id', ze['id']).execute()
                                 
                                 st.success("✅ Zeiterfassung erfolgreich korrigiert!")
                                 st.rerun()
@@ -847,7 +847,7 @@ def show_zeiterfassung_admin():
                     with col2:
                         if st.form_submit_button("🗑️ Löschen", use_container_width=True):
                             if st.session_state.get(f'confirm_delete_{ze["id"]}', False):
-                                supabase.table('zeiterfassungen').delete().eq('id', ze['id']).execute()
+                                supabase.table('zeiterfassung').delete().eq('id', ze['id']).execute()
                                 st.success("✅ Zeiterfassung gelöscht!")
                                 st.rerun()
                             else:
