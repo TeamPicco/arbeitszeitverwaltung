@@ -198,15 +198,21 @@ def get_mitarbeiter_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
         Optional[Dict]: Mitarbeiterdaten wenn gefunden
     """
     try:
-        from utils.session import get_current_betrieb_id
-        betrieb_id = get_current_betrieb_id()
-        
-        if betrieb_id is None:
-            st.error("Keine Betrieb-ID gefunden.")
-            return None
-        
         supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).eq('betrieb_id', betrieb_id).execute()
+        
+        # Versuche mit betrieb_id-Filter
+        try:
+            from utils.session import get_current_betrieb_id
+            betrieb_id = get_current_betrieb_id()
+            
+            if betrieb_id is not None:
+                response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).eq('betrieb_id', betrieb_id).execute()
+            else:
+                # Fallback: ohne betrieb_id
+                response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).execute()
+        except Exception:
+            # Fallback: betrieb_id-Spalte existiert nicht
+            response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).execute()
         
         if response.data and len(response.data) > 0:
             return response.data[0]
@@ -228,17 +234,24 @@ def get_all_mitarbeiter(betrieb_id: int = None) -> List[Dict[str, Any]]:
         List[Dict]: Liste aller Mitarbeiter des Betriebs
     """
     try:
-        # Hole betrieb_id aus Session wenn nicht übergeben
-        if betrieb_id is None:
-            from utils.session import get_current_betrieb_id
-            betrieb_id = get_current_betrieb_id()
-        
-        if betrieb_id is None:
-            st.error("Keine Betrieb-ID gefunden.")
-            return []
-        
         supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').eq('betrieb_id', betrieb_id).order('eintrittsdatum', desc=False).execute()
+        
+        # Versuche mit betrieb_id-Filter
+        try:
+            # Hole betrieb_id aus Session wenn nicht übergeben
+            if betrieb_id is None:
+                from utils.session import get_current_betrieb_id
+                betrieb_id = get_current_betrieb_id()
+            
+            if betrieb_id is not None:
+                response = supabase.table('mitarbeiter').select('*').eq('betrieb_id', betrieb_id).order('eintrittsdatum', desc=False).execute()
+            else:
+                # Fallback: ohne betrieb_id
+                response = supabase.table('mitarbeiter').select('*').order('eintrittsdatum', desc=False).execute()
+        except Exception:
+            # Fallback: betrieb_id-Spalte existiert nicht
+            response = supabase.table('mitarbeiter').select('*').order('eintrittsdatum', desc=False).execute()
+        
         return response.data if response.data else []
         
     except Exception as e:
