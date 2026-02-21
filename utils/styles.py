@@ -96,15 +96,40 @@ def apply_custom_css():
     /* Selectbox Dropdown */
     .stSelectbox > div > div > div,
     .stSelectbox > div > div > div > div,
-    [data-baseweb="select"] {{
+    .stSelectbox > div,
+    .stSelectbox,
+    [data-baseweb="select"],
+    [data-baseweb="select"] > div {{
         color: {COLORS['text_primary']} !important;
         background-color: {COLORS['background']} !important;
+    }}
+    
+    /* Selectbox Container */
+    .stSelectbox > div {{
+        background-color: {COLORS['surface']} !important;
+        border-radius: 8px !important;
+        padding: 0.5rem !important;
     }}
     
     /* Date Input */
     .stDateInput > div > div > div,
     .stDateInput label {{
         color: {COLORS['text_primary']} !important;
+    }}
+    
+    /* ===== CHECKBOXEN ===== */
+    .stCheckbox label,
+    .stCheckbox > div > div > div > label,
+    [data-testid="stCheckbox"] label,
+    [data-testid="stCheckbox"] span {{
+        color: {COLORS['text_primary']} !important;
+        font-weight: 500 !important;
+    }}
+    
+    .stCheckbox {{
+        background-color: {COLORS['surface']} !important;
+        padding: 0.5rem !important;
+        border-radius: 6px !important;
     }}
     
     /* ===== BUTTONS ===== */
@@ -193,6 +218,26 @@ def apply_custom_css():
     
     /* ===== EXPANDER ===== */
     .streamlit-expanderHeader {{
+        background-color: {COLORS['surface']} !important;
+        color: {COLORS['text_primary']} !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        padding: 1rem !important;
+    }}
+    
+    .streamlit-expanderHeader:hover {{
+        background-color: {COLORS['border']} !important;
+    }}
+    
+    .streamlit-expanderContent {{
+        background-color: {COLORS['background']} !important;
+        border: 1px solid {COLORS['border']} !important;
+        border-radius: 0 0 8px 8px !important;
+        padding: 1rem !important;
+    }}
+    
+    /* Alter Expander-Code: */
+    .streamlit-expanderHeader_OLD {{
         background-color: {COLORS['surface']} !important;
         border: 1px solid {COLORS['border']} !important;
         border-radius: 8px !important;
@@ -317,13 +362,16 @@ def apply_custom_css():
     
     /* ===== HEADINGS ===== */
     h1, h2, h3 {{
-        color: {COLORS['primary']};
-        font-weight: 600;
+        color: {COLORS['primary']} !important;
+        font-weight: 600 !important;
+        background-color: {COLORS['background']} !important;
+        padding: 0.5rem !important;
     }}
     
     h1 {{
-        border-bottom: 3px solid {COLORS['accent']};
-        padding-bottom: 0.5rem;
+        border-bottom: 3px solid {COLORS['accent']} !important;
+        padding-bottom: 0.5rem !important;
+        background-color: {COLORS['surface']} !important;
     }}
     
     /* ===== LINKS ===== */

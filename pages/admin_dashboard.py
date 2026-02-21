@@ -441,6 +441,11 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 st.error("Bitte geben Sie Benutzername und Passwort ein.")
                 return
             
+            # Personalnummer-Validierung
+            if not personalnummer or personalnummer.strip() == '':
+                st.error("Bitte geben Sie eine Personalnummer ein.")
+                return
+            
             # Erstelle/Aktualisiere Mitarbeiter
             mitarbeiter_daten = {
                 'vorname': vorname,
