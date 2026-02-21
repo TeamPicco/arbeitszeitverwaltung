@@ -23,10 +23,15 @@ from utils.calculations import (
     get_monatsnamen,
     berechne_arbeitsstunden
 )
+from utils.push_notifications import show_notifications_widget
 
 
 def show():
     """Zeigt das Administrator-Dashboard an"""
+    
+    # Zeige Benachrichtigungen in Sidebar
+    if hasattr(st.session_state, 'user_id'):
+        show_notifications_widget(st.session_state.user_id)
     
     # Zeige Betriebslogo für Piccolo (Betriebsnummer 20262204)
     import os

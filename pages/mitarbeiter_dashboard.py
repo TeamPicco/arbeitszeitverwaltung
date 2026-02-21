@@ -25,10 +25,15 @@ from utils.calculations import (
     get_monatsnamen
 )
 from utils.session import get_current_user_id
+from utils.push_notifications import show_notifications_widget
 
 
 def show():
     """Zeigt das Mitarbeiter-Dashboard an"""
+    
+    # Zeige Benachrichtigungen in Sidebar
+    if hasattr(st.session_state, 'user_id'):
+        show_notifications_widget(st.session_state.user_id)
     
     # Lade Mitarbeiterdaten
     mitarbeiter = get_mitarbeiter_by_user_id(get_current_user_id())

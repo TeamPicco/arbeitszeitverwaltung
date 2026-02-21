@@ -185,8 +185,15 @@ def get_mitarbeiter_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
         Optional[Dict]: Mitarbeiterdaten wenn gefunden
     """
     try:
+        from utils.session import get_current_betrieb_id
+        betrieb_id = get_current_betrieb_id()
+        
+        if betrieb_id is None:
+            st.error("Keine Betrieb-ID gefunden.")
+            return None
+        
         supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).execute()
+        response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).eq('betrieb_id', betrieb_id).execute()
         
         if response.data and len(response.data) > 0:
             return response.data[0]
