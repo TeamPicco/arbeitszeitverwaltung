@@ -34,7 +34,8 @@ def show():
     tabs = st.tabs([
         "📊 Übersicht",
         "👥 Mitarbeiterverwaltung",
-        "🏖️ Urlaubsgenehmigung",
+        "🏞️ Urlaubsgenehmigung",
+        "💬 Plauderecke",
         "⏰ Zeiterfassung",
         "💰 Lohnabrechnung",
         "⚙️ Einstellungen"
@@ -50,12 +51,15 @@ def show():
         show_urlaubsgenehmigung()
     
     with tabs[3]:
-        show_zeiterfassung_admin()
+        show_plauderecke_admin()
     
     with tabs[4]:
-        show_lohnabrechnung()
+        show_zeiterfassung_admin()
     
     with tabs[5]:
+        show_lohnabrechnung()
+    
+    with tabs[6]:
         show_einstellungen()
 
 
@@ -63,6 +67,9 @@ def show_uebersicht():
     """Zeigt die Übersicht mit wichtigen Kennzahlen"""
     
     st.subheader("📊 Übersicht")
+    
+    # Benachrichtigungen anzeigen
+    show_benachrichtigungen_widget()
     
     supabase = get_supabase_client()
     
@@ -738,3 +745,159 @@ def show_einstellungen():
                     st.success("Passwort erfolgreich geändert!")
                 else:
                     st.error("Fehler beim Ändern des Passworts.")
+
+
+def show_benachrichtigungen_widget():
+    """Zeigt Widget mit ungelesenen Benachrichtigungen und Änderungsanfragen"""
+    from utils.notifications import (
+        get_ungelesene_benachrichtigungen,
+        markiere_benachrichtigung_gelesen,
+        get_pending_aenderungsanfragen,
+        approve_aenderungsanfrage,
+        reject_aenderungsanfrage
+    )
+    
+    # Lade Benachrichtigungen und Änderungsanfragen
+    benachrichtigungen = get_ungelesene_benachrichtigungen()
+    aenderungsanfragen = get_pending_aenderungsanfragen()
+    
+    total_notifications = len(benachrichtigungen) + len(aenderungsanfragen)
+    
+    if total_notifications > 0:
+        st.markdown(f"""
+        <div style="background-color: #fff3cd; border-left: 5px solid #ffc107; padding: 1rem; margin-bottom: 1.5rem; border-radius: 5px;">
+            <strong>🔔 {total_notifications} neue Benachrichtigung(en)</strong>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Expander für Benachrichtigungen
+        if benachrichtigungen:
+            with st.expander(f"📬 {len(benachrichtigungen)} Benachrichtigungen", expanded=True):
+                for notif in benachrichtigungen:
+                    col1, col2 = st.columns([4, 1])
+                    
+                    with col1:
+                        mitarbeiter_info = notif.get('mitarbeiter', {})
+                        st.markdown(f"""
+                        **{mitarbeiter_info.get('vorname', '')} {mitarbeiter_info.get('nachname', '')} (#{mitarbeiter_info.get('personalnummer', '')})**  
+                        {notif['nachricht']}  
+                        <small>{notif['erstellt_am'][:16]}</small>
+                        """, unsafe_allow_html=True)
+                    
+                    with col2:
+                        if st.button("✓", key=f"mark_read_{notif['id']}", help="Als gelesen markieren"):
+                            markiere_benachrichtigung_gelesen(notif['id'])
+                            st.rerun()
+                    
+                    st.markdown("---")
+        
+        # Expander für Änderungsanfragen
+        if aenderungsanfragen:
+            with st.expander(f"✋ {len(aenderungsanfragen)} Änderungsanfragen", expanded=True):
+                for anfrage in aenderungsanfragen:
+                    mitarbeiter_info = anfrage.get('mitarbeiter', {})
+                    
+                    st.markdown(f"""
+                    **{mitarbeiter_info.get('vorname', '')} {mitarbeiter_info.get('nachname', '')} (#{mitarbeiter_info.get('personalnummer', '')})**  
+                    Feld: **{anfrage['feld']}**  
+                    Alt: `{anfrage['alter_wert']}` → Neu: `{anfrage['neuer_wert']}`  
+                    Grund: {anfrage.get('grund', 'Nicht angegeben')}  
+                    <small>{anfrage['erstellt_am'][:16]}</small>
+                    """, unsafe_allow_html=True)
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        if st.button("✅ Genehmigen", key=f"approve_{anfrage['id']}", use_container_width=True):
+                            if approve_aenderungsanfrage(anfrage['id'], st.session_state.user_id):
+                                st.success("Änderung genehmigt!")
+                                st.rerun()
+                            else:
+                                st.error("Fehler beim Genehmigen")
+                    
+                    with col2:
+                        if st.button("❌ Ablehnen", key=f"reject_{anfrage['id']}", use_container_width=True):
+                            if reject_aenderungsanfrage(anfrage['id'], st.session_state.user_id):
+                                st.info("Änderung abgelehnt")
+                                st.rerun()
+                            else:
+                                st.error("Fehler beim Ablehnen")
+                    
+                    st.markdown("---")
+    else:
+        st.success("✅ Keine neuen Benachrichtigungen")
+
+
+def show_plauderecke_admin():
+    """Zeigt die Plauderecke für Administrator an"""
+    from utils.chat import get_chat_nachrichten, send_chat_nachricht, delete_chat_nachricht
+    
+    st.subheader("💬 Plauderecke")
+    st.caption("Interner Chat für alle Mitarbeiter und Administrator")
+    
+    # Lade Chat-Nachrichten
+    nachrichten = get_chat_nachrichten(limit=100)
+    
+    # Chat-Container
+    chat_container = st.container()
+    
+    with chat_container:
+        if nachrichten:
+            for msg in nachrichten:
+                # Hole Mitarbeiter-Info
+                mitarbeiter_info = msg.get('mitarbeiter', [])
+                if mitarbeiter_info and len(mitarbeiter_info) > 0:
+                    vorname = mitarbeiter_info[0].get('vorname', 'Administrator')
+                    nachname = mitarbeiter_info[0].get('nachname', '')
+                else:
+                    vorname = "Administrator"
+                    nachname = ""
+                
+                # Eigene Nachricht?
+                is_own = msg['user_id'] == st.session_state.user_id
+                
+                # Zeitstempel formatieren
+                timestamp = msg['erstellt_am'][:16].replace('T', ' ')
+                
+                if is_own:
+                    # Eigene Nachricht rechts
+                    col1, col2 = st.columns([1, 3])
+                    with col2:
+                        st.markdown(f"""
+                        <div style="background-color: #d1e7dd; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; text-align: right;">
+                            <strong>Sie (Admin)</strong><br>
+                            {msg['nachricht']}<br>
+                            <small style="color: #6c757d;">{timestamp}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button("🗑️", key=f"delete_admin_{msg['id']}", help="Nachricht löschen"):
+                            if delete_chat_nachricht(msg['id'], st.session_state.user_id):
+                                st.rerun()
+                else:
+                    # Andere Nachricht links
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"""
+                        <div style="background-color: #f8f9fa; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">
+                            <strong>{vorname} {nachname}</strong><br>
+                            {msg['nachricht']}<br>
+                            <small style="color: #6c757d;">{timestamp}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+        else:
+            st.info("Noch keine Nachrichten in der Plauderecke.")
+    
+    st.markdown("---")
+    
+    # Nachricht senden
+    with st.form("send_message_form_admin", clear_on_submit=True):
+        nachricht = st.text_area("Nachricht schreiben", placeholder="Ihre Nachricht an das Team...", height=100)
+        submit = st.form_submit_button("📤 Senden", use_container_width=True)
+        
+        if submit and nachricht.strip():
+            if send_chat_nachricht(st.session_state.user_id, nachricht.strip()):
+                st.success("✅ Nachricht gesendet!")
+                st.rerun()
+            else:
+                st.error("Fehler beim Senden der Nachricht.")

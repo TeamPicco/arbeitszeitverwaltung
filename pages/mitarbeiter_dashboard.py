@@ -49,7 +49,8 @@ def show():
     tabs = st.tabs([
         "📊 Dashboard",
         "⏰ Zeiterfassung",
-        "🏖️ Urlaub",
+        "🏞️ Urlaub",
+        "💬 Plauderecke",
         "📄 Dokumente",
         "⚙️ Einstellungen"
     ])
@@ -64,9 +65,12 @@ def show():
         show_urlaub(mitarbeiter)
     
     with tabs[3]:
-        show_dokumente(mitarbeiter)
+        show_plauderecke()
     
     with tabs[4]:
+        show_dokumente(mitarbeiter)
+    
+    with tabs[5]:
         show_einstellungen_mitarbeiter()
 
 
@@ -587,8 +591,99 @@ def show_einstellungen_mitarbeiter():
     
     st.subheader("⚙️ Einstellungen")
     
-    # Passwort ändern
-    st.markdown("**Passwort ändern**")
+    # Lade Mitarbeiterdaten
+    mitarbeiter = st.session_state.get('mitarbeiter_data')
+    if not mitarbeiter:
+        st.error("Mitarbeiterdaten nicht gefunden.")
+        return
+    
+    # Tabs für verschiedene Einstellungen
+    settings_tabs = st.tabs(["Stammdaten", "Passwort"])
+    
+    with settings_tabs[0]:
+        show_stammdaten_bearbeitung(mitarbeiter)
+    
+    with settings_tabs[1]:
+        show_passwort_aendern()
+
+
+def show_stammdaten_bearbeitung(mitarbeiter: dict):
+    """Zeigt Formular zur Bearbeitung der Stammdaten"""
+    from utils.notifications import update_mitarbeiter_stammdaten, create_aenderungsanfrage
+    
+    st.markdown("**Meine Stammdaten bearbeiten**")
+    st.info("📝 Änderungen werden dem Administrator zur Kenntnis gebracht. Änderungen des Nachnamens benötigen eine Genehmigung.")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**Kontaktdaten**")
+        new_email = st.text_input("E-Mail", value=mitarbeiter.get('email', ''), key="edit_email")
+        new_telefon = st.text_input("Telefon", value=mitarbeiter.get('telefon', ''), key="edit_telefon")
+    
+    with col2:
+        st.markdown("**Adresse**")
+        new_strasse = st.text_input("Straße & Hausnummer", value=mitarbeiter.get('strasse', ''), key="edit_strasse")
+        new_plz = st.text_input("PLZ", value=mitarbeiter.get('plz', ''), key="edit_plz")
+        new_ort = st.text_input("Ort", value=mitarbeiter.get('ort', ''), key="edit_ort")
+    
+    st.markdown("---")
+    st.markdown("**Namensänderung (benötigt Genehmigung)**")
+    st.caption("z.B. nach Heirat")
+    
+    col_name1, col_name2 = st.columns(2)
+    with col_name1:
+        new_nachname = st.text_input("Neuer Nachname", value="", key="edit_nachname", placeholder="Nur ausfüllen bei Änderung")
+    with col_name2:
+        grund = st.text_input("Grund der Änderung", value="", key="edit_grund", placeholder="z.B. Heirat")
+    
+    if st.button("💾 Änderungen speichern", type="primary", use_container_width=True):
+        changes_made = False
+        
+        # E-Mail
+        if new_email != mitarbeiter.get('email', ''):
+            if update_mitarbeiter_stammdaten(mitarbeiter['id'], 'email', new_email, mitarbeiter.get('email')):
+                changes_made = True
+        
+        # Telefon
+        if new_telefon != mitarbeiter.get('telefon', ''):
+            if update_mitarbeiter_stammdaten(mitarbeiter['id'], 'telefon', new_telefon, mitarbeiter.get('telefon')):
+                changes_made = True
+        
+        # Straße
+        if new_strasse != mitarbeiter.get('strasse', ''):
+            if update_mitarbeiter_stammdaten(mitarbeiter['id'], 'strasse', new_strasse, mitarbeiter.get('strasse')):
+                changes_made = True
+        
+        # PLZ
+        if new_plz != mitarbeiter.get('plz', ''):
+            if update_mitarbeiter_stammdaten(mitarbeiter['id'], 'plz', new_plz, mitarbeiter.get('plz')):
+                changes_made = True
+        
+        # Ort
+        if new_ort != mitarbeiter.get('ort', ''):
+            if update_mitarbeiter_stammdaten(mitarbeiter['id'], 'ort', new_ort, mitarbeiter.get('ort')):
+                changes_made = True
+        
+        # Nachname (benötigt Genehmigung)
+        if new_nachname and new_nachname != mitarbeiter.get('nachname', ''):
+            if not grund:
+                st.error("⚠️ Bitte geben Sie einen Grund für die Namensänderung an.")
+            else:
+                if create_aenderungsanfrage(mitarbeiter['id'], 'nachname', mitarbeiter.get('nachname'), new_nachname, grund):
+                    st.success("✅ Änderungsanfrage für Nachname wurde an den Administrator gesendet!")
+                    changes_made = True
+        
+        if changes_made:
+            st.success("✅ Ihre Änderungen wurden gespeichert und der Administrator wurde benachrichtigt!")
+            st.rerun()
+        else:
+            st.info("💬 Keine Änderungen vorgenommen.")
+
+
+def show_passwort_aendern():
+    """Zeigt Formular zum Passwort ändern"""
+    st.markdown("**Passwort ändern")
     
     with st.form("change_password_form"):
         new_password = st.text_input("Neues Passwort", type="password")
@@ -608,3 +703,78 @@ def show_einstellungen_mitarbeiter():
                     st.success("✅ Passwort erfolgreich geändert!")
                 else:
                     st.error("Fehler beim Ändern des Passworts.")
+
+
+def show_plauderecke():
+    """Zeigt die Plauderecke (interner Chat) an"""
+    from utils.chat import get_chat_nachrichten, send_chat_nachricht, delete_chat_nachricht
+    
+    st.subheader("💬 Plauderecke")
+    st.caption("Interner Chat für alle Mitarbeiter und Administrator")
+    
+    # Lade Chat-Nachrichten
+    nachrichten = get_chat_nachrichten(limit=100)
+    
+    # Chat-Container mit fester Höhe
+    chat_container = st.container()
+    
+    with chat_container:
+        if nachrichten:
+            for msg in nachrichten:
+                # Hole Mitarbeiter-Info
+                mitarbeiter_info = msg.get('mitarbeiter', [])
+                if mitarbeiter_info and len(mitarbeiter_info) > 0:
+                    vorname = mitarbeiter_info[0].get('vorname', 'Unbekannt')
+                    nachname = mitarbeiter_info[0].get('nachname', '')
+                else:
+                    vorname = msg.get('users', {}).get('username', 'Unbekannt')
+                    nachname = ''
+                
+                # Eigene Nachricht?
+                is_own = msg['user_id'] == st.session_state.user_id
+                
+                # Zeitstempel formatieren
+                timestamp = msg['erstellt_am'][:16].replace('T', ' ')
+                
+                if is_own:
+                    # Eigene Nachricht rechts
+                    col1, col2 = st.columns([1, 3])
+                    with col2:
+                        st.markdown(f"""
+                        <div style="background-color: #d1e7dd; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; text-align: right;">
+                            <strong>Sie</strong><br>
+                            {msg['nachricht']}<br>
+                            <small style="color: #6c757d;">{timestamp}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        if st.button("🗑️", key=f"delete_{msg['id']}", help="Nachricht löschen"):
+                            if delete_chat_nachricht(msg['id'], st.session_state.user_id):
+                                st.rerun()
+                else:
+                    # Andere Nachricht links
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"""
+                        <div style="background-color: #f8f9fa; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem;">
+                            <strong>{vorname} {nachname}</strong><br>
+                            {msg['nachricht']}<br>
+                            <small style="color: #6c757d;">{timestamp}</small>
+                        </div>
+                        """, unsafe_allow_html=True)
+        else:
+            st.info("Noch keine Nachrichten. Seien Sie der Erste!")
+    
+    st.markdown("---")
+    
+    # Nachricht senden
+    with st.form("send_message_form", clear_on_submit=True):
+        nachricht = st.text_area("Nachricht schreiben", placeholder="Ihre Nachricht...", height=100)
+        submit = st.form_submit_button("📤 Senden", use_container_width=True)
+        
+        if submit and nachricht.strip():
+            if send_chat_nachricht(st.session_state.user_id, nachricht.strip()):
+                st.success("✅ Nachricht gesendet!")
+                st.rerun()
+            else:
+                st.error("Fehler beim Senden der Nachricht.")
