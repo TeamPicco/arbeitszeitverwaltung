@@ -159,7 +159,7 @@ def get_all_mitarbeiter() -> List[Dict[str, Any]]:
     """
     try:
         supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').order('nachname').execute()
+        response = supabase.table('mitarbeiter').select('*').order('eintrittsdatum', desc=False).execute()
         return response.data if response.data else []
         
     except Exception as e:
