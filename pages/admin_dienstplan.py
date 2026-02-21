@@ -80,7 +80,9 @@ def show_monatsplan(supabase):
     st.markdown(f"### {calendar.month_name[monat]} {jahr}")
     
     # Mitarbeiter-Auswahl für Schnellplanung
-    with st.expander("➕ Schnellplanung - Dienst hinzufügen"):
+    with st.expander("➥ Schnellplanung - Dienst hinzufügen"):
+        st.info("📅 **Betriebszeiten:** Mittwoch - Sonntag | **Ruhetage:** Montag & Dienstag")
+        
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -98,6 +100,11 @@ def show_monatsplan(supabase):
                 max_value=letzter_tag,
                 format="DD.MM.YYYY"
             )
+            
+            # Warnung bei Montag/Dienstag
+            if dienst_datum.weekday() in [0, 1]:  # 0=Montag, 1=Dienstag
+                wochentag = "Montag" if dienst_datum.weekday() == 0 else "Dienstag"
+                st.warning(f"⚠️ {wochentag} ist ein Ruhetag!")
         
         with col3:
             if vorlagen_dict:
@@ -113,10 +120,15 @@ def show_monatsplan(supabase):
         with col4:
             st.write("")  # Spacer
             st.write("")  # Spacer
-            if st.button("➕ Hinzufügen", use_container_width=True, type="primary"):
+            if st.button("➥ Hinzufügen", use_container_width=True, type="primary"):
                 if vorlage_id:
                     vorlage = vorlagen_dict[vorlage_id]
                     try:
+                        # Zusätzliche Warnung bei Ruhetagen
+                        if dienst_datum.weekday() in [0, 1]:
+                            wochentag = "Montag" if dienst_datum.weekday() == 0 else "Dienstag"
+                            st.warning(f"⚠️ Hinweis: {wochentag} ist normalerweise ein Ruhetag. Dienst wird trotzdem hinzugefügt.")
+                        
                         supabase.table('dienstplaene').insert({
                             'betrieb_id': st.session_state.betrieb_id,
                             'mitarbeiter_id': mitarbeiter_id,

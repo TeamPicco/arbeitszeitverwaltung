@@ -117,31 +117,29 @@ def berechne_arbeitstage(von_datum: date, bis_datum: date, nur_werktage: bool = 
 
 def berechne_urlaubstage(von_datum: date, bis_datum: date, bundesland: str = None) -> float:
     """
-    Berechnet die Anzahl der Urlaubstage (exklusive Wochenenden und Feiertage)
+    Berechnet die Anzahl der Urlaubstage für 5-Tage-Woche (Mi-So)
+    
+    WICHTIG: Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt!
+    Arbeitstage: Mittwoch (2), Donnerstag (3), Freitag (4), Samstag (5), Sonntag (6)
     
     Args:
         von_datum: Startdatum
         bis_datum: Enddatum
-        bundesland: Bundesland-Kürzel
+        bundesland: Bundesland-Kürzel (aktuell nicht verwendet, da Sa/So Arbeitstage sind)
         
     Returns:
-        float: Anzahl der Urlaubstage
+        float: Anzahl der Urlaubstage (nur Mi-So)
     """
     if bis_datum < von_datum:
         return 0
-    
-    feiertage = get_german_holidays(von_datum.year, bundesland)
-    if von_datum.year != bis_datum.year:
-        # Wenn über Jahreswechsel, füge Feiertage des nächsten Jahres hinzu
-        feiertage_naechstes_jahr = get_german_holidays(bis_datum.year, bundesland)
-        feiertage.update(feiertage_naechstes_jahr)
     
     tage = 0
     aktuelles_datum = von_datum
     
     while aktuelles_datum <= bis_datum:
-        # Zähle nur Werktage, die keine Feiertage sind
-        if aktuelles_datum.weekday() < 5 and aktuelles_datum not in feiertage:
+        # Zähle nur Mi-So (weekday 2-6)
+        # Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt
+        if aktuelles_datum.weekday() >= 2:  # Mi=2, Do=3, Fr=4, Sa=5, So=6
             tage += 1
         
         aktuelles_datum += timedelta(days=1)
