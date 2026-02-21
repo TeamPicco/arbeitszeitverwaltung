@@ -306,7 +306,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
             )
         
         with col3:
-            st.markdown("**Zuschläge**")
+            st.markdown("**Zuschäge**")
             sonntagszuschlag_aktiv = st.checkbox(
                 "50% Sonntagszuschlag",
                 value=mitarbeiter_data.get('sonntagszuschlag_aktiv', False) if is_edit else False
@@ -314,6 +314,13 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
             feiertagszuschlag_aktiv = st.checkbox(
                 "100% Feiertagszuschlag",
                 value=mitarbeiter_data.get('feiertagszuschlag_aktiv', False) if is_edit else False
+            )
+            
+            st.markdown("**Zeiterfassung**")
+            mobile_zeiterfassung = st.checkbox(
+                "📱 Mobile Zeiterfassung erlaubt",
+                value=mitarbeiter_data.get('mobile_zeiterfassung', False) if is_edit else False,
+                help="Erlaubt Zeiterfassung per App (für Außendienst)"
             )
         
         st.markdown("---")
@@ -365,7 +372,8 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 'jahres_urlaubstage': jahres_urlaubstage,
                 'resturlaub_vorjahr': resturlaub_vorjahr,
                 'sonntagszuschlag_aktiv': sonntagszuschlag_aktiv,
-                'feiertagszuschlag_aktiv': feiertagszuschlag_aktiv
+                'feiertagszuschlag_aktiv': feiertagszuschlag_aktiv,
+                'mobile_zeiterfassung': mobile_zeiterfassung
             }
             
             if is_edit:

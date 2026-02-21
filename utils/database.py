@@ -248,13 +248,22 @@ def create_user(username: str, password: str, role: str) -> Optional[str]:
             return None
         
         # Erstelle Benutzer
+        from utils.session import get_current_betrieb_id
         password_hash = hash_password(password)
-        response = supabase.table('users').insert({
+        
+        user_data = {
             'username': username,
             'password_hash': password_hash,
             'role': role,
             'is_active': True
-        }).execute()
+        }
+        
+        # Füge betrieb_id hinzu
+        betrieb_id = get_current_betrieb_id()
+        if betrieb_id:
+            user_data['betrieb_id'] = betrieb_id
+        
+        response = supabase.table('users').insert(user_data).execute()
         
         if response.data and len(response.data) > 0:
             return response.data[0]['id']
@@ -277,10 +286,14 @@ def create_mitarbeiter(user_id: str, mitarbeiter_data: Dict[str, Any]) -> Option
         Optional[str]: Mitarbeiter-ID wenn erfolgreich
     """
     try:
+        from utils.session import get_current_betrieb_id
         supabase = get_supabase_client()
         
-        # Füge user_id hinzu
+        # Füge user_id und betrieb_id hinzu
         mitarbeiter_data['user_id'] = user_id
+        betrieb_id = get_current_betrieb_id()
+        if betrieb_id:
+            mitarbeiter_data['betrieb_id'] = betrieb_id
         
         response = supabase.table('mitarbeiter').insert(mitarbeiter_data).execute()
         
