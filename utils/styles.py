@@ -274,8 +274,67 @@ def apply_custom_css():
     }}
     
     .stTabs [aria-selected="true"] {{
-        background-color: {COLORS['primary']};
-        color: {COLORS['text_light']};
+        background-color: #e3f2fd !important;  /* Hellblau für aktiven Tab */
+        color: {COLORS['text_primary']} !important;
+    }}
+    
+    /* ===== DUNKLE HINTERGRÜNDE → WEISSE SCHRIFT ===== */
+    /* Date Input mit dunklem Hintergrund */
+    .stDateInput input,
+    .stDateInput input::placeholder,
+    .stDateInput [data-baseweb="input"] input {{
+        color: {COLORS['text_light']} !important;
+        background-color: #2c3e50 !important;
+    }}
+    
+    /* Selectbox mit dunklem Hintergrund */
+    [data-baseweb="select"] [role="button"],
+    [data-baseweb="select"] > div > div {{
+        background-color: #2c3e50 !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Number Input mit dunklem Hintergrund */
+    .stNumberInput input,
+    .stNumberInput [data-baseweb="input"] input {{
+        background-color: #2c3e50 !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Text Area mit dunklem Hintergrund */
+    .stTextArea textarea,
+    .stTextArea [data-baseweb="textarea"] textarea {{
+        background-color: #2c3e50 !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Expander mit dunklem Hintergrund - WEISSE SCHRIFT */
+    [data-baseweb="accordion"] [role="button"],
+    .streamlit-expanderHeader {{
+        background-color: #2c3e50 !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Buttons mit dunklem Hintergrund - WEISSE SCHRIFT */
+    button[kind="secondary"],
+    .stButton > button[kind="secondary"] {{
+        background-color: #2c3e50 !important;
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* ALLE Elemente mit dunklem Hintergrund (#2c3e50, #343a40, etc.) */
+    div[style*="background-color: rgb(44, 62, 80)"],
+    div[style*="background-color: rgb(52, 58, 64)"],
+    div[style*="background-color:#2c3e50"],
+    div[style*="background-color:#343a40"] {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    div[style*="background-color: rgb(44, 62, 80)"] *,
+    div[style*="background-color: rgb(52, 58, 64)"] *,
+    div[style*="background-color:#2c3e50"] *,
+    div[style*="background-color:#343a40"] * {{
+        color: {COLORS['text_light']} !important;
     }}
     
     /* ===== DATAFRAME ===== */
