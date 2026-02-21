@@ -122,47 +122,45 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
     try:
         supabase = get_supabase_client()
         
-        # Prüfe ob betriebe-Tabelle existiert
-        try:
-            betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
-            
-            if not betrieb_response.data or len(betrieb_response.data) == 0:
-                # Fallback: Wenn Tabelle existiert aber Betrieb nicht gefunden
-                return None
-            
-            betrieb = betrieb_response.data[0]
-            betrieb_id = betrieb['id']
-            
-            # Hole Benutzerdaten für diesen Betrieb
-            user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
-            
-        except Exception as table_error:
-            # Fallback: betriebe-Tabelle existiert nicht - verwende einfachen Login
-            # Nur für Piccolo (20262204)
-            if betriebsnummer != '20262204':
-                st.error("Multi-Tenancy noch nicht eingerichtet. Bitte SQL-Skripte ausführen.")
-                return None
-            
-            # Einfacher Login ohne betrieb_id-Filter
-            user_response = supabase.table('users').select('*').eq('username', username).eq('is_active', True).execute()
-            betrieb_id = 1  # Dummy-ID für Piccolo
+        # Prüfe Betrieb
+        betrieb_response = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
+        
+        if not betrieb_response.data or len(betrieb_response.data) == 0:
+            print(f"DEBUG: Betrieb mit Nummer {betriebsnummer} nicht gefunden")
+            return None
+        
+        betrieb = betrieb_response.data[0]
+        betrieb_id = betrieb['id']
+        print(f"DEBUG: Betrieb gefunden - ID: {betrieb_id}, Name: {betrieb['name']}")
+        
+        # Hole Benutzerdaten für diesen Betrieb
+        user_response = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb_id).eq('is_active', True).execute()
         
         if not user_response.data or len(user_response.data) == 0:
+            print(f"DEBUG: User {username} nicht gefunden oder nicht aktiv für Betrieb {betrieb_id}")
             return None
         
         user = user_response.data[0]
+        print(f"DEBUG: User gefunden - ID: {user['id']}, Username: {user['username']}")
+        print(f"DEBUG: Password Hash: {user['password_hash'][:20]}...")
         
         # Verifiziere Passwort
-        if verify_password(password, user['password_hash']):
+        password_valid = verify_password(password, user['password_hash'])
+        print(f"DEBUG: Passwort gültig: {password_valid}")
+        
+        if password_valid:
             # Füge Betriebsinfo hinzu
             user['betrieb_id'] = betrieb_id
-            user['betrieb_name'] = 'Steakhouse Piccolo'  # Fallback
-            user['betrieb_logo'] = None
+            user['betrieb_name'] = betrieb['name']
+            user['betrieb_logo'] = betrieb.get('logo_url')
+            print(f"DEBUG: Login erfolgreich für {username}")
             return user
         
+        print(f"DEBUG: Passwort ungültig für {username}")
         return None
         
     except Exception as e:
+        print(f"DEBUG ERROR: {str(e)}")
         st.error(f"Fehler bei der Authentifizierung: {str(e)}")
         return None
 
