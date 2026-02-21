@@ -611,12 +611,169 @@ def show_urlaubsgenehmigung():
 def show_zeiterfassung_admin():
     """Zeigt die Zeiterfassung für alle Mitarbeiter an"""
     
-    st.subheader("⏰ Zeiterfassung (Übersicht)")
+    st.subheader("⏰ Zeiterfassung (Übersicht & Korrektur)")
     
-    st.info("Diese Funktion zeigt die Zeiterfassungen aller Mitarbeiter an.")
+    # Filter
+    col1, col2, col3 = st.columns(3)
     
-    # Wird in Phase 5 vollständig implementiert
-    st.write("Implementierung erfolgt in der nächsten Phase.")
+    with col1:
+        mitarbeiter_list = get_all_mitarbeiter()
+        if not mitarbeiter_list:
+            st.warning("Keine Mitarbeiter vorhanden.")
+            return
+        
+        mitarbeiter_options = [{'id': None, 'name': 'Alle Mitarbeiter'}] + \
+                             [{'id': m['id'], 'name': f"{m['vorname']} {m['nachname']}"} for m in mitarbeiter_list]
+        
+        selected_mitarbeiter_idx = st.selectbox(
+            "Mitarbeiter",
+            range(len(mitarbeiter_options)),
+            format_func=lambda x: mitarbeiter_options[x]['name']
+        )
+        selected_mitarbeiter_id = mitarbeiter_options[selected_mitarbeiter_idx]['id']
+    
+    with col2:
+        filter_datum_von = st.date_input(
+            "Von",
+            value=date.today() - timedelta(days=30),
+            format="DD.MM.YYYY"
+        )
+    
+    with col3:
+        filter_datum_bis = st.date_input(
+            "Bis",
+            value=date.today(),
+            format="DD.MM.YYYY"
+        )
+    
+    # Lade Zeiterfassungen
+    supabase = get_supabase_client()
+    
+    try:
+        query = supabase.table('zeiterfassungen').select('*, mitarbeiter(vorname, nachname)')
+        
+        if selected_mitarbeiter_id:
+            query = query.eq('mitarbeiter_id', selected_mitarbeiter_id)
+        
+        query = query.gte('datum', filter_datum_von.isoformat())
+        query = query.lte('datum', filter_datum_bis.isoformat())
+        query = query.order('datum', desc=True).order('check_in', desc=True)
+        
+        response = query.execute()
+        zeiterfassungen = response.data if response.data else []
+        
+        if not zeiterfassungen:
+            st.info("ℹ️ Keine Zeiterfassungen im gewählten Zeitraum gefunden.")
+            return
+        
+        st.write(f"**{len(zeiterfassungen)} Zeiterfassungen gefunden**")
+        
+        # Zeige Zeiterfassungen mit Bearbeitungs-Option
+        for ze in zeiterfassungen:
+            with st.expander(
+                f"👤 {ze['mitarbeiter']['vorname']} {ze['mitarbeiter']['nachname']} - "
+                f"{datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')} - "
+                f"{ze['check_in'][:5]} bis {ze['check_out'][:5] if ze['check_out'] else 'Offen'}"
+            ):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write(f"**Datum:** {datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')}")
+                    st.write(f"**Check-In:** {ze['check_in']}")
+                    st.write(f"**Check-Out:** {ze['check_out'] if ze['check_out'] else '❌ Noch nicht ausgestempelt'}")
+                    
+                    if ze.get('arbeitsstunden'):
+                        st.write(f"**Arbeitsstunden:** {ze['arbeitsstunden']:.2f} h")
+                
+                with col2:
+                    st.write(f"**Pause (Min):** {ze.get('pause_minuten', 0)}")
+                    st.write(f"**Sonntag:** {'✅' if ze.get('ist_sonntag') else '❌'}")
+                    st.write(f"**Feiertag:** {'✅' if ze.get('ist_feiertag') else '❌'}")
+                
+                # Korrektur-Formular
+                st.markdown("---")
+                st.markdown("**✏️ Zeiterfassung korrigieren**")
+                
+                with st.form(f"korrektur_form_{ze['id']}"):
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        new_check_in = st.time_input(
+                            "Check-In",
+                            value=datetime.strptime(ze['check_in'], '%H:%M:%S').time()
+                        )
+                    
+                    with col2:
+                        if ze['check_out']:
+                            default_checkout = datetime.strptime(ze['check_out'], '%H:%M:%S').time()
+                        else:
+                            default_checkout = datetime.now().time()
+                        
+                        new_check_out = st.time_input(
+                            "Check-Out",
+                            value=default_checkout
+                        )
+                    
+                    with col3:
+                        new_pause = st.number_input(
+                            "Pause (Min)",
+                            min_value=0,
+                            max_value=240,
+                            value=ze.get('pause_minuten', 0)
+                        )
+                    
+                    korrektur_grund = st.text_area(
+                        "Grund der Korrektur",
+                        placeholder="z.B. Vergessener Logout, Systemfehler, etc."
+                    )
+                    
+                    col1, col2 = st.columns([1, 3])
+                    
+                    with col1:
+                        if st.form_submit_button("💾 Speichern", use_container_width=True):
+                            if not korrektur_grund:
+                                st.error("⚠️ Bitte geben Sie einen Grund für die Korrektur an.")
+                            else:
+                                # Berechne neue Arbeitsstunden
+                                from utils.calculations import berechne_arbeitsstunden
+                                
+                                check_in_dt = datetime.combine(date.today(), new_check_in)
+                                check_out_dt = datetime.combine(date.today(), new_check_out)
+                                
+                                arbeitsstunden = berechne_arbeitsstunden(
+                                    check_in_dt,
+                                    check_out_dt,
+                                    new_pause
+                                )
+                                
+                                # Aktualisiere Zeiterfassung
+                                update_data = {
+                                    'check_in': new_check_in.strftime('%H:%M:%S'),
+                                    'check_out': new_check_out.strftime('%H:%M:%S'),
+                                    'pause_minuten': new_pause,
+                                    'arbeitsstunden': arbeitsstunden,
+                                    'korrigiert_von_admin': True,
+                                    'korrektur_grund': korrektur_grund,
+                                    'korrektur_datum': datetime.now().isoformat()
+                                }
+                                
+                                supabase.table('zeiterfassungen').update(update_data).eq('id', ze['id']).execute()
+                                
+                                st.success("✅ Zeiterfassung erfolgreich korrigiert!")
+                                st.rerun()
+                    
+                    with col2:
+                        if st.form_submit_button("🗑️ Löschen", use_container_width=True):
+                            if st.session_state.get(f'confirm_delete_{ze["id"]}', False):
+                                supabase.table('zeiterfassungen').delete().eq('id', ze['id']).execute()
+                                st.success("✅ Zeiterfassung gelöscht!")
+                                st.rerun()
+                            else:
+                                st.session_state[f'confirm_delete_{ze["id"]}'] = True
+                                st.warning("⚠️ Nochmal klicken zum Bestätigen!")
+    
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Zeiterfassungen: {str(e)}")
 
 
 def show_lohnabrechnung():
