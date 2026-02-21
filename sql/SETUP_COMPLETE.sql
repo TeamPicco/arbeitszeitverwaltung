@@ -97,7 +97,7 @@ CREATE INDEX IF NOT EXISTS idx_mastergeraete_code ON public.mastergeraete(regist
 CREATE TABLE IF NOT EXISTS public.benachrichtigungen (
     id BIGSERIAL PRIMARY KEY,
     betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
     titel VARCHAR(255) NOT NULL,
     nachricht TEXT NOT NULL,
     typ VARCHAR(20) DEFAULT 'info', -- info, success, warning, error
@@ -117,7 +117,7 @@ CREATE INDEX IF NOT EXISTS idx_benachrichtigungen_betrieb ON public.benachrichti
 CREATE TABLE IF NOT EXISTS public.plauderecke (
     id BIGSERIAL PRIMARY KEY,
     betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
     nachricht TEXT NOT NULL,
     erstellt_am TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
