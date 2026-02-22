@@ -9,6 +9,13 @@ import calendar
 import locale
 from utils.database import get_supabase_client
 
+# Deutsche Monatsnamen
+MONATE_DE = [
+    "",  # Index 0 (leer, da Monate 1-12 sind)
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember"
+]
+
 # Setze Locale auf Deutsch für Monatsnamen
 try:
     locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
@@ -34,7 +41,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     
     with col2:
         monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1, 
-                            format_func=lambda x: calendar.month_name[x], key="mitarbeiter_dienstplan_monat")
+                            format_func=lambda x: MONATE_DE[x], key="mitarbeiter_dienstplan_monat")
     
     with col3:
         if st.button("🔄 Aktualisieren", use_container_width=True, key="mitarbeiter_dienstplan_refresh"):
@@ -53,7 +60,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.markdown("---")
     
     if dienstplaene.data and len(dienstplaene.data) > 0:
-        st.success(f"✅ **{len(dienstplaene.data)} Dienste** im {calendar.month_name[monat]} {jahr}")
+        st.success(f"✅ **{len(dienstplaene.data)} Dienste** im {MONATE_DE[monat]} {jahr}")
         
         # Zeige Kalender-Ansicht
         show_kalender_ansicht(dienstplaene.data, jahr, monat)
@@ -118,10 +125,10 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
                 st.markdown("---")
         
         # Zeige Gesamtstunden
-        st.info(f"📊 **Gesamtstunden im {calendar.month_name[monat]}:** {total_stunden:.2f} Stunden")
+        st.info(f"📊 **Gesamtstunden im {MONATE_DE[monat]}:** {total_stunden:.2f} Stunden")
         
     else:
-        st.info(f"ℹ️ Keine Dienste für {calendar.month_name[monat]} {jahr} geplant.")
+        st.info(f"ℹ️ Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
         st.caption("Ihr Administrator hat noch keine Dienste für Sie eingetragen.")
 
 

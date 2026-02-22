@@ -10,6 +10,13 @@ import locale
 from utils.database import get_supabase_client, get_all_mitarbeiter
 from utils.calculations import berechne_arbeitsstunden_mit_pause
 
+# Deutsche Monatsnamen
+MONATE_DE = [
+    "",  # Index 0 (leer, da Monate 1-12 sind)
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember"
+]
+
 # Setze Locale auf Deutsch für Monatsnamen
 try:
     locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
@@ -53,7 +60,7 @@ def show_monatsplan(supabase):
     
     with col2:
         monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1, 
-                            format_func=lambda x: calendar.month_name[x])
+                            format_func=lambda x: MONATE_DE[x])
     
     with col3:
         if st.button("🔄 Aktualisieren", use_container_width=True):
@@ -91,7 +98,7 @@ def show_monatsplan(supabase):
     st.markdown("---")
     
     # Zeige Kalender-Ansicht
-    st.markdown(f"### {calendar.month_name[monat]} {jahr}")
+    st.markdown(f"### {MONATE_DE[monat]} {jahr}")
     
     # Mitarbeiter-Auswahl für Schnellplanung
     with st.expander("➥ Schnellplanung - Dienst hinzufügen"):
@@ -172,7 +179,7 @@ def show_monatsplan(supabase):
             mitarbeiter_dienste = [d for d in (dienstplaene.data or []) if d['mitarbeiter_id'] == mitarbeiter['id']]
             
             if mitarbeiter_dienste:
-                st.markdown(f"**{len(mitarbeiter_dienste)} Dienste im {calendar.month_name[monat]}**")
+                st.markdown(f"**{len(mitarbeiter_dienste)} Dienste im {MONATE_DE[monat]}**")
                 
                 for dienst in sorted(mitarbeiter_dienste, key=lambda x: x['datum']):
                     datum_obj = datetime.fromisoformat(dienst['datum']).date()
@@ -371,7 +378,7 @@ def show_monatsuebersicht_tabelle(supabase):
     
     with col2:
         monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1, 
-                            format_func=lambda x: calendar.month_name[x], key="tabelle_monat")
+                            format_func=lambda x: MONATE_DE[x], key="tabelle_monat")
     
     with col3:
         if st.button("🔄 Aktualisieren", use_container_width=True, key="tabelle_refresh"):
@@ -551,7 +558,7 @@ def show_monatsuebersicht_tabelle(supabase):
             st.download_button(
                 label="💾 CSV herunterladen",
                 data=csv_data,
-                file_name=f"dienstplan_{calendar.month_name[monat]}_{jahr}.csv",
+                file_name=f"dienstplan_{MONATE_DE[monat]}_{jahr}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
