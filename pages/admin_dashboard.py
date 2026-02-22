@@ -109,9 +109,6 @@ def show():
         show_mastergeraete()
     
     with tabs[9]:
-        show_einstellungen_admin()
-    
-    with tabs[9]:
         show_einstellungen()
 
 
