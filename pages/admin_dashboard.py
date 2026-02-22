@@ -105,6 +105,7 @@ def show():
         show_lohnabrechnung()
     
     with tabs[8]:
+        from pages.admin_mastergeraete import show_mastergeraete
         show_mastergeraete()
     
     with tabs[9]:
