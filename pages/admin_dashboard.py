@@ -1258,6 +1258,16 @@ def show_urlaubskalender_admin():
         st.markdown("### 📆 Jahreskalender-Ansicht")
         
         import calendar
+        import locale
+        
+        # Setze Locale auf Deutsch für Monatsnamen
+        try:
+            locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
+        except:
+            try:
+                locale.setlocale(locale.LC_TIME, 'de_DE')
+            except:
+                pass
         
         monate = [
             "Januar", "Februar", "März", "April", "Mai", "Juni",

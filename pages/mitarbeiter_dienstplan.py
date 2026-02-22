@@ -6,7 +6,17 @@ Zeigt nur die eigenen Dienste des eingeloggten Mitarbeiters
 import streamlit as st
 from datetime import datetime, date, timedelta
 import calendar
+import locale
 from utils.database import get_supabase_client
+
+# Setze Locale auf Deutsch für Monatsnamen
+try:
+    locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_TIME, 'de_DE')
+    except:
+        pass  # Fallback: Englisch bleibt
 
 
 def show_mitarbeiter_dienstplan(mitarbeiter: dict):

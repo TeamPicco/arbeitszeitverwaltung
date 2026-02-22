@@ -954,6 +954,17 @@ def show_urlaubskalender():
         
         # Erstelle einfache Kalender-Tabelle
         import calendar
+        import locale
+        
+        # Setze Locale auf Deutsch für Monatsnamen
+        try:
+            locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
+        except:
+            try:
+                locale.setlocale(locale.LC_TIME, 'de_DE')
+            except:
+                pass
+        
         cal = calendar.monthcalendar(jahr, monat)
         
         # Wochentage als Header

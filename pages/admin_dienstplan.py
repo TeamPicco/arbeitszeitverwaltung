@@ -6,8 +6,18 @@ Monatliche Dienstplan-Erstellung und Schichtverwaltung
 import streamlit as st
 from datetime import datetime, date, timedelta
 import calendar
+import locale
 from utils.database import get_supabase_client, get_all_mitarbeiter
 from utils.calculations import berechne_arbeitsstunden_mit_pause
+
+# Setze Locale auf Deutsch für Monatsnamen
+try:
+    locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
+except:
+    try:
+        locale.setlocale(locale.LC_TIME, 'de_DE')
+    except:
+        pass  # Fallback: Englisch bleibt
 
 
 def show_dienstplanung():
