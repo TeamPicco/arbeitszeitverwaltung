@@ -93,7 +93,7 @@ def apply_custom_css():
         color: {COLORS['text_primary']} !important;
     }}
     
-    /* Selectbox Dropdown */
+    /* Selectbox Dropdown - HAUPTBEREICH (heller Hintergrund) */
     .stSelectbox > div > div > div,
     .stSelectbox > div > div > div > div,
     .stSelectbox > div,
@@ -109,6 +109,15 @@ def apply_custom_css():
         background-color: {COLORS['surface']} !important;
         border-radius: 8px !important;
         padding: 0.5rem !important;
+    }}
+    
+    /* Selectbox - Ausgewählter Wert SICHTBAR machen */
+    [data-baseweb="select"] [role="button"],
+    [data-baseweb="select"] [role="button"] > div,
+    [data-baseweb="select"] [role="button"] span {{
+        color: {COLORS['text_primary']} !important;
+        background-color: {COLORS['background']} !important;
+        font-weight: 500 !important;
     }}
     
     /* Date Input */
@@ -289,12 +298,7 @@ def apply_custom_css():
         background-color: #2c3e50 !important;
     }}
     
-    /* Selectbox mit dunklem Hintergrund */
-    [data-baseweb="select"] [role="button"],
-    [data-baseweb="select"] > div > div {{
-        background-color: #2c3e50 !important;
-        color: {COLORS['text_light']} !important;
-    }}
+    /* Selectbox mit dunklem Hintergrund - ENTFERNT (Konflikt mit Hauptbereich) */
     
     /* Number Input mit dunklem Hintergrund */
     .stNumberInput input,
