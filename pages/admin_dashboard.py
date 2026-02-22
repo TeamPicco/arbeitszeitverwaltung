@@ -587,7 +587,7 @@ def show_urlaubsgenehmigung():
         status_filter = st.selectbox(
             "Status filtern",
             options=['Alle', 'Beantragt', 'Genehmigt', 'Abgelehnt'],
-            index=1
+            index=0  # Standard: "Alle"
         )
         
         filtered_data = urlaub_data.data
@@ -1171,9 +1171,11 @@ def show_urlaubskalender_admin():
     
     try:
         # Lade ALLE genehmigten Urlaubsanträge für das gesamte Jahr
+        # Korrekte Logik: Urlaub überschneidet sich mit Jahr wenn:
+        # von_datum <= letzter_tag UND bis_datum >= erster_tag
         urlaube_response = supabase.table('urlaubsantraege').select(
             'id, mitarbeiter_id, von_datum, bis_datum, status, grund, mitarbeiter(vorname, nachname)'
-        ).gte('bis_datum', str(erster_tag)).lte('von_datum', str(letzter_tag)).eq('status', 'Genehmigt').execute()
+        ).lte('von_datum', str(letzter_tag)).gte('bis_datum', str(erster_tag)).eq('status', 'genehmigt').execute()
         
         if not urlaube_response.data:
             st.info(f"📬 Keine genehmigten Urlaube im Jahr {jahr}")

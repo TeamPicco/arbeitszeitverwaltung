@@ -395,6 +395,31 @@ def apply_custom_css():
         color: {COLORS['text_light']} !important;
     }}
     
+    /* ===== FORCE WHITE TEXT ON ALL DARK BUTTONS ===== */
+    /* Alle Buttons mit dunklem Hintergrund MÜSSEN weiße Schrift haben */
+    .stButton > button,
+    button[kind="primary"],
+    button[kind="secondary"],
+    button[data-baseweb="button"],
+    [data-testid="baseButton-primary"],
+    [data-testid="baseButton-secondary"],
+    [data-testid="baseButton-minimal"] {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Spezifisch für dunkle Hintergründe */
+    .stButton > button[style*="background"],
+    button[style*="background-color: rgb(30, 58, 95)"],
+    button[style*="background-color: rgb(44, 82, 130)"],
+    button[style*="background-color: rgb(212, 175, 55)"] {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Alle Buttons in der Hauptseite */
+    [data-testid="stApp"] .stButton > button {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
     /* ===== ALERTS ===== */
     .stSuccess {{
         background-color: rgba(45, 106, 79, 0.1);
