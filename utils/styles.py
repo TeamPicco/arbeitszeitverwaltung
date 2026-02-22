@@ -424,6 +424,31 @@ def apply_custom_css():
         color: {COLORS['text_light']} !important;
     }}
     
+    /* ULTRA-STARKE REGEL: Alle Button-Texte MÜSSEN weiss sein */
+    .stButton > button,
+    .stButton > button *,
+    .stButton > button span,
+    .stButton > button p,
+    .stButton > button div,
+    button,
+    button *,
+    button span {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Spezifisch für Buttons mit dunklem Hintergrund */
+    .stButton > button[style*="background-color"],
+    button[style*="background-color: rgb"] {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
+    /* Noch spezifischer: Alle Kindelemente von Buttons */
+    .stButton button > *,
+    .stButton button span,
+    .stButton button p {{
+        color: {COLORS['text_light']} !important;
+    }}
+    
     /* ===== ALERTS ===== */
     .stSuccess {{
         background-color: rgba(45, 106, 79, 0.1);
