@@ -289,6 +289,23 @@ def apply_custom_css():
         color: {COLORS['text_primary']} !important;
     }}
     
+    /* WICHTIG: Tabs sind KEINE Buttons - schwarze Schrift auf hellem Hintergrund */
+    .stTabs [data-baseweb="tab"],
+    .stTabs [data-baseweb="tab"] *,
+    .stTabs [data-baseweb="tab"] span,
+    .stTabs [aria-selected="true"],
+    .stTabs [aria-selected="true"] *,
+    .stTabs [aria-selected="true"] span {{
+        color: {COLORS['text_primary']} !important;
+    }}
+    
+    /* Inaktive Tabs: Grau */
+    .stTabs [aria-selected="false"],
+    .stTabs [aria-selected="false"] *,
+    .stTabs [aria-selected="false"] span {{
+        color: {COLORS['text_secondary']} !important;
+    }}
+    
     /* ===== DUNKLE HINTERGRÜNDE → WEISSE SCHRIFT ===== */
     /* Date Input mit dunklem Hintergrund */
     .stDateInput input,
