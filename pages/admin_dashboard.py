@@ -539,29 +539,37 @@ def show_mitarbeiter_details(mitarbeiter: dict):
             st.rerun()
     
     with col2:
-        if st.button("🗑️ Mitarbeiter löschen", key=f"delete_{mitarbeiter['id']}", use_container_width=True, type="secondary"):
-            # Bestätigung erforderlich
-            if not st.session_state.get(f"confirm_delete_mitarbeiter_{mitarbeiter['id']}", False):
-                st.session_state[f"confirm_delete_mitarbeiter_{mitarbeiter['id']}"] = True
-                st.warning("⚠️ Bitte klicken Sie erneut zum Bestätigen!")
+        # Eindeutiger Key für Bestätigungsflag
+        confirm_key = f"confirm_delete_ma_{mitarbeiter['id']}"
+        
+        # Zeige Bestätigungsbutton wenn Bestätigung aussteht
+        if st.session_state.get(confirm_key, False):
+            col_cancel, col_confirm = st.columns(2)
+            with col_cancel:
+                if st.button("❌ Abbrechen", key=f"cancel_delete_{mitarbeiter['id']}", use_container_width=True):
+                    st.session_state[confirm_key] = False
+                    st.rerun()
+            with col_confirm:
+                if st.button("✅ Bestätigen", key=f"confirm_delete_{mitarbeiter['id']}", use_container_width=True, type="primary"):
+                    # Lösche Mitarbeiter
+                    try:
+                        from utils.database import delete_mitarbeiter
+                        
+                        if delete_mitarbeiter(mitarbeiter['id']):
+                            st.success(f"✅ Mitarbeiter {mitarbeiter['vorname']} {mitarbeiter['nachname']} gelöscht!")
+                            st.session_state[confirm_key] = False
+                            st.rerun()
+                        else:
+                            st.error("Fehler beim Löschen des Mitarbeiters.")
+                            st.session_state[confirm_key] = False
+                    except Exception as e:
+                        st.error(f"Fehler: {str(e)}")
+                        st.session_state[confirm_key] = False
+        else:
+            # Zeige Löschen-Button
+            if st.button("🗑️ Mitarbeiter löschen", key=f"delete_{mitarbeiter['id']}", use_container_width=True, type="secondary"):
+                st.session_state[confirm_key] = True
                 st.rerun()
-            else:
-                # Lösche Mitarbeiter
-                import logging
-                logger = logging.getLogger(__name__)
-                try:
-                    from utils.database import delete_mitarbeiter
-                    logger.info(f"DEBUG: Lösche Mitarbeiter ID {mitarbeiter['id']}")
-                    
-                    if delete_mitarbeiter(mitarbeiter['id']):
-                        st.success(f"✅ Mitarbeiter {mitarbeiter['vorname']} {mitarbeiter['nachname']} gelöscht!")
-                        st.session_state.pop(f"confirm_delete_mitarbeiter_{mitarbeiter['id']}", None)
-                        st.rerun()
-                    else:
-                        st.error("Fehler beim Löschen des Mitarbeiters.")
-                except Exception as e:
-                    logger.error(f"DEBUG ERROR beim Löschen: {e}", exc_info=True)
-                    st.error(f"Fehler: {str(e)}")
     
 
 
