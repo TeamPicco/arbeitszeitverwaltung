@@ -799,6 +799,12 @@ def show_zeiterfassung_admin():
                                 # Berechne neue Arbeitsstunden
                                 from utils.calculations import berechne_arbeitsstunden
                                 
+                                # Stelle sicher, dass new_check_in/out datetime.time Objekte sind
+                                if isinstance(new_check_in, datetime):
+                                    new_check_in = new_check_in.time()
+                                if isinstance(new_check_out, datetime):
+                                    new_check_out = new_check_out.time()
+                                
                                 check_in_dt = datetime.combine(date.today(), new_check_in)
                                 check_out_dt = datetime.combine(date.today(), new_check_out)
                                 
