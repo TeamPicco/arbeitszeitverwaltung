@@ -81,9 +81,14 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         
         for z in zeiterfassungen.data:
             if z['ende_zeit']:
+                # Konvertiere zu datetime-Objekten für berechne_arbeitsstunden
+                datum = datetime.fromisoformat(z['datum']).date()
+                start_dt = datetime.combine(datum, datetime.strptime(z['start_zeit'], '%H:%M:%S').time())
+                ende_dt = datetime.combine(datum, datetime.strptime(z['ende_zeit'], '%H:%M:%S').time())
+                
                 stunden = berechne_arbeitsstunden(
-                    datetime.strptime(z['start_zeit'], '%H:%M:%S').time(),
-                    datetime.strptime(z['ende_zeit'], '%H:%M:%S').time(),
+                    start_dt,
+                    ende_dt,
                     z['pause_minuten']
                 )
                 
@@ -217,7 +222,11 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
             return response.data[0]['id'] if response.data else None
     
     except Exception as e:
-        print(f"Fehler beim Erstellen der Lohnabrechnung: {str(e)}")
+        import traceback
+        error_msg = f"Fehler beim Erstellen der Lohnabrechnung: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        import streamlit as st
+        st.error(f"❌ Fehler: {str(e)}")
         return None
 
 
