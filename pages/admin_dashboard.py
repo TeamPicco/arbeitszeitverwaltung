@@ -797,7 +797,7 @@ def show_zeiterfassung_admin():
                                 st.error("⚠️ Bitte geben Sie einen Grund für die Korrektur an.")
                             else:
                                 # Berechne neue Arbeitsstunden
-                                from utils.calculations import berechne_arbeitsstunden
+                                from utils.calculations import berechne_arbeitsstunden, is_sonntag, is_feiertag
                                 
                                 # Stelle sicher, dass new_check_in/out datetime.time Objekte sind
                                 if isinstance(new_check_in, datetime):
@@ -814,12 +814,19 @@ def show_zeiterfassung_admin():
                                     new_pause
                                 )
                                 
+                                # Prüfe Sonntag/Feiertag für das Datum
+                                zeiterfassung_datum = datetime.fromisoformat(ze['datum']).date()
+                                ist_sonntag_tag = is_sonntag(zeiterfassung_datum)
+                                ist_feiertag_tag = is_feiertag(zeiterfassung_datum)
+                                
                                 # Aktualisiere Zeiterfassung
                                 update_data = {
                                     'start_zeit': new_check_in.strftime('%H:%M:%S'),
                                     'ende_zeit': new_check_out.strftime('%H:%M:%S'),
                                     'pause_minuten': new_pause,
                                     'arbeitsstunden': arbeitsstunden,
+                                    'ist_sonntag': ist_sonntag_tag,
+                                    'ist_feiertag': ist_feiertag_tag,
                                     'korrigiert_von_admin': True,
                                     'korrektur_grund': korrektur_grund,
                                     'korrektur_datum': datetime.now().isoformat()
