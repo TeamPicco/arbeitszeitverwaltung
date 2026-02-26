@@ -117,31 +117,29 @@ def berechne_arbeitstage(von_datum: date, bis_datum: date, nur_werktage: bool = 
 
 def berechne_urlaubstage(von_datum: date, bis_datum: date, bundesland: str = None) -> float:
     """
-    Berechnet die Anzahl der Urlaubstage (exklusive Wochenenden und Feiertage)
+    Berechnet die Anzahl der Urlaubstage für 5-Tage-Woche (Mi-So)
+    
+    WICHTIG: Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt!
+    Arbeitstage: Mittwoch (2), Donnerstag (3), Freitag (4), Samstag (5), Sonntag (6)
     
     Args:
         von_datum: Startdatum
         bis_datum: Enddatum
-        bundesland: Bundesland-Kürzel
+        bundesland: Bundesland-Kürzel (aktuell nicht verwendet, da Sa/So Arbeitstage sind)
         
     Returns:
-        float: Anzahl der Urlaubstage
+        float: Anzahl der Urlaubstage (nur Mi-So)
     """
     if bis_datum < von_datum:
         return 0
-    
-    feiertage = get_german_holidays(von_datum.year, bundesland)
-    if von_datum.year != bis_datum.year:
-        # Wenn über Jahreswechsel, füge Feiertage des nächsten Jahres hinzu
-        feiertage_naechstes_jahr = get_german_holidays(bis_datum.year, bundesland)
-        feiertage.update(feiertage_naechstes_jahr)
     
     tage = 0
     aktuelles_datum = von_datum
     
     while aktuelles_datum <= bis_datum:
-        # Zähle nur Werktage, die keine Feiertage sind
-        if aktuelles_datum.weekday() < 5 and aktuelles_datum not in feiertage:
+        # Zähle nur Mi-So (weekday 2-6)
+        # Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt
+        if aktuelles_datum.weekday() >= 2:  # Mi=2, Do=3, Fr=4, Sa=5, So=6
             tage += 1
         
         aktuelles_datum += timedelta(days=1)
@@ -258,20 +256,24 @@ def format_waehrung(betrag: float) -> str:
     return f"{betrag:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def get_monatsnamen(monat: int) -> str:
+def get_monatsnamen(monat: int = None):
     """
-    Gibt den deutschen Monatsnamen zurück
+    Gibt den deutschen Monatsnamen zurück oder ein Dictionary aller Monate
     
     Args:
-        monat: Monatsnummer (1-12)
+        monat: Monatsnummer (1-12), optional
         
     Returns:
-        str: Monatsname
+        str oder dict: Monatsname wenn monat angegeben, sonst Dictionary
     """
     monate = [
         "Januar", "Februar", "März", "April", "Mai", "Juni",
         "Juli", "August", "September", "Oktober", "November", "Dezember"
     ]
+    
+    if monat is None:
+        return {i+1: name for i, name in enumerate(monate)}
+    
     if 1 <= monat <= 12:
         return monate[monat - 1]
     return ""
@@ -289,3 +291,55 @@ def get_wochentag(datum: date) -> str:
     """
     wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     return wochentage[datum.weekday()]
+
+
+
+def berechne_gesetzliche_pause(arbeitsstunden: float) -> int:
+    """
+    Berechnet die gesetzlich vorgeschriebene Pausenzeit nach § 4 ArbZG
+    
+    Gesetzliche Regelung:
+    - Bis 6 Stunden: Keine Pause erforderlich (0 Min)
+    - 6-9 Stunden: Mindestens 30 Minuten Pause
+    - Über 9 Stunden: Mindestens 45 Minuten Pause
+    
+    Args:
+        arbeitsstunden: Geplante oder geleistete Arbeitsstunden
+        
+    Returns:
+        int: Pausenzeit in Minuten
+    """
+    if arbeitsstunden <= 6:
+        return 0
+    elif arbeitsstunden <= 9:
+        return 30
+    else:
+        return 45
+
+
+def berechne_arbeitsstunden_mit_pause(start_zeit: time, ende_zeit: time) -> tuple[float, int]:
+    """
+    Berechnet Arbeitsstunden und schlägt gesetzliche Pause vor
+    
+    Args:
+        start_zeit: Startzeit
+        ende_zeit: Endzeit
+        
+    Returns:
+        tuple: (brutto_stunden, vorgeschlagene_pause_minuten)
+    """
+    # Konvertiere zu datetime für Berechnung
+    start_dt = datetime.combine(date.today(), start_zeit)
+    ende_dt = datetime.combine(date.today(), ende_zeit)
+    
+    # Wenn Ende vor Start liegt, addiere einen Tag (Nachtschicht)
+    if ende_dt < start_dt:
+        ende_dt += timedelta(days=1)
+    
+    # Berechne Brutto-Stunden (ohne Pause)
+    brutto_stunden = (ende_dt - start_dt).total_seconds() / 3600.0
+    
+    # Berechne gesetzliche Pause
+    pause_minuten = berechne_gesetzliche_pause(brutto_stunden)
+    
+    return round(brutto_stunden, 2), pause_minuten
