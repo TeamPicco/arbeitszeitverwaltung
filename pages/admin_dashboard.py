@@ -967,15 +967,19 @@ def show_lohnabrechnung():
         )
     
     with col3:
-        monatsnamen = get_monatsnamen()
+        # Monatsnamen-Dictionary
+        monatsnamen = {
+            1: 'Januar', 2: 'Februar', 3: 'März', 4: 'April',
+            5: 'Mai', 6: 'Juni', 7: 'Juli', 8: 'August',
+            9: 'September', 10: 'Oktober', 11: 'November', 12: 'Dezember'
+        }
         aktueller_monat = date.today().month
-        monat_index = st.selectbox(
+        monat = st.selectbox(
             "Monat",
             options=list(range(1, 13)),
             format_func=lambda x: monatsnamen[x],
             index=aktueller_monat - 1
         )
-        monat = monat_index
     
     if st.button("💰 Lohnabrechnung erstellen", use_container_width=True):
         with st.spinner("Erstelle Lohnabrechnung..."):
