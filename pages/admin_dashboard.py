@@ -886,12 +886,15 @@ def show_lohnabrechnung():
         )
     
     with col3:
-        monat = st.number_input(
+        monatsnamen = get_monatsnamen()
+        aktueller_monat = date.today().month
+        monat_index = st.selectbox(
             "Monat",
-            min_value=1,
-            max_value=12,
-            value=date.today().month
+            options=list(range(1, 13)),
+            format_func=lambda x: monatsnamen[x],
+            index=aktueller_monat - 1
         )
+        monat = monat_index
     
     if st.button("💰 Lohnabrechnung erstellen", use_container_width=True):
         with st.spinner("Erstelle Lohnabrechnung..."):
