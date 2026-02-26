@@ -301,7 +301,8 @@ def show_mitarbeiterverwaltung():
     selected_mitarbeiter = st.selectbox(
         "Mitarbeiter auswählen",
         options=mitarbeiter_list,
-        format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})"
+        format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})",
+        key="mitarbeiter_details_select"
     )
     
     if selected_mitarbeiter:
@@ -676,7 +677,8 @@ def show_urlaubsgenehmigung():
         status_filter = st.selectbox(
             "Status filtern",
             options=['Alle', 'Beantragt', 'Genehmigt', 'Abgelehnt'],
-            index=0  # Standard: "Alle"
+            index=0,  # Standard: "Alle"
+            key="urlaub_status_filter"
         )
         
         filtered_data = urlaub_data.data
@@ -771,7 +773,8 @@ def show_zeiterfassung_admin():
         selected_mitarbeiter_idx = st.selectbox(
             "Mitarbeiter",
             range(len(mitarbeiter_options)),
-            format_func=lambda x: mitarbeiter_options[x]['name']
+            format_func=lambda x: mitarbeiter_options[x]['name'],
+            key="zeiterfassung_mitarbeiter_select"
         )
         selected_mitarbeiter_id = mitarbeiter_options[selected_mitarbeiter_idx]['id']
     
@@ -955,7 +958,8 @@ def show_lohnabrechnung():
         selected_mitarbeiter = st.selectbox(
             "Mitarbeiter",
             options=mitarbeiter_list,
-            format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})"
+            format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})",
+            key="lohnabrechnung_mitarbeiter_select"
         )
     
     with col2:
@@ -978,7 +982,8 @@ def show_lohnabrechnung():
             "Monat",
             options=list(range(1, 13)),
             format_func=lambda x: monatsnamen[x],
-            index=aktueller_monat - 1
+            index=aktueller_monat - 1,
+            key="lohnabrechnung_monat_select"
         )
     
     if st.button("💰 Lohnabrechnung erstellen", use_container_width=True):
