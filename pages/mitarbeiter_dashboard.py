@@ -654,9 +654,65 @@ def show_dokumente(mitarbeiter: dict):
     st.markdown("---")
     
     # Lohnabrechnungen
+    # Lohnabrechnungen
     st.markdown("**Lohnabrechnungen**")
     
-    st.info("Lohnabrechnungen werden hier verfügbar sein, sobald sie vom Administrator erstellt wurden.")
+    try:
+        supabase = get_supabase_client()
+        
+        # Lade Lohnabrechnungen für diesen Mitarbeiter
+        lohnabrechnungen = supabase.table('lohnabrechnungen').select(
+            '*'
+        ).eq('mitarbeiter_id', mitarbeiter['id']).order('jahr', desc=True).order('monat', desc=True).execute()
+        
+        if lohnabrechnungen.data and len(lohnabrechnungen.data) > 0:
+            # Zeige jede Lohnabrechnung in einem Expander
+            for abrechnung in lohnabrechnungen.data:
+                monat_name = {
+                    1: 'Januar', 2: 'Februar', 3: 'März', 4: 'April',
+                    5: 'Mai', 6: 'Juni', 7: 'Juli', 8: 'August',
+                    9: 'September', 10: 'Oktober', 11: 'November', 12: 'Dezember'
+                }.get(abrechnung['monat'], str(abrechnung['monat']))
+                
+                with st.expander(f"📄 {monat_name} {abrechnung['jahr']}"):
+                    col1, col2 = st.columns([2, 1])
+                    
+                    with col1:
+                        st.write(f"**Bruttolohn:** {abrechnung.get('bruttolohn', 0):.2f} €")
+                        st.write(f"**Nettolohn:** {abrechnung.get('nettolohn', 0):.2f} €")
+                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0):.2f} h")
+                        
+                        if abrechnung.get('sonntagsstunden', 0) > 0:
+                            st.write(f"**Sonntagsstunden:** {abrechnung['sonntagsstunden']:.2f} h")
+                        if abrechnung.get('feiertagsstunden', 0) > 0:
+                            st.write(f"**Feiertagsstunden:** {abrechnung['feiertagsstunden']:.2f} h")
+                    
+                    with col2:
+                        # PDF Download
+                        if abrechnung.get('pdf_path'):
+                            try:
+                                pdf_data = download_file_from_storage('lohnabrechnungen', abrechnung['pdf_path'])
+                                if pdf_data:
+                                    st.download_button(
+                                        label="📥 PDF herunterladen",
+                                        data=pdf_data,
+                                        file_name=f"Lohnabrechnung_{abrechnung['jahr']}_{abrechnung['monat']:02d}.pdf",
+                                        mime="application/pdf",
+                                        key=f"download_lohn_ma_{abrechnung['id']}",
+                                        use_container_width=True
+                                    )
+                                else:
+                                    st.warning("PDF nicht verfügbar")
+                            except Exception as e:
+                                st.error(f"Fehler beim Laden: {str(e)}")
+                        else:
+                            st.info("PDF wird erstellt...")
+        else:
+            st.info("Noch keine Lohnabrechnungen vorhanden.")
+            
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Lohnabrechnungen: {str(e)}")
+
 
 
 def show_einstellungen_mitarbeiter():
