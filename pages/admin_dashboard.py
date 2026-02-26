@@ -527,6 +527,87 @@ def show_mitarbeiter_details(mitarbeiter: dict):
         st.write(f"Sonntagszuschlag: {'✅ Aktiv' if mitarbeiter['sonntagszuschlag_aktiv'] else '❌ Inaktiv'}")
         st.write(f"Feiertagszuschlag: {'✅ Aktiv' if mitarbeiter['feiertagszuschlag_aktiv'] else '❌ Inaktiv'}")
     
+    
+    st.markdown("---")
+    
+    # Arbeitsvertrag Upload/Download
+    st.markdown("**📄 Arbeitsvertrag**")
+    
+    # Zeige aktuellen Status
+    if mitarbeiter.get('vertrag_pdf_path'):
+        st.success("✅ Arbeitsvertrag ist hinterlegt.")
+        
+        # Download-Button für Admin
+        col_download, col_delete = st.columns(2)
+        
+        with col_download:
+            try:
+                pdf_data = download_file_from_storage('arbeitsvertraege', mitarbeiter['vertrag_pdf_path'])
+                if pdf_data:
+                    st.download_button(
+                        label="📥 Vertrag herunterladen",
+                        data=pdf_data,
+                        file_name=f"Arbeitsvertrag_{mitarbeiter['personalnummer']}.pdf",
+                        mime="application/pdf",
+                        key=f"download_vertrag_admin_{mitarbeiter['id']}",
+                        use_container_width=True
+                    )
+            except Exception as e:
+                st.error(f"Fehler beim Laden: {str(e)}")
+        
+        with col_delete:
+            if st.button("🗑️ Vertrag löschen", key=f"delete_vertrag_{mitarbeiter['id']}", use_container_width=True):
+                try:
+                    # Lösche aus Storage
+                    supabase = get_supabase_client()
+                    supabase.storage.from_('arbeitsvertraege').remove([mitarbeiter['vertrag_pdf_path']])
+                    
+                    # Update Mitarbeiter
+                    supabase.table('mitarbeiter').update({
+                        'vertrag_pdf_path': None
+                    }).eq('id', mitarbeiter['id']).execute()
+                    
+                    st.success("✅ Vertrag gelöscht!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler: {str(e)}")
+    else:
+        st.info("Noch kein Arbeitsvertrag hinterlegt.")
+    
+    # Upload-Formular
+    vertrag_file = st.file_uploader(
+        "Neuen Arbeitsvertrag hochladen (PDF)",
+        type=['pdf'],
+        key=f"vertrag_upload_{mitarbeiter['id']}"
+    )
+    
+    if vertrag_file:
+        if st.button("📤 Vertrag hochladen", key=f"upload_vertrag_btn_{mitarbeiter['id']}", use_container_width=True):
+            try:
+                # Erstelle eindeutigen Dateinamen
+                file_path = f"{mitarbeiter['personalnummer']}/arbeitsvertrag.pdf"
+                
+                # Upload zu Storage
+                success = upload_file_to_storage(
+                    'arbeitsvertraege',
+                    file_path,
+                    vertrag_file.getvalue()
+                )
+                
+                if success:
+                    # Update Mitarbeiter-Datensatz
+                    supabase = get_supabase_client()
+                    supabase.table('mitarbeiter').update({
+                        'vertrag_pdf_path': file_path
+                    }).eq('id', mitarbeiter['id']).execute()
+                    
+                    st.success("✅ Arbeitsvertrag erfolgreich hochgeladen!")
+                    st.rerun()
+                else:
+                    st.error("Fehler beim Hochladen des Vertrags.")
+            except Exception as e:
+                st.error(f"Fehler: {str(e)}")
+    
     st.markdown("---")
     
     # Bearbeiten und Löschen-Buttons
