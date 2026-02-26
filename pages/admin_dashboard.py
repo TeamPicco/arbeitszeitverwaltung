@@ -733,7 +733,22 @@ def show_urlaubsgenehmigung():
                                 'bearbeitet_von': st.session_state.user_id
                             }).eq('id', antrag['id']).execute()
                             
-                            st.success("Urlaubsantrag genehmigt!")
+                            # E-Mail an Mitarbeiter senden
+                            try:
+                                from utils.email_service import send_urlaubsgenehmigung_email
+                                ma_email = mitarbeiter.get('email')
+                                ma_name = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
+                                if ma_email:
+                                    send_urlaubsgenehmigung_email(
+                                        ma_email, ma_name, 'genehmigt',
+                                        antrag['von_datum'], antrag['bis_datum'],
+                                        antrag.get('anzahl_tage'),
+                                        bemerkung_admin
+                                    )
+                            except Exception as mail_err:
+                                pass  # E-Mail-Fehler soll App nicht blockieren
+                            
+                            st.success("✅ Urlaubsantrag genehmigt! Mitarbeiter wurde per E-Mail informiert.")
                             st.rerun()
                     
                     with col2:
@@ -746,7 +761,22 @@ def show_urlaubsgenehmigung():
                                 'bearbeitet_von': st.session_state.user_id
                             }).eq('id', antrag['id']).execute()
                             
-                            st.warning("Urlaubsantrag abgelehnt!")
+                            # E-Mail an Mitarbeiter senden
+                            try:
+                                from utils.email_service import send_urlaubsgenehmigung_email
+                                ma_email = mitarbeiter.get('email')
+                                ma_name = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
+                                if ma_email:
+                                    send_urlaubsgenehmigung_email(
+                                        ma_email, ma_name, 'abgelehnt',
+                                        antrag['von_datum'], antrag['bis_datum'],
+                                        antrag.get('anzahl_tage'),
+                                        bemerkung_admin
+                                    )
+                            except Exception as mail_err:
+                                pass  # E-Mail-Fehler soll App nicht blockieren
+                            
+                            st.warning("❌ Urlaubsantrag abgelehnt! Mitarbeiter wurde per E-Mail informiert.")
                             st.rerun()
     
     except Exception as e:
@@ -942,9 +972,9 @@ def show_lohnabrechnung():
     
     from utils.lohnabrechnung import (
         erstelle_lohnabrechnung,
-        generiere_lohnabrechnung_pdf,
-        speichere_lohnabrechnung_pdf
+        generiere_lohnabrechnung_pdf
     )
+    from utils.datev_export import erstelle_datev_lohnexport, erstelle_lohnuebersicht_csv
     
     # Auswahl Mitarbeiter und Zeitraum
     col1, col2, col3 = st.columns(3)
@@ -986,25 +1016,137 @@ def show_lohnabrechnung():
             key="lohnabrechnung_monat_select"
         )
     
-    if st.button("💰 Lohnabrechnung erstellen", use_container_width=True):
-        with st.spinner("Erstelle Lohnabrechnung..."):
-            lohnabrechnung_id = erstelle_lohnabrechnung(
-                selected_mitarbeiter['id'],
-                monat,
-                jahr
-            )
-            
-            if lohnabrechnung_id:
-                # Generiere und speichere PDF
-                pdf_path = speichere_lohnabrechnung_pdf(lohnabrechnung_id)
+    col_btn1, col_btn2 = st.columns([2, 1])
+    
+    with col_btn1:
+        if st.button("💰 Lohnabrechnung erstellen", use_container_width=True, type="primary"):
+            with st.spinner("Erstelle Lohnabrechnung..."):
+                lohnabrechnung_id = erstelle_lohnabrechnung(
+                    selected_mitarbeiter['id'],
+                    monat,
+                    jahr
+                )
                 
-                if pdf_path:
+                if lohnabrechnung_id:
                     st.success("✅ Lohnabrechnung erfolgreich erstellt!")
                     st.rerun()
                 else:
-                    st.warning("Lohnabrechnung erstellt, aber PDF-Speicherung fehlgeschlagen.")
-            else:
-                st.error("Fehler beim Erstellen der Lohnabrechnung.")
+                    st.error("Fehler beim Erstellen der Lohnabrechnung.")
+    
+    st.markdown("---")
+    
+    # DATEV-Export für alle Mitarbeiter
+    st.subheader("📄 DATEV-Export für Steuerberater")
+    
+    st.info("""
+    **DATEV-Export** erstellt eine CSV-Datei im DATEV Lohn & Gehalt-Format,
+    die direkt von Ihrem Steuerberater importiert werden kann.
+    """)
+    
+    col_export1, col_export2, col_export3 = st.columns(3)
+    
+    with col_export1:
+        export_jahr = st.number_input("Jahr (Export)", min_value=2020, max_value=2030, value=date.today().year, key="export_jahr")
+    
+    with col_export2:
+        export_monat = st.selectbox(
+            "Monat (Export)",
+            options=list(range(1, 13)),
+            format_func=lambda x: monatsnamen[x],
+            index=date.today().month - 1,
+            key="export_monat"
+        )
+    
+    with col_export3:
+        st.write("")
+        st.write("")
+    
+    col_dl1, col_dl2 = st.columns(2)
+    
+    with col_dl1:
+        if st.button("📊 DATEV-CSV exportieren", use_container_width=True):
+            with st.spinner("Erstelle DATEV-Export..."):
+                try:
+                    supabase_exp = get_supabase_client()
+                    
+                    # Lade alle Lohnabrechnungen für den Monat
+                    alle_abrechnungen = supabase_exp.table('lohnabrechnungen').select(
+                        '*, arbeitszeitkonto(ist_stunden, soll_stunden, sonntagsstunden, feiertagsstunden, urlaubstage_genommen)'
+                    ).eq('monat', export_monat).eq('jahr', export_jahr).execute()
+                    
+                    if alle_abrechnungen.data:
+                        # Lade alle Mitarbeiter
+                        alle_ma = get_all_mitarbeiter()
+                        
+                        # Merge Arbeitszeitkonto-Daten in Abrechnungen
+                        abrechnungen_mit_stunden = []
+                        for abr in alle_abrechnungen.data:
+                            abr_copy = dict(abr)
+                            if abr.get('arbeitszeitkonto'):
+                                azk = abr['arbeitszeitkonto']
+                                abr_copy['ist_stunden'] = azk.get('ist_stunden', 0)
+                                abr_copy['soll_stunden'] = azk.get('soll_stunden', 0)
+                                abr_copy['sonntagsstunden'] = azk.get('sonntagsstunden', 0)
+                                abr_copy['feiertagsstunden'] = azk.get('feiertagsstunden', 0)
+                                abr_copy['urlaubstage_genommen'] = azk.get('urlaubstage_genommen', 0)
+                            abrechnungen_mit_stunden.append(abr_copy)
+                        
+                        datev_bytes = erstelle_datev_lohnexport(
+                            alle_ma, abrechnungen_mit_stunden, export_monat, export_jahr
+                        )
+                        
+                        st.download_button(
+                            label=f"💾 DATEV-CSV herunterladen ({monatsnamen[export_monat]} {export_jahr})",
+                            data=datev_bytes,
+                            file_name=f"DATEV_Lohn_{export_jahr}_{export_monat:02d}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning(f"Keine Lohnabrechnungen für {monatsnamen[export_monat]} {export_jahr} vorhanden. Bitte zuerst Lohnabrechnungen erstellen.")
+                except Exception as e:
+                    st.error(f"Fehler beim DATEV-Export: {str(e)}")
+    
+    with col_dl2:
+        if st.button("📊 Lohnübersicht CSV (intern)", use_container_width=True):
+            with st.spinner("Erstelle Lohnübersicht..."):
+                try:
+                    supabase_exp = get_supabase_client()
+                    
+                    alle_abrechnungen = supabase_exp.table('lohnabrechnungen').select(
+                        '*, arbeitszeitkonto(ist_stunden, soll_stunden, sonntagsstunden, feiertagsstunden, urlaubstage_genommen)'
+                    ).eq('monat', export_monat).eq('jahr', export_jahr).execute()
+                    
+                    if alle_abrechnungen.data:
+                        alle_ma = get_all_mitarbeiter()
+                        
+                        abrechnungen_mit_stunden = []
+                        for abr in alle_abrechnungen.data:
+                            abr_copy = dict(abr)
+                            if abr.get('arbeitszeitkonto'):
+                                azk = abr['arbeitszeitkonto']
+                                abr_copy['ist_stunden'] = azk.get('ist_stunden', 0)
+                                abr_copy['soll_stunden'] = azk.get('soll_stunden', 0)
+                                abr_copy['sonntagsstunden'] = azk.get('sonntagsstunden', 0)
+                                abr_copy['feiertagsstunden'] = azk.get('feiertagsstunden', 0)
+                                abr_copy['urlaubstage_genommen'] = azk.get('urlaubstage_genommen', 0)
+                            abrechnungen_mit_stunden.append(abr_copy)
+                        
+                        uebersicht_bytes = erstelle_lohnuebersicht_csv(
+                            alle_ma, abrechnungen_mit_stunden, export_monat, export_jahr
+                        )
+                        
+                        st.download_button(
+                            label=f"💾 Lohnübersicht herunterladen ({monatsnamen[export_monat]} {export_jahr})",
+                            data=uebersicht_bytes,
+                            file_name=f"Lohnuebersicht_{export_jahr}_{export_monat:02d}.csv",
+                            mime="text/csv",
+                            use_container_width=True
+                        )
+                    else:
+                        st.warning(f"Keine Lohnabrechnungen für {monatsnamen[export_monat]} {export_jahr} vorhanden.")
+                except Exception as e:
+                    st.error(f"Fehler beim Export: {str(e)}")
     
     st.markdown("---")
     
@@ -1062,7 +1204,6 @@ def show_lohnabrechnung():
                                 abrechnung['jahr']
                             )
                             if lohnabrechnung_id:
-                                speichere_lohnabrechnung_pdf(lohnabrechnung_id)
                                 st.success("✅ Lohnabrechnung neu berechnet!")
                                 st.rerun()
         else:
@@ -1321,10 +1462,10 @@ def show_urlaubskalender_admin():
                     bis_str = bis.strftime('%d.%m.%Y')
                     
                     # Status-Badge
-                    if urlaub['status'] == 'Genehmigt':
+                    if urlaub['status'] == 'genehmigt':
                         status_badge = "✅ Genehmigt"
                         status_color = "green"
-                    elif urlaub['status'] == 'Abgelehnt':
+                    elif urlaub['status'] == 'abgelehnt':
                         status_badge = "❌ Abgelehnt"
                         status_color = "red"
                     else:
@@ -1364,7 +1505,7 @@ def show_urlaubskalender_admin():
             st.metric("Gesamt Urlaubstage", gesamt_tage)
         
         with col3:
-            genehmigt_count = len([u for urlaube in urlaube_nach_mitarbeiter.values() for u in urlaube if u['status'] == 'Genehmigt'])
+            genehmigt_count = len([u for urlaube in urlaube_nach_mitarbeiter.values() for u in urlaube if u['status'] == 'genehmigt'])
             st.metric("Genehmigte Anträge", genehmigt_count)
         
         # Jahres-Kalender-Ansicht (12 Monate)

@@ -81,14 +81,13 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         
         for z in zeiterfassungen.data:
             if z['ende_zeit']:
-                # Konvertiere zu datetime-Objekten für berechne_arbeitsstunden
-                datum = datetime.fromisoformat(z['datum']).date()
-                start_dt = datetime.combine(datum, datetime.strptime(z['start_zeit'], '%H:%M:%S').time())
-                ende_dt = datetime.combine(datum, datetime.strptime(z['ende_zeit'], '%H:%M:%S').time())
+                # Konvertiere zu time-Objekten für berechne_arbeitsstunden
+                start_time = datetime.strptime(z['start_zeit'], '%H:%M:%S').time()
+                ende_time = datetime.strptime(z['ende_zeit'], '%H:%M:%S').time()
                 
                 stunden = berechne_arbeitsstunden(
-                    start_dt,
-                    ende_dt,
+                    start_time,
+                    ende_time,
                     z['pause_minuten']
                 )
                 

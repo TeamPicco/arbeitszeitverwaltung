@@ -545,7 +545,21 @@ def show_urlaub(mitarbeiter: dict):
                                     'betrieb_id': st.session_state.betrieb_id
                                 }).execute()
                         
-                        st.success("✅ Urlaubsantrag erfolgreich gestellt!")
+                        # E-Mail an Admin senden
+                        try:
+                            from utils.email_service import send_urlaubsantrag_email
+                            ma_name = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
+                            send_urlaubsantrag_email(
+                                ma_name,
+                                von_datum.strftime('%d.%m.%Y'),
+                                bis_datum.strftime('%d.%m.%Y'),
+                                anzahl_tage,
+                                bemerkung if bemerkung else None
+                            )
+                        except Exception as mail_err:
+                            pass  # E-Mail-Fehler soll App nicht blockieren
+                        
+                        st.success("✅ Urlaubsantrag erfolgreich gestellt! Der Administrator wurde benachrichtigt.")
                         st.rerun()
                         
                     except Exception as e:
@@ -812,7 +826,7 @@ def show_stammdaten_bearbeitung(mitarbeiter: dict):
 
 def show_passwort_aendern():
     """Zeigt Formular zum Passwort ändern"""
-    st.markdown("**Passwort ändern")
+    st.markdown("**Passwort ändern**")
     
     with st.form("change_password_form"):
         new_password = st.text_input("Neues Passwort", type="password")
@@ -946,7 +960,7 @@ def show_urlaubskalender():
         # Lade alle genehmigten Urlaubsanträge
         urlaube_response = supabase.table('urlaubsantraege').select(
             'id, mitarbeiter_id, von_datum, bis_datum, status, mitarbeiter(vorname, nachname)'
-        ).eq('status', 'Genehmigt').gte('bis_datum', str(erster_tag)).lte('von_datum', str(letzter_tag)).execute()
+        ).eq('status', 'genehmigt').gte('bis_datum', str(erster_tag)).lte('von_datum', str(letzter_tag)).execute()
         
         if not urlaube_response.data:
             st.info(f"📭 Keine genehmigten Urlaube im {monate[monat-1]} {jahr}")

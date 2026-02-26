@@ -27,14 +27,33 @@ def get_german_holidays(year: int, bundesland: str = None) -> holidays.HolidayBa
 
 def is_feiertag(datum: date, bundesland: str = None) -> bool:
     """
-    Prüft, ob ein Datum ein Feiertag ist
+    Prüft, ob ein Datum ein Feiertag ist.
+    
+    WICHTIG: Feiertage an Montag (0) oder Dienstag (1) zählen NICHT als
+    Feiertag für Zuschlagszwecke, da Mo/Di Ruhetage sind.
+    Ausnahme: Wenn der Betrieb an diesem Tag geöffnet war (Zeiterfassung vorhanden).
     
     Args:
         datum: Zu prüfendes Datum
         bundesland: Bundesland-Kürzel
         
     Returns:
-        bool: True wenn Feiertag
+        bool: True wenn Feiertag UND kein Ruhetag (Mo/Di)
+    """
+    feiertage = get_german_holidays(datum.year, bundesland)
+    if datum not in feiertage:
+        return False
+    # Feiertage an Ruhetagen (Mo=0, Di=1) zählen nicht als Feiertag
+    # (da der Betrieb an diesen Tagen geschlossen ist)
+    if datum.weekday() in (0, 1):  # Montag oder Dienstag
+        return False
+    return True
+
+
+def is_feiertag_unabhaengig_von_ruhetag(datum: date, bundesland: str = None) -> bool:
+    """
+    Prüft, ob ein Datum ein gesetzlicher Feiertag ist (unabhängig von Ruhetagen).
+    Wird für die Urlaubsberechnung verwendet.
     """
     feiertage = get_german_holidays(datum.year, bundesland)
     return datum in feiertage
@@ -117,18 +136,21 @@ def berechne_arbeitstage(von_datum: date, bis_datum: date, nur_werktage: bool = 
 
 def berechne_urlaubstage(von_datum: date, bis_datum: date, bundesland: str = None) -> float:
     """
-    Berechnet die Anzahl der Urlaubstage für 5-Tage-Woche (Mi-So)
+    Berechnet die Anzahl der Urlaubstage für diesen Betrieb (Mi-So).
     
-    WICHTIG: Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt!
-    Arbeitstage: Mittwoch (2), Donnerstag (3), Freitag (4), Samstag (5), Sonntag (6)
+    WICHTIG: 
+    - Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt!
+    - Arbeitstage: Mittwoch (2), Donnerstag (3), Freitag (4), Samstag (5), Sonntag (6)
+    - Feiertage an Ruhetagen (Mo/Di) werden ebenfalls nicht gezählt
+    - Feiertage an Arbeitstagen (Mi-So) werden als Urlaubstag gezählt
     
     Args:
         von_datum: Startdatum
         bis_datum: Enddatum
-        bundesland: Bundesland-Kürzel (aktuell nicht verwendet, da Sa/So Arbeitstage sind)
+        bundesland: Bundesland-Kürzel
         
     Returns:
-        float: Anzahl der Urlaubstage (nur Mi-So)
+        float: Anzahl der Urlaubstage (nur Mi-So, ohne Feiertage an Ruhetagen)
     """
     if bis_datum < von_datum:
         return 0
@@ -137,9 +159,10 @@ def berechne_urlaubstage(von_datum: date, bis_datum: date, bundesland: str = Non
     aktuelles_datum = von_datum
     
     while aktuelles_datum <= bis_datum:
+        wochentag = aktuelles_datum.weekday()
         # Zähle nur Mi-So (weekday 2-6)
         # Montag (0) und Dienstag (1) sind Ruhetage und werden NICHT gezählt
-        if aktuelles_datum.weekday() >= 2:  # Mi=2, Do=3, Fr=4, Sa=5, So=6
+        if wochentag >= 2:  # Mi=2, Do=3, Fr=4, Sa=5, So=6
             tage += 1
         
         aktuelles_datum += timedelta(days=1)

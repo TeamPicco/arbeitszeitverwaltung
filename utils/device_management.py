@@ -139,7 +139,9 @@ def check_device_or_mobile_permission(mitarbeiter: dict, betrieb_id: int):
 
 def show_device_activation_dialog(betrieb_id: int):
     """
-    Zeigt Dialog zur Geräte-Aktivierung an
+    Zeigt Dialog zur Geräte-Aktivierung an.
+    Unterstützt automatische Aktivierung per QR-Code-URL-Parameter
+    sowie manuelle Code-Eingabe.
     
     Args:
         betrieb_id: ID des Betriebs
@@ -147,6 +149,28 @@ def show_device_activation_dialog(betrieb_id: int):
     Returns:
         bool: True wenn aktiviert
     """
+    import streamlit as st
+    
+    # Prüfe ob QR-Code-Aktivierung per URL-Parameter (?activate=CODE)
+    query_params = st.query_params
+    auto_code = query_params.get('activate', None)
+    
+    if auto_code:
+        # Automatische Aktivierung per QR-Code
+        st.info(f"📱 QR-Code erkannt. Aktiviere Gerät...")
+        success, message = activate_device_with_code(auto_code, betrieb_id)
+        
+        if success:
+            st.success(f"✅ Gerät erfolgreich als Mastergerät aktiviert: **{message}**")
+            st.balloons()
+            # URL-Parameter entfernen
+            st.query_params.clear()
+            st.rerun()
+            return True
+        else:
+            st.error(f"❌ Aktivierung fehlgeschlagen: {message}")
+            st.query_params.clear()
+    
     st.warning("⚠️ Dieses Gerät ist nicht als Mastergerät registriert.")
     
     st.info("""
@@ -154,22 +178,27 @@ def show_device_activation_dialog(betrieb_id: int):
     
     Um die Zeiterfassung auf diesem Gerät zu nutzen, benötigen Sie einen Registrierungscode.
     
-    **So erhalten Sie den Code:**
-    1. Melden Sie sich als Administrator an
-    2. Gehen Sie zu: Mastergeräte
-    3. Klicken Sie bei Ihrem Gerät auf "Code erneuern"
-    4. Geben Sie den angezeigten Code hier ein
+    **Option 1: QR-Code scannen (empfohlen)**
+    1. Administrator öffnet Mastergeräte-Verwaltung
+    2. Klickt auf "📱 QR-Code anzeigen" beim gewünschten Gerät
+    3. QR-Code mit diesem Gerät scannen – Aktivierung erfolgt automatisch
+    
+    **Option 2: Code manuell eingeben**
+    1. Administrator öffnet Mastergeräte-Verwaltung
+    2. Notiert den Registrierungscode des Geräts
+    3. Code unten eingeben
     """)
     
     with st.form("device_activation_form"):
-        code = st.text_input("Registrierungscode", placeholder="z.B. 6f336234")
+        code = st.text_input("Registrierungscode", placeholder="z.B. 6F336234")
         submit = st.form_submit_button("🔓 Gerät aktivieren", use_container_width=True)
         
         if submit and code:
-            success, message = activate_device_with_code(code.strip(), betrieb_id)
+            success, message = activate_device_with_code(code.strip().upper(), betrieb_id)
             
             if success:
                 st.success(f"✅ Gerät erfolgreich aktiviert: {message}")
+                st.balloons()
                 st.rerun()
                 return True
             else:
