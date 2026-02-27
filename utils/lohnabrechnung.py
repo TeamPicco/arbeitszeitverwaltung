@@ -72,7 +72,7 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         # Berechne Stunden pro Urlaubstag (Soll-Stunden / Arbeitstage)
         # 5-Tage-Woche (Mi-So) = ca. 21,65 Arbeitstage pro Monat
         arbeitstage_pro_monat = 21.65
-        stunden_pro_urlaubstag = float(mitarbeiter['monatliche_soll_stunden']) / arbeitstage_pro_monat
+        stunden_pro_urlaubstag = float(mitarbeiter.get('monatliche_soll_stunden') or 160.0) / arbeitstage_pro_monat
         
         # Berechne Stunden
         ist_stunden = 0
@@ -143,7 +143,7 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'mitarbeiter_id': mitarbeiter_id,
             'monat': monat,
             'jahr': jahr,
-            'soll_stunden': float(mitarbeiter['monatliche_soll_stunden']),
+            'soll_stunden': float(mitarbeiter.get('monatliche_soll_stunden') or 160.0),
             'ist_stunden': round(ist_stunden, 2),
             'urlaubstage_genommen': float(urlaubstage_genommen),
         }
@@ -218,21 +218,22 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
         
         # Berechne Lohnbestandteile
         grundlohn = berechne_grundlohn(
-            float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['ist_stunden']
+            float(mitarbeiter.get('stundenlohn_brutto') or 0.0),
+            float(arbeitszeitkonto.get('ist_stunden') or 0)
         )
         
         # sonntagsstunden / feiertagsstunden können fehlen wenn Migration noch nicht ausgeführt
         sonntagsstunden = float(arbeitszeitkonto.get('sonntagsstunden') or 0)
         feiertagsstunden = float(arbeitszeitkonto.get('feiertagsstunden') or 0)
         
+        stundenlohn = float(mitarbeiter.get('stundenlohn_brutto') or 0.0)
         sonntagszuschlag = berechne_sonntagszuschlag(
-            float(mitarbeiter['stundenlohn_brutto']),
+            stundenlohn,
             sonntagsstunden
         ) if mitarbeiter.get('sonntagszuschlag_aktiv') else 0
         
         feiertagszuschlag = berechne_feiertagszuschlag(
-            float(mitarbeiter['stundenlohn_brutto']),
+            stundenlohn,
             feiertagsstunden
         ) if mitarbeiter.get('feiertagszuschlag_aktiv') else 0
         

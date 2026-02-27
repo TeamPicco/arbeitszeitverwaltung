@@ -205,7 +205,7 @@ def show_monatsplan(supabase):
             for ma in mitarbeiter_liste:
                 if ma['id'] not in ziel_ids:
                     continue
-                soll = float(ma.get('monatliche_soll_stunden', 160.0))
+                soll = float(ma.get('monatliche_soll_stunden') or 160.0)
                 n = setze_urlaub_automatisch(
                     supabase, st.session_state.betrieb_id, ma['id'],
                     urlaub_map, erster_tag, letzter_tag, soll
@@ -282,7 +282,7 @@ def show_monatsplan(supabase):
         elif schichttyp == 'urlaub':
             # Urlaubsstunden aus Mitarbeiterprofil berechnen
             ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
-            soll = float(ma_data.get('monatliche_soll_stunden', 160.0))
+            soll = float(ma_data.get('monatliche_soll_stunden') or 160.0)
             stunden_pro_tag = round(soll / (5 * 4.33), 2)
             urlaub_stunden = st.number_input(
                 "Urlaubsstunden (Tagessatz)",

@@ -363,7 +363,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 'azubi': 'Auszubildende/r',
             }
             beschaeftigungsart_optionen = list(BESCHAEFTIGUNGSARTEN.keys())
-            aktuell = mitarbeiter_data.get('beschaeftigungsart', 'vollzeit') if is_edit else 'vollzeit'
+            aktuell = (mitarbeiter_data.get('beschaeftigungsart') or 'vollzeit') if is_edit else 'vollzeit'
             if aktuell not in beschaeftigungsart_optionen:
                 aktuell = 'vollzeit'
             beschaeftigungsart = st.selectbox(
@@ -383,14 +383,14 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 "Monatliche Soll-Stunden*",
                 min_value=0.0,
                 max_value=250.0,
-                value=float(mitarbeiter_data.get('monatliche_soll_stunden', 160.0)) if is_edit else 160.0,
+                value=float(mitarbeiter_data.get('monatliche_soll_stunden') or 160.0) if is_edit else 160.0,
                 step=0.5
             )
             stundenlohn_brutto = st.number_input(
                 "Stundenlohn (brutto)*",
                 min_value=0.0,
                 max_value=100.0,
-                value=float(mitarbeiter_data.get('stundenlohn_brutto', 15.0)) if is_edit else 15.0,
+                value=float(mitarbeiter_data.get('stundenlohn_brutto') or 15.0) if is_edit else 15.0,
                 step=0.10,
                 format="%.2f"
             )
@@ -403,7 +403,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 "💼 Minijob-Monatsgrenze (€)",
                 min_value=0.0,
                 max_value=1000.0,
-                value=float(mitarbeiter_data.get('minijob_monatsgrenze', 556.0)) if is_edit else 556.0,
+                value=float(mitarbeiter_data.get('minijob_monatsgrenze') or 556.0) if is_edit else 556.0,
                 step=1.0,
                 format="%.2f",
                 help="Aktuelle Minijob-Grenze: 556,00 €/Monat (2025). \nBei Überschreitung wird eine Warnung in der Lohnabrechnung angezeigt."
@@ -415,13 +415,13 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 "Jährliche Urlaubstage*",
                 min_value=20,
                 max_value=50,
-                value=int(mitarbeiter_data.get('jahres_urlaubstage', 28)) if is_edit else 28
+                value=int(mitarbeiter_data.get('jahres_urlaubstage') or 28) if is_edit else 28
             )
             resturlaub_vorjahr = st.number_input(
                 "Resturlaub Vorjahr",
                 min_value=0.0,
                 max_value=50.0,
-                value=float(mitarbeiter_data.get('resturlaub_vorjahr', 0.0)) if is_edit else 0.0,
+                value=float(mitarbeiter_data.get('resturlaub_vorjahr') or 0.0) if is_edit else 0.0,
                 step=0.5
             )
         
