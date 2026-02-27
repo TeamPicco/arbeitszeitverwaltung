@@ -138,31 +138,54 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'mitarbeiter_id', mitarbeiter_id
         ).eq('monat', monat).eq('jahr', jahr).execute()
         
+        # Basis-Daten die immer vorhanden sind
         arbeitszeitkonto_data = {
             'mitarbeiter_id': mitarbeiter_id,
             'monat': monat,
             'jahr': jahr,
             'soll_stunden': float(mitarbeiter['monatliche_soll_stunden']),
             'ist_stunden': round(ist_stunden, 2),
-            'urlaubstage_genommen': urlaubstage_genommen,
-            'urlaubsstunden': round(urlaubsstunden_gesamt, 2),
-            'sonntagsstunden': sonntagsstunden,
-            'feiertagsstunden': feiertagsstunden
+            'urlaubstage_genommen': float(urlaubstage_genommen),
         }
         
+        # Optionale Felder (nur wenn Migration ausgeführt wurde)
+        # Werden per try/except beim Speichern abgesichert
+        arbeitszeitkonto_data_extra = {
+            'sonntagsstunden': round(sonntagsstunden, 2),
+            'feiertagsstunden': round(feiertagsstunden, 2),
+            'urlaubsstunden': round(urlaubsstunden_gesamt, 2),
+        }
+        
+        # Versuche zuerst mit optionalen Feldern (nach Migration)
+        # Falls Spalten noch nicht existieren, Fallback ohne extra Felder
+        daten_komplett = {**arbeitszeitkonto_data, **arbeitszeitkonto_data_extra}
+        
         if existing.data:
-            # Aktualisiere bestehendes Arbeitszeitkonto
-            response = supabase.table('arbeitszeitkonto').update(arbeitszeitkonto_data).eq(
-                'id', existing.data[0]['id']
-            ).execute()
+            try:
+                response = supabase.table('arbeitszeitkonto').update(daten_komplett).eq(
+                    'id', existing.data[0]['id']
+                ).execute()
+            except Exception:
+                # Fallback: ohne optionale Felder
+                response = supabase.table('arbeitszeitkonto').update(arbeitszeitkonto_data).eq(
+                    'id', existing.data[0]['id']
+                ).execute()
             return response.data[0] if response.data else None
         else:
-            # Erstelle neues Arbeitszeitkonto
-            response = supabase.table('arbeitszeitkonto').insert(arbeitszeitkonto_data).execute()
+            try:
+                response = supabase.table('arbeitszeitkonto').insert(daten_komplett).execute()
+            except Exception:
+                # Fallback: ohne optionale Felder
+                response = supabase.table('arbeitszeitkonto').insert(arbeitszeitkonto_data).execute()
             return response.data[0] if response.data else None
     
     except Exception as e:
-        print(f"Fehler beim Berechnen des Arbeitszeitkontos: {str(e)}")
+        import traceback
+        import streamlit as st
+        tb = traceback.format_exc()
+        print(f"Fehler Arbeitszeitkonto: {str(e)}\n{tb}")
+        st.error(f"❌ Fehler beim Berechnen des Arbeitszeitkontos:")
+        st.code(f"{str(e)}\n\n{tb}", language='text')
         return None
 
 
@@ -199,32 +222,42 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
             arbeitszeitkonto['ist_stunden']
         )
         
+        # sonntagsstunden / feiertagsstunden können fehlen wenn Migration noch nicht ausgeführt
+        sonntagsstunden = float(arbeitszeitkonto.get('sonntagsstunden') or 0)
+        feiertagsstunden = float(arbeitszeitkonto.get('feiertagsstunden') or 0)
+        
         sonntagszuschlag = berechne_sonntagszuschlag(
             float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['sonntagsstunden']
-        ) if mitarbeiter['sonntagszuschlag_aktiv'] else 0
+            sonntagsstunden
+        ) if mitarbeiter.get('sonntagszuschlag_aktiv') else 0
         
         feiertagszuschlag = berechne_feiertagszuschlag(
             float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['feiertagsstunden']
-        ) if mitarbeiter['feiertagszuschlag_aktiv'] else 0
+            feiertagsstunden
+        ) if mitarbeiter.get('feiertagszuschlag_aktiv') else 0
         
-        gesamtbetrag = berechne_gesamtlohn(grundlohn, sonntagszuschlag, feiertagszuschlag)
+        gesamtbrutto = berechne_gesamtlohn(grundlohn, sonntagszuschlag, feiertagszuschlag)
+        ist_stunden = float(arbeitszeitkonto.get('ist_stunden') or 0)
         
         # Prüfe, ob bereits eine Lohnabrechnung existiert
         existing = supabase.table('lohnabrechnungen').select('*').eq(
             'mitarbeiter_id', mitarbeiter_id
         ).eq('monat', monat).eq('jahr', jahr).execute()
         
+        # Spaltennamen gemäß echtem DB-Schema:
+        # arbeitsstunden (NOT NULL), sonntagsstunden, feiertagsstunden, gesamtbrutto
+        # KEIN arbeitszeitkonto_id (existiert nicht im Schema)
         lohnabrechnung_data = {
             'mitarbeiter_id': mitarbeiter_id,
             'monat': monat,
             'jahr': jahr,
-            'arbeitszeitkonto_id': arbeitszeitkonto['id'],
-            'grundlohn': grundlohn,
-            'sonntagszuschlag': sonntagszuschlag,
-            'feiertagszuschlag': feiertagszuschlag,
-            'gesamtbetrag': gesamtbetrag
+            'arbeitsstunden': round(ist_stunden, 2),
+            'sonntagsstunden': round(sonntagsstunden, 2),
+            'feiertagsstunden': round(feiertagsstunden, 2),
+            'grundlohn': round(grundlohn, 2),
+            'sonntagszuschlag': round(sonntagszuschlag, 2),
+            'feiertagszuschlag': round(feiertagszuschlag, 2),
+            'gesamtbrutto': round(gesamtbrutto, 2),
         }
         
         if existing.data:
@@ -240,10 +273,11 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
     
     except Exception as e:
         import traceback
-        error_msg = f"Fehler beim Erstellen der Lohnabrechnung: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg)
         import streamlit as st
-        st.error(f"❌ Fehler: {str(e)}")
+        tb = traceback.format_exc()
+        print(f"Fehler Lohnabrechnung: {str(e)}\n{tb}")
+        st.error(f"❌ Fehler beim Erstellen der Lohnabrechnung:")
+        st.code(f"{str(e)}\n\n{tb}", language='text')
         return None
 
 

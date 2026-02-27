@@ -1215,14 +1215,15 @@ def show_lohnabrechnung():
                 mitarbeiter = abrechnung['mitarbeiter']
                 ist_minijob = (mitarbeiter or {}).get('beschaeftigungsart') == 'minijob'
                 minijob_grenze = float((mitarbeiter or {}).get('minijob_monatsgrenze') or 556.0)
-                gesamtbetrag = float(abrechnung.get('gesamtbetrag', 0))
+                # DB-Spalte heißt gesamtbrutto, gesamtbetrag als Fallback für ältere Einträge
+                gesamtbrutto = float(abrechnung.get('gesamtbrutto') or abrechnung.get('gesamtbetrag') or 0)
                 
                 # Warnung im Expander-Titel wenn Minijob-Grenze überschritten
-                grenze_ueberschritten = ist_minijob and gesamtbetrag > minijob_grenze
+                grenze_ueberschritten = ist_minijob and gesamtbrutto > minijob_grenze
                 expander_titel = (
                     f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
                     f"{get_monatsnamen(abrechnung['monat'])} {abrechnung['jahr']} - "
-                    f"{format_waehrung(gesamtbetrag)}"
+                    f"{format_waehrung(gesamtbrutto)}"
                     + (" ⚠️ MINIJOB-GRENZE ÜBERSCHRITTEN" if grenze_ueberschritten else "")
                     + (" 💼 Minijob" if ist_minijob and not grenze_ueberschritten else "")
                 )
@@ -1233,14 +1234,14 @@ def show_lohnabrechnung():
                         if grenze_ueberschritten:
                             st.error(
                                 f"⚠️ **Minijob-Grenze überschritten!** "
-                                f"Gesamtbetrag {format_waehrung(gesamtbetrag)} übersteigt die "
+                                f"Gesamtbrutto {format_waehrung(gesamtbrutto)} übersteigt die "
                                 f"Minijob-Grenze von {format_waehrung(minijob_grenze)}. "
                                 f"Bitte prüfen Sie den Arbeitsvertrag."
                             )
                         else:
-                            verbleibend = minijob_grenze - gesamtbetrag
+                            verbleibend = minijob_grenze - gesamtbrutto
                             st.info(
-                                f"💼 **Minijob** – Gesamtbetrag {format_waehrung(gesamtbetrag)} "
+                                f"💼 **Minijob** – Gesamtbrutto {format_waehrung(gesamtbrutto)} "
                                 f"von {format_waehrung(minijob_grenze)} Grenze "
                                 f"(noch {format_waehrung(verbleibend)} Spielraum)"
                             )
@@ -1249,14 +1250,15 @@ def show_lohnabrechnung():
                     
                     with col1:
                         st.write(f"**Grundlohn:** {format_waehrung(abrechnung['grundlohn'])}")
-                        if abrechnung['sonntagszuschlag'] > 0:
+                        if (abrechnung.get('sonntagszuschlag') or 0) > 0:
                             st.write(f"**Sonntagszuschlag:** {format_waehrung(abrechnung['sonntagszuschlag'])}")
-                        if abrechnung['feiertagszuschlag'] > 0:
+                        if (abrechnung.get('feiertagszuschlag') or 0) > 0:
                             st.write(f"**Feiertagszuschlag:** {format_waehrung(abrechnung['feiertagszuschlag'])}")
+                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0):.2f} h")
                     
                     with col2:
-                        st.write(f"**Gesamtbetrag:** {format_waehrung(gesamtbetrag)}")
-                        st.write(f"**Erstellt am:** {abrechnung['erstellt_am']}")
+                        st.write(f"**Gesamtbrutto:** {format_waehrung(gesamtbrutto)}")
+                        st.write(f"**Erstellt am:** {abrechnung.get('erstellt_am', '–')}")
                     
                     col1, col2 = st.columns(2)
                     
