@@ -13,9 +13,9 @@ ALTER TABLE dienstplaene
 ALTER TABLE dienstplaene
     ADD COLUMN IF NOT EXISTS urlaub_stunden DECIMAL(5,2) DEFAULT NULL;
 
--- Verknüpfung mit Urlaubsantrag (optional)
+-- Verknüpfung mit Urlaubsantrag (BIGINT, da alle IDs BIGSERIAL sind)
 ALTER TABLE dienstplaene
-    ADD COLUMN IF NOT EXISTS urlaubsantrag_id UUID REFERENCES urlaubsantraege(id) ON DELETE SET NULL;
+    ADD COLUMN IF NOT EXISTS urlaubsantrag_id BIGINT REFERENCES urlaubsantraege(id) ON DELETE SET NULL;
 
 -- Bestehende Einträge auf 'arbeit' setzen
 UPDATE dienstplaene
