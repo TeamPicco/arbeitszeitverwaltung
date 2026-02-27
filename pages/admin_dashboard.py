@@ -373,7 +373,8 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 min_value=0.0,
                 max_value=100.0,
                 value=float(mitarbeiter_data.get('stundenlohn_brutto', 15.0)) if is_edit else 15.0,
-                step=0.5
+                step=0.10,
+                format="%.2f"
             )
         
         with col2:
