@@ -60,6 +60,10 @@ CREATE TABLE mitarbeiter (
     sonntagszuschlag_aktiv BOOLEAN DEFAULT false,
     feiertagszuschlag_aktiv BOOLEAN DEFAULT false,
     
+    -- Beschäftigungsart
+    beschaeftigungsart VARCHAR(20) DEFAULT 'vollzeit' CHECK (beschaeftigungsart IN ('vollzeit', 'teilzeit', 'minijob', 'werkstudent', 'azubi')),
+    minijob_monatsgrenze DECIMAL(8,2) DEFAULT NULL,
+    
     -- Arbeitsvertrag
     arbeitsvertrag_pfad VARCHAR(500),
     

@@ -354,6 +354,24 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 max_value=date.today(),
                 format="DD.MM.YYYY"
             )
+            
+            BESCHAEFTIGUNGSARTEN = {
+                'vollzeit': 'Vollzeit',
+                'teilzeit': 'Teilzeit',
+                'minijob': '💼 Minijob (geringfügig)',
+                'werkstudent': 'Werkstudent',
+                'azubi': 'Auszubildende/r',
+            }
+            beschaeftigungsart_optionen = list(BESCHAEFTIGUNGSARTEN.keys())
+            aktuell = mitarbeiter_data.get('beschaeftigungsart', 'vollzeit') if is_edit else 'vollzeit'
+            if aktuell not in beschaeftigungsart_optionen:
+                aktuell = 'vollzeit'
+            beschaeftigungsart = st.selectbox(
+                "Beschäftigungsart",
+                options=beschaeftigungsart_optionen,
+                format_func=lambda x: BESCHAEFTIGUNGSARTEN[x],
+                index=beschaeftigungsart_optionen.index(aktuell)
+            )
         
         st.markdown("---")
         
@@ -375,6 +393,20 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 value=float(mitarbeiter_data.get('stundenlohn_brutto', 15.0)) if is_edit else 15.0,
                 step=0.10,
                 format="%.2f"
+            )
+            
+            # Minijob-Grenze (nur sichtbar wenn Minijob gewählt)
+            # Wir lesen beschaeftigungsart aus dem aktuellen Formularwert
+            # Da Streamlit-Widgets sequenziell sind, nutzen wir den gespeicherten Wert
+            _ist_minijob = (mitarbeiter_data.get('beschaeftigungsart') == 'minijob') if is_edit else False
+            minijob_monatsgrenze = st.number_input(
+                "💼 Minijob-Monatsgrenze (€)",
+                min_value=0.0,
+                max_value=1000.0,
+                value=float(mitarbeiter_data.get('minijob_monatsgrenze', 556.0)) if is_edit else 556.0,
+                step=1.0,
+                format="%.2f",
+                help="Aktuelle Minijob-Grenze: 556,00 €/Monat (2025). \nBei Überschreitung wird eine Warnung in der Lohnabrechnung angezeigt."
             )
         
         with col2:
@@ -466,7 +498,9 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 'resturlaub_vorjahr': resturlaub_vorjahr,
                 'sonntagszuschlag_aktiv': sonntagszuschlag_aktiv,
                 'feiertagszuschlag_aktiv': feiertagszuschlag_aktiv,
-                'mobile_zeiterfassung': mobile_zeiterfassung
+                'mobile_zeiterfassung': mobile_zeiterfassung,
+                'beschaeftigungsart': beschaeftigungsart,
+                'minijob_monatsgrenze': minijob_monatsgrenze if beschaeftigungsart == 'minijob' else None,
             }
             
             if is_edit:
@@ -525,7 +559,22 @@ def show_mitarbeiter_details(mitarbeiter: dict):
         st.write(f"**Stundenlohn:** {format_waehrung(mitarbeiter['stundenlohn_brutto'])}")
         st.write(f"**Urlaubstage/Jahr:** {mitarbeiter['jahres_urlaubstage']}")
         
-        st.markdown("**Zuschläge**")
+        # Beschäftigungsart
+        BESCHAEFTIGUNGSARTEN_LABEL = {
+            'vollzeit': 'Vollzeit',
+            'teilzeit': 'Teilzeit',
+            'minijob': '💼 Minijob (geringfügig)',
+            'werkstudent': 'Werkstudent',
+            'azubi': 'Auszubildende/r',
+        }
+        art = mitarbeiter.get('beschaeftigungsart', 'vollzeit') or 'vollzeit'
+        st.write(f"**Beschäftigungsart:** {BESCHAEFTIGUNGSARTEN_LABEL.get(art, art.capitalize())}")
+        
+        if art == 'minijob':
+            grenze = mitarbeiter.get('minijob_monatsgrenze') or 556.0
+            st.write(f"**Minijob-Monatsgrenze:** {grenze:.2f} €")
+        
+        st.markdown("**Zuschäge**")
         st.write(f"Sonntagszuschlag: {'✅ Aktiv' if mitarbeiter['sonntagszuschlag_aktiv'] else '❌ Inaktiv'}")
         st.write(f"Feiertagszuschlag: {'✅ Aktiv' if mitarbeiter['feiertagszuschlag_aktiv'] else '❌ Inaktiv'}")
     
@@ -1158,18 +1207,44 @@ def show_lohnabrechnung():
     
     try:
         lohnabrechnungen = supabase.table('lohnabrechnungen').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer)'
+            '*, mitarbeiter(vorname, nachname, personalnummer, beschaeftigungsart, minijob_monatsgrenze)'
         ).order('jahr', desc=True).order('monat', desc=True).execute()
         
         if lohnabrechnungen.data:
             for abrechnung in lohnabrechnungen.data:
                 mitarbeiter = abrechnung['mitarbeiter']
+                ist_minijob = (mitarbeiter or {}).get('beschaeftigungsart') == 'minijob'
+                minijob_grenze = float((mitarbeiter or {}).get('minijob_monatsgrenze') or 556.0)
+                gesamtbetrag = float(abrechnung.get('gesamtbetrag', 0))
                 
-                with st.expander(
+                # Warnung im Expander-Titel wenn Minijob-Grenze überschritten
+                grenze_ueberschritten = ist_minijob and gesamtbetrag > minijob_grenze
+                expander_titel = (
                     f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
                     f"{get_monatsnamen(abrechnung['monat'])} {abrechnung['jahr']} - "
-                    f"{format_waehrung(abrechnung['gesamtbetrag'])}"
-                ):
+                    f"{format_waehrung(gesamtbetrag)}"
+                    + (" ⚠️ MINIJOB-GRENZE ÜBERSCHRITTEN" if grenze_ueberschritten else "")
+                    + (" 💼 Minijob" if ist_minijob and not grenze_ueberschritten else "")
+                )
+                
+                with st.expander(expander_titel):
+                    # Minijob-Warnung
+                    if ist_minijob:
+                        if grenze_ueberschritten:
+                            st.error(
+                                f"⚠️ **Minijob-Grenze überschritten!** "
+                                f"Gesamtbetrag {format_waehrung(gesamtbetrag)} übersteigt die "
+                                f"Minijob-Grenze von {format_waehrung(minijob_grenze)}. "
+                                f"Bitte prüfen Sie den Arbeitsvertrag."
+                            )
+                        else:
+                            verbleibend = minijob_grenze - gesamtbetrag
+                            st.info(
+                                f"💼 **Minijob** – Gesamtbetrag {format_waehrung(gesamtbetrag)} "
+                                f"von {format_waehrung(minijob_grenze)} Grenze "
+                                f"(noch {format_waehrung(verbleibend)} Spielraum)"
+                            )
+                    
                     col1, col2 = st.columns(2)
                     
                     with col1:
@@ -1180,7 +1255,7 @@ def show_lohnabrechnung():
                             st.write(f"**Feiertagszuschlag:** {format_waehrung(abrechnung['feiertagszuschlag'])}")
                     
                     with col2:
-                        st.write(f"**Gesamtbetrag:** {format_waehrung(abrechnung['gesamtbetrag'])}")
+                        st.write(f"**Gesamtbetrag:** {format_waehrung(gesamtbetrag)}")
                         st.write(f"**Erstellt am:** {abrechnung['erstellt_am']}")
                     
                     col1, col2 = st.columns(2)
