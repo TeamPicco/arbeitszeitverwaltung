@@ -178,22 +178,39 @@ def show_uebersicht():
                         
                         with col1:
                             if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True, type="primary"):
-                                import logging
-                                logger = logging.getLogger(__name__)
                                 try:
-                                    logger.info(f"DEBUG: Genehmige Urlaubsantrag ID {antrag['id']}")
-                                    
-                                    response = supabase.table('urlaubsantraege').update({
-                                        'status': 'Genehmigt',
-                                        'bearbeitet_am': datetime.now().isoformat()
+                                    # 1) Status auf 'genehmigt' (lowercase!) setzen
+                                    supabase.table('urlaubsantraege').update({
+                                        'status': 'genehmigt',
+                                        'bearbeitet_am': datetime.now().isoformat(),
+                                        'bearbeitet_von': st.session_state.user_id
                                     }).eq('id', antrag['id']).execute()
                                     
-                                    logger.info(f"DEBUG: Update Response: {response}")
+                                    # 2) Resturlaub automatisch abziehen
+                                    anzahl_tage = float(antrag.get('anzahl_tage') or 0)
+                                    if anzahl_tage > 0:
+                                        ma_id = antrag['mitarbeiter_id']
+                                        ma_resp = supabase.table('mitarbeiter').select(
+                                            'id, jahres_urlaubstage, resturlaub_vorjahr'
+                                        ).eq('id', ma_id).execute()
+                                        if ma_resp.data:
+                                            ma_d = ma_resp.data[0]
+                                            jahres = float(ma_d.get('jahres_urlaubstage') or 28)
+                                            rest = float(ma_d.get('resturlaub_vorjahr') or 0)
+                                            bereits_resp = supabase.table('urlaubsantraege').select(
+                                                'anzahl_tage'
+                                            ).eq('mitarbeiter_id', ma_id).eq('status', 'genehmigt').neq(
+                                                'id', antrag['id']
+                                            ).execute()
+                                            bereits = sum(float(a.get('anzahl_tage') or 0) for a in (bereits_resp.data or []))
+                                            neuer_rest = round(jahres + rest - bereits - anzahl_tage, 1)
+                                            supabase.table('mitarbeiter').update({
+                                                'resturlaub_vorjahr': max(0, neuer_rest)
+                                            }).eq('id', ma_id).execute()
                                     
-                                    # Benachrichtigung für Mitarbeiter
+                                    # 3) Benachrichtigung für Mitarbeiter
                                     mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
                                     if mitarbeiter_user.data:
-                                        logger.info(f"DEBUG: Erstelle Benachrichtigung für User {mitarbeiter_user.data[0]['user_id']}")
                                         supabase.table('benachrichtigungen').insert({
                                             'user_id': mitarbeiter_user.data[0]['user_id'],
                                             'typ': 'urlaubsantrag',
@@ -203,12 +220,10 @@ def show_uebersicht():
                                             'betrieb_id': st.session_state.betrieb_id
                                         }).execute()
                                     
-                                    st.success("✅ Urlaubsantrag genehmigt!")
-                                    logger.info("DEBUG: Urlaubsantrag erfolgreich genehmigt, rerun...")
+                                    st.success(f"✅ Genehmigt! {anzahl_tage:.1f} Urlaubstage abgezogen.")
                                     st.rerun()
                                 except Exception as e:
-                                    logger.error(f"DEBUG ERROR bei Urlaubsgenehmigung: {e}", exc_info=True)
-                                    st.error(f"Fehler: {str(e)}")
+                                    st.error(f"Fehler bei Genehmigung: {str(e)}")
                         
                         with col2:
                             if st.button("❌ Ablehnen", key=f"reject_{antrag['id']}", use_container_width=True):

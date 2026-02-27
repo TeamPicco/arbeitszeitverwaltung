@@ -75,30 +75,48 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
         
         for dienst in dienstplaene.data:
             datum_obj = datetime.fromisoformat(dienst['datum']).date()
-            wochentag = calendar.day_name[datum_obj.weekday()]
+            wochentag_de = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"][datum_obj.weekday()]
+            schichttyp = dienst.get('schichttyp', 'arbeit')
             
-            # Berechne Arbeitsstunden
-            start = datetime.strptime(dienst['start_zeit'], '%H:%M:%S').time()
-            ende = datetime.strptime(dienst['ende_zeit'], '%H:%M:%S').time()
-            
-            start_dt = datetime.combine(date.today(), start)
-            ende_dt = datetime.combine(date.today(), ende)
-            
-            # Wenn Ende vor Start liegt, ist es am nächsten Tag
-            if ende_dt <= start_dt:
-                ende_dt += timedelta(days=1)
-            
-            stunden = (ende_dt - start_dt).total_seconds() / 3600
-            stunden -= dienst.get('pause_minuten', 0) / 60
-            total_stunden += stunden
-            
-            # Farbe der Schichtvorlage
-            farbe = "#6c757d"  # Standard-Grau
-            schicht_name = "Benutzerdefiniert"
-            
-            if dienst.get('schichtvorlagen'):
-                schicht_name = dienst['schichtvorlagen']['name']
-                farbe = dienst['schichtvorlagen'].get('farbe', '#6c757d')
+            # Farbe und Name je nach Schichttyp
+            if schichttyp == 'urlaub':
+                farbe = "#f59e0b"
+                schicht_name = "🏖️ Urlaub"
+                urlaub_std = float(dienst.get('urlaub_stunden') or 0)
+                stunden = urlaub_std
+                total_stunden += stunden
+                zeit_anzeige = f"{urlaub_std:.1f}h Urlaubszeit"
+                pause_anzeige = ""
+            elif schichttyp == 'frei':
+                farbe = "#9ca3af"
+                schicht_name = "⚪ Frei"
+                stunden = 0
+                zeit_anzeige = "Freier Tag"
+                pause_anzeige = ""
+            else:
+                # Arbeitstag: Zeiten parsen
+                farbe = "#6c757d"
+                schicht_name = "Benutzerdefiniert"
+                if dienst.get('schichtvorlagen'):
+                    schicht_name = dienst['schichtvorlagen']['name']
+                    farbe = dienst['schichtvorlagen'].get('farbe', '#6c757d')
+                
+                try:
+                    start = datetime.strptime(dienst['start_zeit'], '%H:%M:%S').time()
+                    ende = datetime.strptime(dienst['ende_zeit'], '%H:%M:%S').time()
+                    start_dt = datetime.combine(date.today(), start)
+                    ende_dt = datetime.combine(date.today(), ende)
+                    if ende_dt <= start_dt:
+                        ende_dt += timedelta(days=1)
+                    stunden = (ende_dt - start_dt).total_seconds() / 3600
+                    stunden -= dienst.get('pause_minuten', 0) / 60
+                    total_stunden += stunden
+                    zeit_anzeige = f"⏰ {dienst['start_zeit'][:5]} - {dienst['ende_zeit'][:5]}"
+                    pause_anzeige = f"☕ Pause: {dienst['pause_minuten']} Min" if dienst.get('pause_minuten', 0) > 0 else ""
+                except Exception:
+                    stunden = 0
+                    zeit_anzeige = "Zeiten nicht verfügbar"
+                    pause_anzeige = ""
             
             # Zeige Dienst
             with st.container():
@@ -106,18 +124,21 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
                 
                 with col1:
                     st.markdown(f"**{datum_obj.strftime('%d.%m.%Y')}**")
-                    st.caption(wochentag)
+                    st.caption(wochentag_de)
                 
                 with col2:
                     st.markdown(f"<span style='background-color: {farbe}; padding: 2px 8px; border-radius: 3px; color: white;'>{schicht_name}</span>", unsafe_allow_html=True)
                 
                 with col3:
-                    st.write(f"⏰ {dienst['start_zeit'][:5]} - {dienst['ende_zeit'][:5]}")
-                    if dienst.get('pause_minuten', 0) > 0:
-                        st.caption(f"☕ Pause: {dienst['pause_minuten']} Min")
+                    st.write(zeit_anzeige)
+                    if pause_anzeige:
+                        st.caption(pause_anzeige)
                 
                 with col4:
-                    st.write(f"📊 {stunden:.2f}h")
+                    if stunden > 0:
+                        st.write(f"📊 {stunden:.2f}h")
+                    else:
+                        st.write("–")
                 
                 if dienst.get('notiz'):
                     st.caption(f"📝 {dienst['notiz']}")
