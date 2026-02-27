@@ -775,31 +775,78 @@ def show_urlaubsgenehmigung():
                     
                     with col1:
                         if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True):
-                            # Aktualisiere Antrag
-                            supabase.table('urlaubsantraege').update({
-                                'status': 'genehmigt',
-                                'bemerkung_admin': bemerkung_admin,
-                                'bearbeitet_am': datetime.now().isoformat(),
-                                'bearbeitet_von': st.session_state.user_id
-                            }).eq('id', antrag['id']).execute()
-                            
-                            # E-Mail an Mitarbeiter senden
                             try:
-                                from utils.email_service import send_urlaubsgenehmigung_email
-                                ma_email = mitarbeiter.get('email')
-                                ma_name = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
-                                if ma_email:
-                                    send_urlaubsgenehmigung_email(
-                                        ma_email, ma_name, 'genehmigt',
-                                        antrag['von_datum'], antrag['bis_datum'],
-                                        antrag.get('anzahl_tage'),
-                                        bemerkung_admin
-                                    )
-                            except Exception as mail_err:
-                                pass  # E-Mail-Fehler soll App nicht blockieren
-                            
-                            st.success("✅ Urlaubsantrag genehmigt! Mitarbeiter wurde per E-Mail informiert.")
-                            st.rerun()
+                                # 1) Antrag auf 'genehmigt' setzen
+                                supabase.table('urlaubsantraege').update({
+                                    'status': 'genehmigt',
+                                    'bemerkung_admin': bemerkung_admin,
+                                    'bearbeitet_am': datetime.now().isoformat(),
+                                    'bearbeitet_von': st.session_state.user_id
+                                }).eq('id', antrag['id']).execute()
+                                
+                                # 2) Resturlaub des Mitarbeiters um anzahl_tage verringern
+                                anzahl_tage = float(antrag.get('anzahl_tage') or 0)
+                                if anzahl_tage > 0:
+                                    ma_id = antrag['mitarbeiter_id']
+                                    # Aktuellen Resturlaub laden
+                                    ma_resp = supabase.table('mitarbeiter').select(
+                                        'id, jahres_urlaubstage, resturlaub_vorjahr'
+                                    ).eq('id', ma_id).execute()
+                                    
+                                    if ma_resp.data:
+                                        ma_data = ma_resp.data[0]
+                                        jahres = float(ma_data.get('jahres_urlaubstage') or 28)
+                                        rest_vorjahr = float(ma_data.get('resturlaub_vorjahr') or 0)
+                                        
+                                        # Bereits genehmigte Tage in diesem Jahr summieren
+                                        bereits_genehmigt_resp = supabase.table('urlaubsantraege').select(
+                                            'anzahl_tage'
+                                        ).eq('mitarbeiter_id', ma_id).eq('status', 'genehmigt').neq(
+                                            'id', antrag['id']
+                                        ).execute()
+                                        
+                                        bereits_tage = sum(
+                                            float(a.get('anzahl_tage') or 0)
+                                            for a in (bereits_genehmigt_resp.data or [])
+                                        )
+                                        
+                                        # Resturlaub = Jahresanspruch + Vorjahresrest - bereits genehmigte Tage - neue Tage
+                                        gesamt_anspruch = jahres + rest_vorjahr
+                                        neuer_rest = round(gesamt_anspruch - bereits_tage - anzahl_tage, 1)
+                                        
+                                        if neuer_rest < 0:
+                                            st.warning(
+                                                f"⚠️ Achtung: Urlaubsanspruch ({gesamt_anspruch:.1f} Tage) wird "
+                                                f"um {abs(neuer_rest):.1f} Tage überschritten!"
+                                            )
+                                        
+                                        # Resturlaub aktualisieren
+                                        supabase.table('mitarbeiter').update({
+                                            'resturlaub_vorjahr': max(0, neuer_rest)
+                                        }).eq('id', ma_id).execute()
+                                
+                                # 3) E-Mail an Mitarbeiter senden
+                                try:
+                                    from utils.email_service import send_urlaubsgenehmigung_email
+                                    ma_email = mitarbeiter.get('email')
+                                    ma_name = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
+                                    if ma_email:
+                                        send_urlaubsgenehmigung_email(
+                                            ma_email, ma_name, 'genehmigt',
+                                            antrag['von_datum'], antrag['bis_datum'],
+                                            antrag.get('anzahl_tage'),
+                                            bemerkung_admin
+                                        )
+                                except Exception as mail_err:
+                                    pass  # E-Mail-Fehler soll App nicht blockieren
+                                
+                                st.success(
+                                    f"✅ Urlaubsantrag genehmigt! "
+                                    f"{anzahl_tage:.1f} Urlaubstage wurden vom Resturlaub abgezogen."
+                                )
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Fehler bei der Urlaubsgenehmigung: {str(e)}")
                     
                     with col2:
                         if st.button("❌ Ablehnen", key=f"reject_{antrag['id']}", use_container_width=True):
@@ -1020,10 +1067,8 @@ def show_lohnabrechnung():
     
     st.subheader("💰 Lohnabrechnung")
     
-    from utils.lohnabrechnung import (
-        erstelle_lohnabrechnung,
-        generiere_lohnabrechnung_pdf
-    )
+    from utils.lohnkern import speichereMonatslohn
+    from utils.lohnabrechnung import generiere_lohnabrechnung_pdf
     from utils.datev_export import erstelle_datev_lohnexport, erstelle_lohnuebersicht_csv
     
     # Auswahl Mitarbeiter und Zeitraum
@@ -1070,18 +1115,25 @@ def show_lohnabrechnung():
     
     with col_btn1:
         if st.button("💰 Lohnabrechnung erstellen", use_container_width=True, type="primary"):
-            with st.spinner("Erstelle Lohnabrechnung..."):
-                lohnabrechnung_id = erstelle_lohnabrechnung(
+            with st.spinner("Berechne Lohn – lese Zeiterfassung aus Datenbank..."):
+                ergebnis = speichereMonatslohn(
                     selected_mitarbeiter['id'],
                     monat,
                     jahr
                 )
                 
-                if lohnabrechnung_id:
-                    st.success("✅ Lohnabrechnung erfolgreich erstellt!")
+                if ergebnis['ok'] and ergebnis.get('gespeichert'):
+                    st.success(
+                        f"✅ Lohnabrechnung erstellt! "
+                        f"{ergebnis['gesamt_stunden']:.2f} h × {ergebnis['stundenlohn']:.2f} € = "
+                        f"**{ergebnis['gesamtbrutto']:.2f} € Brutto** "
+                        f"({ergebnis['anzahl_eintraege']} Zeiterfassungs-Einträge aus DB gelesen)"
+                    )
                     st.rerun()
+                elif ergebnis.get('fehler'):
+                    st.error(ergebnis['fehler'])
                 else:
-                    st.error("Fehler beim Erstellen der Lohnabrechnung.")
+                    st.error("Fehler beim Speichern der Lohnabrechnung.")
     
     st.markdown("---")
     
@@ -1276,14 +1328,20 @@ def show_lohnabrechnung():
                     
                     with col2:
                         if st.button("🔄 Neu berechnen", key=f"recalc_{abrechnung['id']}"):
-                            lohnabrechnung_id = erstelle_lohnabrechnung(
+                            from utils.lohnkern import speichereMonatslohn
+                            ergebnis = speichereMonatslohn(
                                 abrechnung['mitarbeiter_id'],
                                 abrechnung['monat'],
                                 abrechnung['jahr']
                             )
-                            if lohnabrechnung_id:
-                                st.success("✅ Lohnabrechnung neu berechnet!")
+                            if ergebnis['ok'] and ergebnis.get('gespeichert'):
+                                st.success(
+                                    f"✅ Neu berechnet: {ergebnis['gesamt_stunden']:.2f} h × "
+                                    f"{ergebnis['stundenlohn']:.2f} € = {ergebnis['gesamtbrutto']:.2f} € Brutto"
+                                )
                                 st.rerun()
+                            elif ergebnis.get('fehler'):
+                                st.error(ergebnis['fehler'])
         else:
             st.info("Noch keine Lohnabrechnungen erstellt.")
     
