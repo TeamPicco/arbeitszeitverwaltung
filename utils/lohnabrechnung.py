@@ -1,8 +1,8 @@
 """
 Lohnabrechnung und PDF-Export
 """
-
-from datetime import date, datetime, time
+from datetime import datetime, date, timedelta
+from utils.calculations import parse_zeit
 from typing import Dict, Any, List, Optional
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -82,13 +82,14 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         for z in zeiterfassungen.data:
             if z['ende_zeit']:
                 # Konvertiere zu time-Objekten für berechne_arbeitsstunden
-                start_time = datetime.strptime(z['start_zeit'], '%H:%M:%S').time()
-                ende_time = datetime.strptime(z['ende_zeit'], '%H:%M:%S').time()
+                start_time, _ = parse_zeit(z['start_zeit'])
+                ende_time, naechster_tag = parse_zeit(z['ende_zeit'])
                 
                 stunden = berechne_arbeitsstunden(
                     start_time,
                     ende_time,
-                    z['pause_minuten']
+                    z['pause_minuten'],
+                    naechster_tag=naechster_tag
                 )
                 
                 ist_stunden += stunden

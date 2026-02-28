@@ -9,7 +9,10 @@ from datetime import datetime, date, timedelta
 import calendar
 import locale
 from utils.database import get_supabase_client, get_all_mitarbeiter
-from utils.calculations import berechne_arbeitsstunden_mit_pause
+from utils.calculations import (
+    parse_zeit,
+    berechne_arbeitsstunden_mit_pause
+)
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -267,8 +270,8 @@ def show_monatsplan(supabase):
             with col5:
                 if vorlage_id:
                     v = vorlagen_dict[vorlage_id]
-                    start_z = datetime.strptime(v['start_zeit'], '%H:%M:%S').time()
-                    ende_z = datetime.strptime(v['ende_zeit'], '%H:%M:%S').time()
+                    start_z, _ = parse_zeit(v['start_zeit'])
+                    ende_z, _ = parse_zeit(v['ende_zeit'])
                     pause_m = v.get('pause_minuten', 0)
                     st.write(f"⏰ {v['start_zeit'][:5]} – {v['ende_zeit'][:5]}")
                     st.caption(f"Pause: {pause_m} Min")
@@ -666,10 +669,10 @@ def show_schichtvorlagen(supabase):
                             name = st.text_input("Name", value=vorlage['name'])
                             beschreibung = st.text_area("Beschreibung", value=vorlage.get('beschreibung', ''))
                         with col2:
-                            start_zeit = st.time_input("Startzeit",
-                                                       value=datetime.strptime(vorlage['start_zeit'], '%H:%M:%S').time())
-                            ende_zeit = st.time_input("Endzeit",
-                                                      value=datetime.strptime(vorlage['ende_zeit'], '%H:%M:%S').time())
+                            _sv, _ = parse_zeit(vorlage['start_zeit'])
+                            start_zeit = st.time_input("Startzeit", value=_sv)
+                            _ev, _ = parse_zeit(vorlage['ende_zeit'])
+                            ende_zeit = st.time_input("Endzeit", value=_ev)
                             pause_minuten = st.number_input("Pause (Min)", min_value=0, max_value=240,
                                                             value=vorlage.get('pause_minuten', 0), step=15)
                         farbe = st.color_picker("Farbe", value=vorlage.get('farbe', '#0d6efd'))

@@ -14,8 +14,9 @@ from utils.database import (
     change_password
 )
 from utils.calculations import (
-    berechne_arbeitsstunden,
     berechne_urlaubstage,
+    berechne_arbeitsstunden,
+    parse_zeit,
     berechne_verfuegbare_urlaubstage,
     is_sonntag,
     is_feiertag,
@@ -200,11 +201,9 @@ def show_dashboard(mitarbeiter: dict):
             df_data = []
             for z in zeiterfassungen.data:
                 if z['ende_zeit']:
-                    stunden = berechne_arbeitsstunden(
-                        datetime.strptime(z['start_zeit'], '%H:%M:%S').time(),
-                        datetime.strptime(z['ende_zeit'], '%H:%M:%S').time(),
-                        z['pause_minuten']
-                    )
+                    _s, _ = parse_zeit(z['start_zeit'])
+                    _e, _nt = parse_zeit(z['ende_zeit'])
+                    stunden = berechne_arbeitsstunden(_s, _e, z['pause_minuten'], naechster_tag=_nt)
                 else:
                     stunden = 0
                 
@@ -409,11 +408,9 @@ def show_zeiterfassung(mitarbeiter: dict):
             
             for z in zeiterfassungen.data:
                 if z['ende_zeit']:
-                    stunden = berechne_arbeitsstunden(
-                        datetime.strptime(z['start_zeit'], '%H:%M:%S').time(),
-                        datetime.strptime(z['ende_zeit'], '%H:%M:%S').time(),
-                        z['pause_minuten']
-                    )
+                    _s, _ = parse_zeit(z['start_zeit'])
+                    _e, _nt = parse_zeit(z['ende_zeit'])
+                    stunden = berechne_arbeitsstunden(_s, _e, z['pause_minuten'], naechster_tag=_nt)
                     gesamt_stunden += stunden
                 else:
                     stunden = 0
@@ -421,7 +418,7 @@ def show_zeiterfassung(mitarbeiter: dict):
                 df_data.append({
                     'Datum': z['datum'],
                     'Wochentag': get_wochentag(datetime.fromisoformat(z['datum']).date()),
-                    'Start': z['start_zeit'][:5],
+                    'Start': z['start_zeit'][:5] if z['start_zeit'] else '',
                     'Ende': z['ende_zeit'][:5] if z['ende_zeit'] else 'Offen',
                     'Pause': f"{z['pause_minuten']} min",
                     'Stunden': format_stunden(stunden) if stunden > 0 else '-',

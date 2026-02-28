@@ -21,7 +21,8 @@ from utils.calculations import (
     berechne_urlaubstage,
     format_waehrung,
     get_monatsnamen,
-    berechne_arbeitsstunden
+    berechne_arbeitsstunden,
+    parse_zeit
 )
 from utils.push_notifications import show_notifications_widget
 from utils.chat_notifications import get_unread_chat_count
@@ -663,12 +664,19 @@ def show_mitarbeiter_details(mitarbeiter: dict):
                 if success:
                     # Update Mitarbeiter-Datensatz
                     supabase = get_supabase_client()
-                    supabase.table('mitarbeiter').update({
-                        'vertrag_pdf_path': file_path
-                    }).eq('id', mitarbeiter['id']).execute()
-                    
-                    st.success("✅ Arbeitsvertrag erfolgreich hochgeladen!")
-                    st.rerun()
+                    try:
+                        supabase.table('mitarbeiter').update({
+                            'vertrag_pdf_path': file_path
+                        }).eq('id', mitarbeiter['id']).execute()
+                        st.success("✅ Arbeitsvertrag erfolgreich hochgeladen!")
+                        st.rerun()
+                    except Exception as db_err:
+                        err_msg = str(db_err)
+                        if 'vertrag_pdf_path' in err_msg or 'PGRST204' in err_msg:
+                            st.warning("⚠️ Datei hochgeladen, aber Datenbankfeld fehlt noch. Bitte Migration ausführen (siehe unten).")
+                            st.code("ALTER TABLE mitarbeiter ADD COLUMN IF NOT EXISTS vertrag_pdf_path TEXT DEFAULT NULL;", language='sql')
+                        else:
+                            st.error(f"Datenbankfehler: {err_msg}")
                 else:
                     st.error("Fehler beim Hochladen des Vertrags.")
             except Exception as e:
@@ -986,14 +994,15 @@ def show_zeiterfassung_admin():
                     col1, col2, col3 = st.columns(3)
                     
                     with col1:
+                        _s, _ = parse_zeit(ze['start_zeit'])
                         new_check_in = st.time_input(
                             "Check-In",
-                            value=datetime.strptime(ze['start_zeit'], '%H:%M:%S').time()
+                            value=_s
                         )
                     
                     with col2:
                         if ze['ende_zeit']:
-                            default_checkout = datetime.strptime(ze['ende_zeit'], '%H:%M:%S').time()
+                            default_checkout, _ = parse_zeit(ze['ende_zeit'])
                         else:
                             default_checkout = datetime.now().time()
                         

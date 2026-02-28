@@ -8,6 +8,38 @@ import holidays
 import os
 
 
+def parse_zeit(zeit_str: str):
+    """
+    Parst einen Zeitstring im Format 'HH:MM:SS' oder 'HH:MM'.
+    Behandelt '24:00:00' korrekt als Mitternacht (00:00:00) und gibt
+    zusaetzlich einen Flag zurueck, ob es der naechste Tag ist.
+
+    Args:
+        zeit_str: Zeitstring z.B. '17:00:00', '23:45:00', '24:00:00'
+
+    Returns:
+        tuple: (time-Objekt, bool: naechster_tag)
+    """
+    if not zeit_str:
+        return time(0, 0, 0), False
+    
+    # Normalisiere: nur HH:MM:SS behalten
+    teil = zeit_str.strip()[:8]
+    
+    try:
+        stunde = int(teil[:2])
+        minute = int(teil[3:5]) if len(teil) >= 5 else 0
+        sekunde = int(teil[6:8]) if len(teil) >= 8 else 0
+    except (ValueError, IndexError):
+        return time(0, 0, 0), False
+    
+    if stunde >= 24:
+        # 24:00 = Mitternacht des naechsten Tages
+        return time(0, minute, sekunde), True
+    
+    return time(stunde, minute, sekunde), False
+
+
 def get_german_holidays(year: int, bundesland: str = None) -> holidays.HolidayBase:
     """
     Gibt deutsche Feiertage für ein Jahr zurück
@@ -72,7 +104,7 @@ def is_sonntag(datum: date) -> bool:
     return datum.weekday() == 6  # 6 = Sonntag
 
 
-def berechne_arbeitsstunden(start_zeit: time, ende_zeit: time, pause_minuten: int) -> float:
+def berechne_arbeitsstunden(start_zeit: time, ende_zeit: time, pause_minuten: int, naechster_tag: bool = False) -> float:
     """
     Berechnet die Arbeitsstunden
     
@@ -80,6 +112,7 @@ def berechne_arbeitsstunden(start_zeit: time, ende_zeit: time, pause_minuten: in
         start_zeit: Startzeit
         ende_zeit: Endzeit
         pause_minuten: Pausenzeit in Minuten
+        naechster_tag: True wenn Ende am naechsten Tag liegt (z.B. 24:00 = 00:00 Folgetag)
         
     Returns:
         float: Arbeitsstunden (gerundet auf 2 Dezimalstellen)
@@ -88,8 +121,11 @@ def berechne_arbeitsstunden(start_zeit: time, ende_zeit: time, pause_minuten: in
     start_dt = datetime.combine(date.today(), start_zeit)
     ende_dt = datetime.combine(date.today(), ende_zeit)
     
-    # Wenn Ende vor Start liegt, addiere einen Tag (Nachtschicht)
-    if ende_dt < start_dt:
+    # Wenn naechster_tag-Flag gesetzt (z.B. 24:00:00), addiere einen Tag
+    if naechster_tag:
+        ende_dt += timedelta(days=1)
+    # Wenn Ende vor Start liegt (normale Nachtschicht), addiere einen Tag
+    elif ende_dt <= start_dt:
         ende_dt += timedelta(days=1)
     
     # Berechne Differenz in Stunden
