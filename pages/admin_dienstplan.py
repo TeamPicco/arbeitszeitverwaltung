@@ -8,6 +8,8 @@ import streamlit as st
 from datetime import datetime, date, timedelta
 import calendar
 import locale
+import io
+import os
 from utils.database import get_supabase_client, get_all_mitarbeiter
 from utils.calculations import (
     parse_zeit,
@@ -38,6 +40,215 @@ except:
         locale.setlocale(locale.LC_TIME, 'de_DE')
     except:
         pass
+
+
+# ============================================================
+# PDF-FUNKTIONEN
+# ============================================================
+
+WOCHENTAGE_DE_PDF = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
+
+def _pdf_header(elements, logo_path, monat, jahr, mitarbeiter_name):
+    """Erstellt den PDF-Header mit Logo, Titel und Mitarbeitername"""
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Table, TableStyle, Paragraph, Spacer, Image, HRFlowable
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+    if os.path.exists(logo_path):
+        try:
+            logo = Image(logo_path, width=3*cm, height=2.5*cm)
+            hd = [[logo, Paragraph("<b>Steakhouse Piccolo</b><br/>Dienstplan",
+                   ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
+        except:
+            hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+                   ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
+    else:
+        hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+               ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
+
+    ht = Table(hd, colWidths=[4*cm, 13*cm])
+    ht.setStyle(TableStyle([('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+    elements.append(ht)
+    elements.append(HRFlowable(width="100%", thickness=1, color=colors.grey))
+    elements.append(Spacer(1, 0.5*cm))
+    elements.append(Paragraph(f"Dienstplan {MONATE_DE[monat]} {jahr}",
+                               ParagraphStyle('title', fontSize=18, alignment=TA_CENTER,
+                                              spaceAfter=0.3*cm, fontName='Helvetica-Bold')))
+    elements.append(Paragraph(mitarbeiter_name,
+                               ParagraphStyle('sub', fontSize=12, alignment=TA_CENTER,
+                                              spaceAfter=0.5*cm, textColor=colors.grey)))
+    elements.append(Spacer(1, 0.3*cm))
+
+
+def _pdf_dienste_tabelle(elements, dienstplaene):
+    """Erstellt die Dienstplan-Tabelle als PDF-Element"""
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Table, TableStyle, Spacer
+
+    col_widths = [2.5*cm, 3*cm, 3*cm, 3.5*cm, 2*cm, 3*cm]
+    table_data = [["Datum", "Wochentag", "Typ", "Zeiten", "Pause", "Stunden"]]
+    total_stunden = 0
+
+    for dienst in dienstplaene:
+        datum_obj = datetime.fromisoformat(dienst['datum']).date()
+        wt = WOCHENTAGE_DE_PDF[datum_obj.weekday()]
+        schichttyp = dienst.get('schichttyp', 'arbeit')
+
+        if schichttyp == 'urlaub':
+            std = float(dienst.get('urlaub_stunden') or 0)
+            total_stunden += std
+            table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Urlaub",
+                                f"{std:.1f}h Urlaub", "-", f"{std:.2f} h"])
+        elif schichttyp == 'frei':
+            table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Frei",
+                                "Freier Tag", "-", "-"])
+        else:
+            try:
+                start = datetime.strptime(dienst['start_zeit'], '%H:%M:%S').time()
+                ende = datetime.strptime(dienst['ende_zeit'], '%H:%M:%S').time()
+                start_dt = datetime.combine(date.today(), start)
+                ende_dt = datetime.combine(date.today(), ende)
+                if ende_dt <= start_dt:
+                    ende_dt += timedelta(days=1)
+                std = (ende_dt - start_dt).total_seconds() / 3600
+                pause_min = dienst.get('pause_minuten', 0) or 0
+                std -= pause_min / 60
+                total_stunden += std
+                table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Arbeit",
+                                    f"{dienst['start_zeit'][:5]} - {dienst['ende_zeit'][:5]}",
+                                    f"{pause_min} Min" if pause_min > 0 else "-",
+                                    f"{std:.2f} h"])
+            except:
+                table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Arbeit", "n.v.", "-", "-"])
+
+    if not dienstplaene:
+        table_data.append(["", "", "Keine Eintr\u00e4ge", "", "", ""])
+    table_data.append(["", "", "", "Gesamt:", "", f"{total_stunden:.2f} h"])
+
+    dark_blue = colors.HexColor('#1e1e3c')
+    light_blue = colors.HexColor('#ebf0ff')
+    urlaub_yellow = colors.HexColor('#fff3cd')
+    frei_grey = colors.HexColor('#f0f0f0')
+
+    t = Table(table_data, colWidths=col_widths)
+    ts = [
+        ('BACKGROUND', (0, 0), (-1, 0), dark_blue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 10),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, light_blue]),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
+        ('BACKGROUND', (0, -1), (-1, -1), dark_blue),
+        ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
+        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+    ]
+    for i, dienst in enumerate(dienstplaene, start=1):
+        if dienst.get('schichttyp') == 'urlaub':
+            ts.append(('BACKGROUND', (0, i), (-1, i), urlaub_yellow))
+        elif dienst.get('schichttyp') == 'frei':
+            ts.append(('BACKGROUND', (0, i), (-1, i), frei_grey))
+    t.setStyle(TableStyle(ts))
+    elements.append(t)
+    elements.append(Spacer(1, 1*cm))
+
+
+def _pdf_unterschriften(elements):
+    """F\u00fcgt Unterschriftenzeilen hinzu"""
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Table, TableStyle, Paragraph
+    from reportlab.lib.styles import ParagraphStyle
+
+    sig_style = ParagraphStyle('sig', fontSize=9, textColor=colors.grey)
+    sig_data = [
+        [Paragraph("____________________________", sig_style),
+         Paragraph("____________________________", sig_style)],
+        [Paragraph("Datum / Unterschrift Mitarbeiter", sig_style),
+         Paragraph("Datum / Unterschrift Arbeitgeber", sig_style)]
+    ]
+    st = Table(sig_data, colWidths=[8.5*cm, 8.5*cm])
+    st.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'CENTER')]))
+    elements.append(st)
+
+
+def erstelle_einzelner_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jahr: int, monat: int) -> bytes:
+    """Erstellt ein professionelles PDF des Dienstplans f\u00fcr einen Mitarbeiter"""
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate
+    from reportlab.lib.pagesizes import A4
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=2*cm, leftMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    elements = []
+    logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+    name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}"
+
+    _pdf_header(elements, logo_path, monat, jahr, name)
+    _pdf_dienste_tabelle(elements, dienstplaene)
+    _pdf_unterschriften(elements)
+
+    def add_footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.grey)
+        canvas.drawCentredString(A4[0] / 2, 1.5*cm,
+            f"Seite {doc.page} | Erstellt am {date.today().strftime('%d.%m.%Y')} | Vertraulich")
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+    return buffer.getvalue()
+
+
+def erstelle_admin_dienstplan_pdf(mitarbeiter_liste: list, dienste_map: dict, jahr: int, monat: int) -> bytes:
+    """Erstellt ein PDF mit allen Mitarbeitern auf separaten Seiten"""
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, PageBreak
+    from reportlab.lib.pagesizes import A4
+
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4,
+                            rightMargin=2*cm, leftMargin=2*cm,
+                            topMargin=2*cm, bottomMargin=2*cm)
+    elements = []
+    logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+
+    for idx, mitarbeiter in enumerate(mitarbeiter_liste):
+        if idx > 0:
+            elements.append(PageBreak())
+        name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}"
+        _pdf_header(elements, logo_path, monat, jahr, name)
+
+        ma_dienste = []
+        for key, eintraege in dienste_map.items():
+            if key[0] == mitarbeiter['id']:
+                ma_dienste.extend(eintraege)
+        ma_dienste_sorted = sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00')))
+
+        _pdf_dienste_tabelle(elements, ma_dienste_sorted)
+        _pdf_unterschriften(elements)
+
+    def add_footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont('Helvetica', 8)
+        canvas.setFillColor(colors.grey)
+        canvas.drawCentredString(A4[0] / 2, 1.5*cm,
+            f"Seite {doc.page} | Erstellt am {date.today().strftime('%d.%m.%Y')} | Vertraulich")
+        canvas.restoreState()
+
+    doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+    return buffer.getvalue()
 
 
 # ============================================================
@@ -369,6 +580,22 @@ def show_monatsplan(supabase):
                     f"Nutze 'Genehmigte Urlaube automatisch eintragen' oben."
                 )
 
+            # PDF-Download für einzelnen Mitarbeiter
+            ma_dienste_sorted = sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00')))
+            try:
+                pdf_bytes = erstelle_einzelner_dienstplan_pdf(mitarbeiter, ma_dienste_sorted, jahr, monat)
+                dateiname = f"Dienstplan_{mitarbeiter['nachname']}_{MONATE_DE[monat]}_{jahr}.pdf"
+                st.download_button(
+                    label=f"📥 Dienstplan als PDF herunterladen",
+                    data=pdf_bytes,
+                    file_name=dateiname,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"pdf_dl_{mitarbeiter['id']}"
+                )
+            except Exception as e:
+                st.warning(f"PDF nicht verfügbar: {str(e)}")
+
             if ma_dienste:
                 for dienst in sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00'))):
                     datum_obj = date.fromisoformat(dienst['datum'])
@@ -610,7 +837,19 @@ def show_monatsuebersicht_tabelle(supabase):
                 use_container_width=True
             )
     with col2:
-        st.info("💡 PDF-Export folgt in Kürze")
+        if st.button("📄 Alle Dienstpläne als PDF", use_container_width=True, key="admin_pdf_alle"):
+            try:
+                pdf_bytes = erstelle_admin_dienstplan_pdf(mitarbeiter_liste, dienste_map, jahr, monat)
+                st.download_button(
+                    label="💾 PDF herunterladen",
+                    data=pdf_bytes,
+                    file_name=f"Dienstplan_Alle_{MONATE_DE[monat]}_{jahr}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key="admin_pdf_alle_dl"
+                )
+            except Exception as e:
+                st.error(f"PDF-Fehler: {str(e)}")
 
 
 # ============================================================
