@@ -176,7 +176,10 @@ def show_monatsplan(supabase):
     dienste_map = {}
     if dienstplaene_resp.data:
         for d in dienstplaene_resp.data:
-            dienste_map[(d['mitarbeiter_id'], d['datum'])] = d
+            key = (d['mitarbeiter_id'], d['datum'])
+            if key not in dienste_map:
+                dienste_map[key] = []
+            dienste_map[key].append(d)
 
     # Lade genehmigte Urlaube
     urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
@@ -325,8 +328,7 @@ def show_monatsplan(supabase):
                     if urlaub_key in urlaub_map:
                         eintrag['urlaubsantrag_id'] = urlaub_map[urlaub_key]['id']
 
-                supabase.table('dienstplaene').upsert(eintrag,
-                    on_conflict='mitarbeiter_id,datum').execute()
+                supabase.table('dienstplaene').insert(eintrag).execute()
                 st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
                 st.rerun()
             except Exception as e:
@@ -337,16 +339,19 @@ def show_monatsplan(supabase):
 
     # ── MITARBEITER-ÜBERSICHT ─────────────────────────────────
     for mitarbeiter in mitarbeiter_liste:
-        ma_dienste = [d for d in (dienstplaene_resp.data or []) if d['mitarbeiter_id'] == mitarbeiter['id']]
-
-        # Zähle Typen
+        # Zähle Typen (alle Einträge aus der Listen-Map zusammenführen)
+        ma_dienste_flat = []
+        for key, eintraege in dienste_map.items():
+            if key[0] == mitarbeiter['id']:
+                ma_dienste_flat.extend(eintraege)
+        ma_dienste = ma_dienste_flat
         arbeit_tage = sum(1 for d in ma_dienste if d.get('schichttyp', 'arbeit') == 'arbeit')
         urlaub_tage = sum(1 for d in ma_dienste if d.get('schichttyp') == 'urlaub')
         frei_tage   = sum(1 for d in ma_dienste if d.get('schichttyp') == 'frei')
 
         # Ausstehende Urlaube für diesen MA im Monat
         ausstehend = sum(1 for (ma_id, _) in urlaub_map if ma_id == mitarbeiter['id'])
-        bereits_im_plan = sum(1 for d in ma_dienste if d.get('schichttyp') == 'urlaub')
+        bereits_im_plan = len(set(d['datum'] for d in ma_dienste if d.get('schichttyp') == 'urlaub'))
         nicht_eingetragen = ausstehend - bereits_im_plan
 
         badge = ""
@@ -365,7 +370,7 @@ def show_monatsplan(supabase):
                 )
 
             if ma_dienste:
-                for dienst in sorted(ma_dienste, key=lambda x: x['datum']):
+                for dienst in sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00'))):
                     datum_obj = date.fromisoformat(dienst['datum'])
                     wt = WOCHENTAGE_DE[datum_obj.weekday()]
                     typ = dienst.get('schichttyp', 'arbeit')
@@ -451,7 +456,10 @@ def show_monatsuebersicht_tabelle(supabase):
     dienste_map = {}
     if dienstplaene_resp.data:
         for d in dienstplaene_resp.data:
-            dienste_map[(d['mitarbeiter_id'], d['datum'])] = d
+            key = (d['mitarbeiter_id'], d['datum'])
+            if key not in dienste_map:
+                dienste_map[key] = []
+            dienste_map[key].append(d)
 
     # Genehmigte Urlaube als Fallback (falls nicht im Dienstplan)
     urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
@@ -485,38 +493,50 @@ def show_monatsuebersicht_tabelle(supabase):
             key = (mitarbeiter['id'], tag_datum.isoformat())
 
             if key in dienste_map:
-                dienst = dienste_map[key]
-                typ = dienst.get('schichttyp', 'arbeit')
+                eintraege = sorted(dienste_map[key], key=lambda x: x.get('start_zeit', '00:00'))
+                # Prüfe ob Urlaub oder Frei dabei ist (nur ein Eintrag erwartet)
+                typen = [d.get('schichttyp', 'arbeit') for d in eintraege]
 
-                if typ == 'urlaub':
+                if 'urlaub' in typen:
+                    dienst = next(d for d in eintraege if d.get('schichttyp') == 'urlaub')
                     stunden = dienst.get('urlaub_stunden', 0)
                     html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
                              f'background:#fff9c4;" title="Urlaub ({stunden}h)">'
                              f'<strong style="color:#856404;">U</strong>'
                              f'<br><small>{stunden:.1f}h</small></td>')
 
-                elif typ == 'frei':
+                elif 'frei' in typen:
                     html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
                              f'background:#e9ecef;" title="Frei">'
                              f'<span style="color:#6c757d;">F</span></td>')
 
-                else:  # arbeit
-                    if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
-                        vorlage = vorlagen_dict[dienst['schichtvorlage_id']]
-                        kuerzel = vorlage['name'][:1].upper()
-                        farbe = vorlage.get('farbe', '#0d6efd')
-                        zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
-                        title = f"{vorlage['name']}: {zeiten}"
+                else:  # arbeit (ggf. mehrere Schichten)
+                    arbeit_eintraege = [d for d in eintraege if d.get('schichttyp', 'arbeit') == 'arbeit']
+                    if len(arbeit_eintraege) == 1:
+                        dienst = arbeit_eintraege[0]
+                        if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
+                            vorlage = vorlagen_dict[dienst['schichtvorlage_id']]
+                            kuerzel = vorlage['name'][:1].upper()
+                            farbe = vorlage.get('farbe', '#0d6efd')
+                            zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
+                            title = f"{vorlage['name']}: {zeiten}"
+                        else:
+                            kuerzel = 'A'
+                            farbe = '#0d6efd'
+                            zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
+                            title = f"Arbeit: {zeiten}"
+                        html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
+                                 f'background:{farbe}22;" title="{title}">'
+                                 f'<strong style="color:{farbe};">{kuerzel}</strong>'
+                                 f'<br><small style="font-size:0.7rem;">{zeiten}</small></td>')
                     else:
-                        kuerzel = 'A'
-                        farbe = '#0d6efd'
-                        zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
-                        title = f"Arbeit: {zeiten}"
-
-                    html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                             f'background:{farbe}22;" title="{title}">'
-                             f'<strong style="color:{farbe};">{kuerzel}</strong>'
-                             f'<br><small style="font-size:0.7rem;">{zeiten}</small></td>')
+                        # Mehrere Schichten an einem Tag
+                        zeiten_list = [f"{d['start_zeit'][:5]}–{d['ende_zeit'][:5]}" for d in arbeit_eintraege]
+                        title = ' | '.join(zeiten_list)
+                        html += (f'<td style="border:1px solid #ddd; padding:3px; text-align:center; '
+                                 f'background:#cfe2ff;" title="{title}">'
+                                 f'<strong style="color:#0d6efd;">A²</strong>'
+                                 f'<br>' + '<br>'.join(f'<small style="font-size:0.65rem;">{z}</small>' for z in zeiten_list) + '</td>')
 
             elif key in urlaub_map:
                 # Urlaub genehmigt aber noch nicht im Dienstplan
