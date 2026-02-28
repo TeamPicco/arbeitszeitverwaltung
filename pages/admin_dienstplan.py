@@ -89,9 +89,9 @@ def _pdf_dienste_tabelle(elements, dienstplaene):
     from reportlab.lib.units import cm
     from reportlab.platypus import Table, TableStyle, Spacer
 
-    col_widths = [2.5*cm, 3*cm, 3*cm, 3.5*cm, 2*cm, 3*cm]
-    table_data = [["Datum", "Wochentag", "Typ", "Zeiten", "Pause", "Stunden"]]
-    total_stunden = 0
+    # Nur Planungsebene: Datum | Wochentag | Einsatzzeit – keine Stunden, keine Lohnwerte
+    col_widths = [3*cm, 4*cm, 10*cm]
+    table_data = [["Datum", "Wochentag", "Einsatzzeit"]]
 
     for dienst in dienstplaene:
         datum_obj = datetime.fromisoformat(dienst['datum']).date()
@@ -99,62 +99,47 @@ def _pdf_dienste_tabelle(elements, dienstplaene):
         schichttyp = dienst.get('schichttyp', 'arbeit')
 
         if schichttyp == 'urlaub':
-            std = float(dienst.get('urlaub_stunden') or 0)
-            total_stunden += std
-            table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Urlaub",
-                                f"{std:.1f}h Urlaub", "-", f"{std:.2f} h"])
+            zeit = "Urlaub"
         elif schichttyp == 'frei':
-            table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Frei",
-                                "Freier Tag", "-", "-"])
+            zeit = "Frei"
         else:
-            try:
-                start = datetime.strptime(dienst['start_zeit'], '%H:%M:%S').time()
-                ende = datetime.strptime(dienst['ende_zeit'], '%H:%M:%S').time()
-                start_dt = datetime.combine(date.today(), start)
-                ende_dt = datetime.combine(date.today(), ende)
-                if ende_dt <= start_dt:
-                    ende_dt += timedelta(days=1)
-                std = (ende_dt - start_dt).total_seconds() / 3600
-                pause_min = dienst.get('pause_minuten', 0) or 0
-                std -= pause_min / 60
-                total_stunden += std
-                table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Arbeit",
-                                    f"{dienst['start_zeit'][:5]} - {dienst['ende_zeit'][:5]}",
-                                    f"{pause_min} Min" if pause_min > 0 else "-",
-                                    f"{std:.2f} h"])
-            except:
-                table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, "Arbeit", "n.v.", "-", "-"])
+            start = dienst.get('start_zeit', '')
+            ende = dienst.get('ende_zeit', '')
+            zeit = f"{start[:5]} – {ende[:5]}" if start and ende else "n.v."
+
+        table_data.append([datum_obj.strftime('%d.%m.%Y'), wt, zeit])
 
     if not dienstplaene:
-        table_data.append(["", "", "Keine Eintr\u00e4ge", "", "", ""])
-    table_data.append(["", "", "", "Gesamt:", "", f"{total_stunden:.2f} h"])
+        table_data.append(["", "", "Keine Eintr\u00e4ge"])
 
-    dark_blue = colors.HexColor('#1e1e3c')
-    light_blue = colors.HexColor('#ebf0ff')
-    urlaub_yellow = colors.HexColor('#fff3cd')
-    frei_grey = colors.HexColor('#f0f0f0')
+    dark = colors.HexColor('#111827')
+    light_row = colors.HexColor('#f9fafb')
+    green_bg = colors.HexColor('#d1fae5')
+    yellow_bg = colors.HexColor('#fef3c7')
+    grey_bg = colors.HexColor('#f3f4f6')
 
     t = Table(table_data, colWidths=col_widths)
     ts = [
-        ('BACKGROUND', (0, 0), (-1, 0), dark_blue),
+        ('BACKGROUND', (0, 0), (-1, 0), dark),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 10),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, light_blue]),
-        ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
-        ('BACKGROUND', (0, -1), (-1, -1), dark_blue),
-        ('TEXTCOLOR', (0, -1), (-1, -1), colors.white),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, light_row]),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#e5e7eb')),
     ]
     for i, dienst in enumerate(dienstplaene, start=1):
-        if dienst.get('schichttyp') == 'urlaub':
-            ts.append(('BACKGROUND', (0, i), (-1, i), urlaub_yellow))
-        elif dienst.get('schichttyp') == 'frei':
-            ts.append(('BACKGROUND', (0, i), (-1, i), frei_grey))
+        typ = dienst.get('schichttyp', 'arbeit')
+        if typ == 'urlaub':
+            ts.append(('BACKGROUND', (0, i), (-1, i), yellow_bg))
+        elif typ == 'frei':
+            ts.append(('BACKGROUND', (0, i), (-1, i), grey_bg))
+        else:
+            ts.append(('BACKGROUND', (0, i), (-1, i), green_bg))
     t.setStyle(TableStyle(ts))
     elements.append(t)
     elements.append(Spacer(1, 1*cm))
@@ -621,15 +606,12 @@ def show_monatsplan(supabase):
                         if typ == 'arbeit':
                             if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
                                 vn = vorlagen_dict[dienst['schichtvorlage_id']]['name']
-                                st.write(f"🏷️ {vn}")
+                                st.caption(f"🏷️ {vn}")
                             st.write(f"⏰ {dienst['start_zeit'][:5]} – {dienst['ende_zeit'][:5]}")
-                            if dienst.get('pause_minuten', 0) > 0:
-                                st.caption(f"Pause: {dienst['pause_minuten']} Min")
                         elif typ == 'urlaub':
-                            stunden = dienst.get('urlaub_stunden') or 0
-                            st.write(f"🏖️ {stunden:.2f}h Urlaubsvergütung")
+                            st.write("🏖️ Urlaub")
                         else:
-                            st.write("Kein Lohn")
+                            st.write("⚪ Frei")
 
                     with col4:
                         if st.button("🗑️", key=f"del_{dienst['id']}", help="Löschen"):
