@@ -399,7 +399,7 @@ def show_monatsplan(supabase):
                             if dienst.get('pause_minuten', 0) > 0:
                                 st.caption(f"Pause: {dienst['pause_minuten']} Min")
                         elif typ == 'urlaub':
-                            stunden = dienst.get('urlaub_stunden', 0)
+                            stunden = dienst.get('urlaub_stunden') or 0
                             st.write(f"🏖️ {stunden:.2f}h Urlaubsvergütung")
                         else:
                             st.write("Kein Lohn")
@@ -499,7 +499,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
                 if 'urlaub' in typen:
                     dienst = next(d for d in eintraege if d.get('schichttyp') == 'urlaub')
-                    stunden = dienst.get('urlaub_stunden', 0)
+                    stunden = dienst.get('urlaub_stunden') or 0
                     html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
                              f'background:#fff9c4;" title="Urlaub ({stunden}h)">'
                              f'<strong style="color:#856404;">U</strong>'
@@ -582,14 +582,18 @@ def show_monatsuebersicht_tabelle(supabase):
                     tag_datum = date(jahr, monat, tag)
                     key = (mitarbeiter['id'], tag_datum.isoformat())
                     if key in dienste_map:
-                        d = dienste_map[key]
-                        typ = d.get('schichttyp', 'arbeit')
-                        if typ == 'urlaub':
-                            row += f",U({d.get('urlaub_stunden', 0):.1f}h)"
-                        elif typ == 'frei':
+                        eintraege = sorted(dienste_map[key], key=lambda x: x.get('start_zeit', '00:00'))
+                        typen = [d.get('schichttyp', 'arbeit') for d in eintraege]
+                        if 'urlaub' in typen:
+                            d = next(d for d in eintraege if d.get('schichttyp') == 'urlaub')
+                            stunden = d.get('urlaub_stunden') or 0
+                            row += f",U({stunden:.1f}h)"
+                        elif 'frei' in typen:
                             row += ",F"
                         else:
-                            row += f",A {d['start_zeit'][:5]}-{d['ende_zeit'][:5]}"
+                            arbeit_eintraege = [d for d in eintraege if d.get('schichttyp', 'arbeit') == 'arbeit']
+                            zeiten = '|'.join(f"{d['start_zeit'][:5]}-{d['ende_zeit'][:5]}" for d in arbeit_eintraege)
+                            row += f",A {zeiten}"
                     elif key in urlaub_map:
                         row += ",U*"
                     elif tag_datum.weekday() in [0, 1]:
