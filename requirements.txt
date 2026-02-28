@@ -8,3 +8,4 @@ holidays==0.40
 python-dotenv==1.0.1
 qrcode[pil]>=7.4.2
 pillow>=10.0.0
+fpdf2>=2.7.0
