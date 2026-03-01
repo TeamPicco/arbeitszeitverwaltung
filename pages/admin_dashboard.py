@@ -75,6 +75,7 @@ def show():
         f"{get_icon('dienstplan')} Urlaubskalender",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
         f"{get_icon('zeit')} Zeiterfassung",
+        f"⏱️ Zeitauswertung / Lohn",
         f"{get_icon('lohn')} Lohnabrechnung",
         f"{get_icon('mastergeraete')} Mastergeräte",
         f"{get_icon('einstellungen')} Einstellungen"
@@ -103,13 +104,19 @@ def show():
         show_zeiterfassung_admin()
     
     with tabs[7]:
-        show_lohnabrechnung()
+        from pages.zeitauswertung import show_zeitauswertung
+        # Admin-Modus: alle Mitarbeiter sichtbar
+        admin_ma = st.session_state.get('mitarbeiter_data', {})
+        show_zeitauswertung(admin_ma, admin_modus=True)
     
     with tabs[8]:
+        show_lohnabrechnung()
+    
+    with tabs[9]:
         from pages.admin_mastergeraete import show_mastergeraete
         show_mastergeraete()
     
-    with tabs[9]:
+    with tabs[10]:
         show_einstellungen()
 
 

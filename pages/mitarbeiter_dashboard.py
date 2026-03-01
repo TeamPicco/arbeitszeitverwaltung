@@ -81,7 +81,7 @@ def show():
     # Tab-Navigation mit einheitlichen Icons
     tabs = st.tabs([
         f"{get_icon('dashboard')} Dashboard",
-        f"{get_icon('zeit')} Zeiterfassung",
+        f"{get_icon('zeit')} Zeitauswertung / Lohn",
         f"{get_icon('dienstplan')} Mein Dienstplan",
         f"{get_icon('urlaub')} Urlaub",
         f"{get_icon('dienstplan')} Urlaubskalender",
@@ -94,7 +94,8 @@ def show():
         show_dashboard(mitarbeiter)
     
     with tabs[1]:
-        show_zeiterfassung(mitarbeiter)
+        from pages.zeitauswertung import show_zeitauswertung
+        show_zeitauswertung(mitarbeiter, admin_modus=False)
     
     with tabs[2]:
         from pages.mitarbeiter_dienstplan import show_mitarbeiter_dienstplan
