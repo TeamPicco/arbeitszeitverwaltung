@@ -147,7 +147,7 @@ def show_mastergeraete():
         
         st.subheader("Registrierte Mastergeräte")
         
-        for geraet in mastergeraete:
+        for idx, geraet in enumerate(mastergeraete):
             # Bestimme Geräte-ID (geraet_id oder geraete_id je nach DB-Schema)
             geraet_uid = geraet.get('geraet_id') or geraet.get('geraete_id', str(geraet['id']))
             
@@ -219,23 +219,23 @@ def show_mastergeraete():
                 
                 with col1:
                     if geraet.get('aktiv', True):
-                        if st.button("⏸️ Deaktivieren", key=f"deactivate_{geraet['id']}", use_container_width=True):
+                        if st.button("⏸️ Deaktivieren", key=f"deactivate_{idx}_{geraet['id']}", use_container_width=True):
                             supabase.table('mastergeraete').update({'aktiv': False}).eq('id', geraet['id']).execute()
                             st.success("Gerät deaktiviert!")
                             st.rerun()
                     else:
-                        if st.button("▶️ Aktivieren", key=f"activate_{geraet['id']}", use_container_width=True):
+                        if st.button("▶️ Aktivieren", key=f"activate_{idx}_{geraet['id']}", use_container_width=True):
                             supabase.table('mastergeraete').update({'aktiv': True}).eq('id', geraet['id']).execute()
                             st.success("Gerät aktiviert!")
                             st.rerun()
                 
                 with col2:
-                    if st.button("📱 QR-Code anzeigen", key=f"show_qr_btn_{geraet['id']}", use_container_width=True):
+                    if st.button("📱 QR-Code anzeigen", key=f"show_qr_btn_{idx}_{geraet['id']}", use_container_width=True):
                         st.session_state[f'show_qr_{geraet["id"]}'] = True
                         st.rerun()
                 
                 with col3:
-                    if st.button("🔄 Code erneuern", key=f"renew_{geraet['id']}", use_container_width=True):
+                    if st.button("🔄 Code erneuern", key=f"renew_{idx}_{geraet['id']}", use_container_width=True):
                         neuer_code = str(uuid.uuid4())[:8].upper()
                         supabase.table('mastergeraete').update({
                             'registrierungscode': neuer_code,
@@ -247,15 +247,15 @@ def show_mastergeraete():
                         st.rerun()
                 
                 with col4:
-                    confirm_key = f'confirm_delete_geraet_{geraet["id"]}'
+                    confirm_key = f'confirm_delete_geraet_{idx}_{geraet["id"]}'
                     if st.session_state.get(confirm_key, False):
-                        if st.button("✅ Bestätigen", key=f"confirm_del_{geraet['id']}", use_container_width=True, type="primary"):
+                        if st.button("✅ Bestätigen", key=f"confirm_del_{idx}_{geraet['id']}", use_container_width=True, type="primary"):
                             supabase.table('mastergeraete').delete().eq('id', geraet['id']).execute()
                             st.session_state[confirm_key] = False
                             st.success("Gerät gelöscht!")
                             st.rerun()
                     else:
-                        if st.button("🗑️ Löschen", key=f"delete_{geraet['id']}", use_container_width=True):
+                        if st.button("🗑️ Löschen", key=f"delete_{idx}_{geraet['id']}", use_container_width=True):
                             st.session_state[confirm_key] = True
                             st.warning("⚠️ Nochmal klicken zum Bestätigen!")
                             st.rerun()
