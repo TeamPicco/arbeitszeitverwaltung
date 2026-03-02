@@ -163,8 +163,10 @@ const Streamlit = {
   }
 };
 
-// Höhe melden
-Streamlit.setFrameHeight(document.body.scrollHeight + 20);
+// Höhe sofort und wiederholt melden (feste Höhe für zuverlässiges Rendering)
+Streamlit.setFrameHeight(200);
+setTimeout(function() { Streamlit.setFrameHeight(200); }, 100);
+setTimeout(function() { Streamlit.setFrameHeight(200); }, 500);
 
 const input = document.getElementById('real-input');
 const display = document.getElementById('pin-display');
@@ -292,7 +294,7 @@ window.addEventListener('message', function(e) {
       updateDisplay();
     }
     // Höhe neu melden
-    Streamlit.setFrameHeight(document.body.scrollHeight + 20);
+    Streamlit.setFrameHeight(200);
     doFocus();
   }
 });
