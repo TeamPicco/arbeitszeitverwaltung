@@ -99,36 +99,13 @@ KIOSK_CSS = """
     font-weight: 500;
 }
 
-/* ── PIN-Anzeige ── */
-.pin-display-wrap {
-    background: #1a2535;
-    border: 2px solid #3a6ea8;
-    border-radius: 16px;
-    padding: 18px 30px;
-    margin: 0 auto 8px auto;
-    max-width: 320px;
-    text-align: center;
-    box-shadow: 0 0 20px rgba(58, 110, 168, 0.3);
-}
-.pin-dots {
-    font-size: 2.2rem;
-    letter-spacing: 18px;
-    color: #4a90d9;
-    line-height: 1;
-}
+/* ── PIN-Hinweis ── */
 .pin-hint {
     text-align: center;
     color: #7a9cc0;
-    font-size: 0.92rem;
+    font-size: 1.05rem;
     margin-bottom: 18px;
     font-weight: 500;
-}
-.pin-keyboard-hint {
-    text-align: center;
-    color: #4a6a8a;
-    font-size: 0.78rem;
-    margin-bottom: 14px;
-    font-style: italic;
 }
 
 /* ── Fehler/Erfolg-Boxen ── */
@@ -178,53 +155,67 @@ KIOSK_CSS = """
     font-weight: 500;
 }
 
-/* ── Numpad-Buttons ── */
+/* ── Allgemeine Buttons (Zurück etc.) ── */
 div[data-testid="stButton"] > button {
-    font-size: 1.7rem !important;
-    font-weight: 700 !important;
-    height: 72px !important;
     border-radius: 12px !important;
     border: 2px solid #2a3a50 !important;
     background: #1e2d42 !important;
     color: #c8ddf0 !important;
     width: 100% !important;
     transition: all 0.12s ease !important;
-    letter-spacing: 1px !important;
 }
 div[data-testid="stButton"] > button:hover {
     background: #2a4060 !important;
     border-color: #4a90d9 !important;
     color: #ffffff !important;
-    transform: scale(1.04) !important;
-    box-shadow: 0 0 12px rgba(74, 144, 217, 0.4) !important;
-}
-div[data-testid="stButton"] > button:active {
-    transform: scale(0.96) !important;
-    background: #3a5a80 !important;
 }
 
-/* ── Löschen-Button ── */
-.btn-loeschen div[data-testid="stButton"] > button {
-    background: #4a2000 !important;
-    color: #ffb74d !important;
-    border-color: #e65100 !important;
-    font-size: 1.5rem !important;
+/* ── PIN-Eingabe-Feld (sichtbar, groß) ── */
+.st-key-kiosk_pin_input {
+    max-width: 340px !important;
+    margin: 0 auto !important;
+    display: block !important;
 }
-.btn-loeschen div[data-testid="stButton"] > button:hover {
-    background: #7a3800 !important;
-    border-color: #ff8f00 !important;
+.st-key-kiosk_pin_input input {
+    font-size: 2.8rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 22px !important;
+    text-align: center !important;
+    background: #1a2535 !important;
+    border: 2px solid #3a6ea8 !important;
+    border-radius: 16px !important;
+    color: #4a90d9 !important;
+    padding: 18px 30px !important;
+    height: 90px !important;
+    box-shadow: 0 0 20px rgba(58, 110, 168, 0.3) !important;
+    caret-color: #4a90d9 !important;
+}
+.st-key-kiosk_pin_input input:focus {
+    border-color: #5a9fd9 !important;
+    box-shadow: 0 0 30px rgba(74, 144, 217, 0.5) !important;
+    outline: none !important;
+}
+.st-key-kiosk_pin_input input::placeholder {
+    color: #2a4060 !important;
+    letter-spacing: 18px !important;
+    font-size: 2rem !important;
 }
 
-/* ── Reset-Button ── */
-.btn-reset div[data-testid="stButton"] > button {
+/* ── Reset-Button (klein, unter PIN-Feld) ── */
+.st-key-kiosk_pin_reset div[data-testid="stButton"] > button {
     background: #1a2535 !important;
     color: #90a4ae !important;
     border-color: #37474f !important;
-    font-size: 1rem !important;
+    font-size: 0.9rem !important;
+    height: 38px !important;
+    border-radius: 8px !important;
+    max-width: 160px !important;
+    margin: 0 auto !important;
 }
-.btn-reset div[data-testid="stButton"] > button:hover {
+.st-key-kiosk_pin_reset div[data-testid="stButton"] > button:hover {
     background: #263545 !important;
-    color: #cfd8dc !important;
+    color: #ef5350 !important;
+    border-color: #ef5350 !important;
 }
 
 /* ── KOMMEN-Button (via Streamlit st-key-Klasse, höhere Spezifizität) ── */
@@ -288,22 +279,9 @@ div[data-testid="stButton"] > button:active {
     font-weight: 500;
 }
 
-/* ── Tastatur-Input (versteckt) - via st-key-Klasse ── */
-.st-key-kiosk_keyboard_input {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    opacity: 0 !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    pointer-events: none !important;
-}
-.st-key-kiosk_keyboard_input input {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
+/* ── Verstecktes Label des PIN-Inputs ── */
+.st-key-kiosk_pin_input label {
+    display: none !important;
 }
 </style>
 """
@@ -556,6 +534,7 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     # Session-State initialisieren
     defaults = {
         "kiosk_pin": "",
+        "kiosk_pin_input": "",
         "kiosk_phase": "pin_eingabe",
         "kiosk_mitarbeiter": None,
         "kiosk_offline": False,
@@ -614,97 +593,48 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
         _zeige_bestaetigung(betrieb_id)
 
 
+# ── PIN-Input Custom Component ──
+import os as _os
+_COMPONENT_DIR = _os.path.join(_os.path.dirname(__file__), "components", "pin_input")
+_pin_input_component = st.components.v1.declare_component(
+    "pin_input",
+    path=_COMPONENT_DIR
+)
+
+
+def pin_input_widget(error: str = "", reset: bool = False, key: str = "pin_input"):
+    """Rendert die PIN-Input-Komponente und gibt den Wert zurück."""
+    return _pin_input_component(error=error, reset=reset, key=key, default=None)
+
+
 def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
-    """PIN-Eingabe-Bildschirm mit Numpad + Tastaturunterstützung."""
-    pin = st.session_state["kiosk_pin"]
+    """PIN-Eingabe-Bildschirm – Custom Component mit nativem HTML-Input."""
 
-    # Tastatureingabe über st.text_input (nativ, kein iFrame-Problem)
-    def _verarbeite_tastatur():
-        """Verarbeitet Tastatureingabe aus dem versteckten Input-Feld."""
-        wert = st.session_state.get("kiosk_keyboard_input", "")
-        if not wert:
-            return
-        # Nur die letzte eingegebene Ziffer verarbeiten
-        for zeichen in wert:
-            if zeichen.isdigit() and len(st.session_state["kiosk_pin"]) < 4:
-                st.session_state["kiosk_pin"] += zeichen
-        # Input zurücksetzen
-        st.session_state["kiosk_keyboard_input"] = ""
-        # PIN prüfen wenn 4 Ziffern
-        if len(st.session_state["kiosk_pin"]) == 4:
-            _pin_pruefen(betrieb_id)
-
-    st.text_input(
-        label="PIN-Tastatur",
-        key="kiosk_keyboard_input",
-        label_visibility="collapsed",
-        placeholder="",
-        max_chars=4,
-        on_change=_verarbeite_tastatur,
-        autocomplete="off",
-    )
-
-    # Auto-Fokus auf das Input-Feld setzen via JavaScript
-    st.markdown("""
-    <script>
-    (function() {
-        function focusInput() {
-            var inputs = document.querySelectorAll('.st-key-kiosk_keyboard_input input');
-            if (inputs.length > 0) {
-                inputs[0].focus();
-            }
-        }
-        focusInput();
-        setTimeout(focusInput, 200);
-        setTimeout(focusInput, 600);
-        // Nach Streamlit-Reruns erneut fokussieren
-        var obs = new MutationObserver(function() { focusInput(); });
-        obs.observe(document.body, { childList: true, subtree: true });
-    })();
-    </script>
-    """, unsafe_allow_html=True)
-
-    # PIN-Anzeige (Punkte)
-    punkte = "●" * len(pin) + "○" * (4 - len(pin))
-    st.markdown(f"""
-    <div class="pin-display-wrap">
-        <div class="pin-dots">{punkte}</div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.markdown('<div class="pin-hint">Bitte 4-stelligen PIN eingeben</div>', unsafe_allow_html=True)
-    st.markdown('<div class="pin-keyboard-hint">Eingabe auch über Tastatur (0–9, Backspace, Esc)</div>', unsafe_allow_html=True)
-
-    # Fehlermeldung
-    if st.session_state.get("kiosk_fehler"):
-        st.markdown(f'<div class="error-box">❌ {st.session_state["kiosk_fehler"]}</div>', unsafe_allow_html=True)
+    fehler_text = st.session_state.get("kiosk_fehler", "")
+    if fehler_text:
         st.session_state["kiosk_fehler"] = None
 
-    # Numpad 1-9
-    for zeile in [[1, 2, 3], [4, 5, 6], [7, 8, 9]]:
-        cols = st.columns(3)
-        for i, zahl in enumerate(zeile):
-            with cols[i]:
-                if st.button(str(zahl), key=f"pin_{zahl}", use_container_width=True):
-                    _pin_ziffer_hinzufuegen(betrieb_id, str(zahl))
+    # ── Custom Component rendern ──
+    # Die Komponente gibt {action: 'pin', pin: '1234'} oder {action: 'reset'} zurück
+    result = pin_input_widget(
+        error=fehler_text,
+        reset=False,
+        key="kiosk_pin_widget"
+    )
 
-    # Letzte Zeile: Löschen | 0 | Reset
-    col_del, col_0, col_ok = st.columns(3)
-    with col_del:
-        st.markdown('<div class="btn-loeschen">', unsafe_allow_html=True)
-        if st.button("⌫", key="pin_del", use_container_width=True):
-            st.session_state["kiosk_pin"] = st.session_state["kiosk_pin"][:-1]
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    with col_0:
-        if st.button("0", key="pin_0", use_container_width=True):
-            _pin_ziffer_hinzufuegen(betrieb_id, "0")
-    with col_ok:
-        st.markdown('<div class="btn-reset">', unsafe_allow_html=True)
-        if st.button("✕ Reset", key="pin_reset", use_container_width=True):
+    # Ergebnis verarbeiten
+    if result is not None:
+        action = result.get("action", "")
+        if action == "pin":
+            pin = result.get("pin", "")
+            ziffern = "".join(z for z in pin if z.isdigit())[:4]
+            if len(ziffern) == 4:
+                st.session_state["kiosk_pin"] = ziffern
+                _pin_pruefen(betrieb_id)
+                st.rerun()
+        elif action == "reset":
             st.session_state["kiosk_pin"] = ""
-            st.session_state["kiosk_keyboard_input"] = ""
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 
 def _pin_ziffer_hinzufuegen(betrieb_id: int, ziffer: str):
@@ -865,6 +795,7 @@ def _kiosk_zuruecksetzen():
     st.session_state["kiosk_phase"] = "pin_eingabe"
     st.session_state["kiosk_mitarbeiter"] = None
     st.session_state["kiosk_pin"] = ""
+    st.session_state["kiosk_pin_input"] = ""
     st.session_state["kiosk_buchung_typ"] = None
     st.session_state["kiosk_buchung_zeit"] = None
     st.session_state["kiosk_buchung_erfolg"] = None
