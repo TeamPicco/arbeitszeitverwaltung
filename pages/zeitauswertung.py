@@ -1,6 +1,9 @@
 """
 Zeitauswertung / Lohn – Modul für Mitarbeiter und Admin
-Archiv-Ansicht, Monatsauswertung, Soll-Ist-Vergleich, Korrektur-Markierungen, PDF-Export
+=========================================================
+Archiv-Ansicht, Monatsauswertung, Soll-Ist-Vergleich,
+Zuschlagsaufschlüsselung (Sachsen), Korrektur-Markierungen,
+Audit-Log, Feiertag-Warnungen, PDF-Export
 """
 
 import streamlit as st
@@ -9,28 +12,33 @@ from calendar import monthrange
 import io
 
 from utils.database import get_supabase_client
+from utils.lohnberechnung import (
+    berechne_monat,
+    berechne_eintrag,
+    pruefe_feiertag_warnungen,
+    get_feiertage_sachsen,
+    ist_feiertag_sachsen,
+    ist_sonntag,
+    format_stunden,
+    format_euro,
+    get_feiertage_monat,
+)
 from utils.calculations import (
     berechne_arbeitsstunden,
-    berechne_arbeitsstunden_mit_pause,
-    berechne_gesetzliche_pause,
-    berechne_grundlohn,
-    berechne_sonntagszuschlag,
-    berechne_feiertagszuschlag,
-    is_sonntag,
-    is_feiertag,
     parse_zeit,
-    format_stunden,
-    format_waehrung,
     get_wochentag,
-    get_monatsnamen
+    get_monatsnamen,
 )
-
 
 MONATE = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
     "Juli", "August", "September", "Oktober", "November", "Dezember"
 ]
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DATEN LADEN
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     """Lädt alle Zeiterfassungen für einen Mitarbeiter in einem Monat."""
@@ -54,58 +62,6 @@ def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     return r.data or []
 
 
-def _berechne_zeile(z: dict, mitarbeiter: dict) -> dict:
-    """Berechnet Stunden, Pausen und Lohn für eine Zeiterfassungszeile."""
-    datum_obj = datetime.fromisoformat(z['datum']).date()
-    wochentag = get_wochentag(datum_obj)
-    
-    # Stunden berechnen
-    if z.get('ende_zeit'):
-        s, _ = parse_zeit(z['start_zeit'])
-        e, nt = parse_zeit(z['ende_zeit'])
-        netto_stunden = berechne_arbeitsstunden(s, e, z.get('pause_minuten', 0), naechster_tag=nt)
-    else:
-        netto_stunden = 0.0
-    
-    # Zuschlagstyp bestimmen
-    ist_so = is_sonntag(datum_obj)
-    ist_ft = is_feiertag(datum_obj)
-    
-    # Lohnberechnung
-    stundenlohn = mitarbeiter.get('stundenlohn_brutto', 0) or 0
-    grundlohn = berechne_grundlohn(stundenlohn, netto_stunden)
-    
-    zuschlag_so = 0.0
-    zuschlag_ft = 0.0
-    if ist_so and mitarbeiter.get('sonntagszuschlag_aktiv', False):
-        zuschlag_so = berechne_sonntagszuschlag(stundenlohn, netto_stunden)
-    if ist_ft and mitarbeiter.get('feiertagszuschlag_aktiv', False):
-        zuschlag_ft = berechne_feiertagszuschlag(stundenlohn, netto_stunden)
-    
-    # Korrektur-Flag
-    korrigiert = bool(z.get('updated_at') and z.get('created_at') and
-                      z['updated_at'] != z['created_at'])
-    
-    return {
-        'id': z['id'],
-        'datum': datum_obj,
-        'datum_str': datum_obj.strftime('%d.%m.%Y'),
-        'wochentag': wochentag,
-        'start': z.get('start_zeit', '–'),
-        'ende': z.get('ende_zeit', 'Offen'),
-        'pause_min': z.get('pause_minuten', 0),
-        'netto_stunden': netto_stunden,
-        'ist_sonntag': ist_so,
-        'ist_feiertag': ist_ft,
-        'grundlohn': grundlohn,
-        'zuschlag_so': zuschlag_so,
-        'zuschlag_ft': zuschlag_ft,
-        'gesamt_brutto': grundlohn + zuschlag_so + zuschlag_ft,
-        'korrigiert': korrigiert,
-        'notiz': z.get('notiz', '')
-    }
-
-
 def _berechne_soll_stunden(dienstplaene: list) -> float:
     """Berechnet die Soll-Stunden aus dem Dienstplan."""
     soll = 0.0
@@ -120,9 +76,13 @@ def _berechne_soll_stunden(dienstplaene: list) -> float:
     return soll
 
 
-def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, zeilen: list,
-                  soll_stunden: float, ist_stunden: float, gesamt_brutto: float) -> bytes:
-    """Erstellt eine PDF-Monatsauswertung mit reportlab."""
+# ─────────────────────────────────────────────────────────────────────────────
+# PDF-EXPORT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict,
+                  soll_stunden: float) -> bytes:
+    """Erstellt eine PDF-Monatsauswertung mit vollständiger Zuschlagsaufschlüsselung."""
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import cm
@@ -137,113 +97,148 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, zeilen: list,
     styles = getSampleStyleSheet()
     story = []
 
-    # Titel
     titel_style = ParagraphStyle('titel', parent=styles['Heading1'],
                                   fontSize=16, alignment=TA_CENTER, spaceAfter=6)
     sub_style = ParagraphStyle('sub', parent=styles['Normal'],
                                 fontSize=11, alignment=TA_CENTER, spaceAfter=4)
     info_style = ParagraphStyle('info', parent=styles['Normal'],
                                  fontSize=9, spaceAfter=2)
-    
+
     story.append(Paragraph("Zeitauswertung / Monatsnachweis", titel_style))
     story.append(Paragraph(f"{MONATE[monat-1]} {jahr}", sub_style))
     story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph(
         f"<b>Mitarbeiter:</b> {mitarbeiter['vorname']} {mitarbeiter['nachname']} &nbsp;&nbsp; "
-        f"<b>Personal-Nr.:</b> {mitarbeiter.get('personalnummer', '–')}",
+        f"<b>Personal-Nr.:</b> {mitarbeiter.get('personalnummer', '–')} &nbsp;&nbsp; "
+        f"<b>Stundenlohn:</b> {mitarbeiter.get('stundenlohn_brutto', 0):.2f} €",
         info_style))
     story.append(Spacer(1, 0.5*cm))
 
-    # Tabelle
-    header = ['Datum', 'Tag', 'Von', 'Bis', 'Pause', 'Netto-h', 'Typ', 'Brutto €', 'Status']
+    # Detailtabelle
+    header = ['Datum', 'Tag', 'Von', 'Bis', 'Pause', 'Netto-h', 'Typ', 'Grundlohn', 'Zuschlag', 'Gesamt']
     data = [header]
-    
-    for z in zeilen:
-        typ = '🔵 Arbeit'
-        if z['ist_feiertag']:
-            typ = '🔴 Feiertag'
-        elif z['ist_sonntag']:
-            typ = '🟡 Sonntag'
-        
-        status = '✓ Korrigiert' if z['korrigiert'] else '✓ OK'
-        
-        data.append([
-            z['datum_str'],
-            z['wochentag'][:2],
-            str(z['start'])[:5] if z['start'] != '–' else '–',
-            str(z['ende'])[:5] if z['ende'] != 'Offen' else 'Offen',
-            f"{z['pause_min']} Min",
-            f"{z['netto_stunden']:.2f}",
-            typ.replace('🔵 ', '').replace('🔴 ', '').replace('🟡 ', ''),
-            f"{z['gesamt_brutto']:.2f}",
-            status
-        ])
-    
-    # Summenzeile
-    data.append([
-        '', '', '', '', 'Gesamt:',
-        f"{ist_stunden:.2f}",
-        '',
-        f"{gesamt_brutto:.2f}",
-        ''
-    ])
 
-    col_widths = [2.2*cm, 1.2*cm, 1.4*cm, 1.4*cm, 1.8*cm, 1.6*cm, 2.0*cm, 2.2*cm, 2.2*cm]
+    zeilen = monat_ergebnis.get("zeilen", [])
+    for z in zeilen:
+        if z.get("fehler") and z["fehler"] == "Eintrag offen (kein Ende)":
+            continue
+
+        datum = z["datum"]
+        datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
+        wochentag = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][datum.weekday()] if isinstance(datum, date) else "–"
+
+        typ = "Arbeit"
+        if z.get("ist_feiertag"):
+            typ = f"Feiertag"
+        elif z.get("ist_sonntag"):
+            typ = "Sonntag"
+
+        zuschlag_gesamt = z.get("sonntagszuschlag", 0) + z.get("feiertagszuschlag", 0)
+
+        data.append([
+            datum_str,
+            wochentag,
+            str(z.get("datum", ""))[:5] if False else "–",  # Platzhalter
+            "–",
+            f"{z.get('pause_minuten', 0)} Min",
+            f"{z.get('netto_stunden', 0):.2f}",
+            typ,
+            f"{z.get('grundlohn', 0):.2f} €",
+            f"+{zuschlag_gesamt:.2f} €" if zuschlag_gesamt > 0 else "–",
+            f"{z.get('gesamtlohn', 0):.2f} €",
+        ])
+
+    # Wir bauen die Tabelle aus den Zeiterfassungs-Rohdaten neu auf (mit Zeiten)
+    # Dazu nutzen wir die zeilen-Daten direkt
+    data = [header]
+    for z in zeilen:
+        if z.get("fehler") and z["fehler"] == "Eintrag offen (kein Ende)":
+            continue
+        datum = z["datum"]
+        datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
+        wochentag = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][datum.weekday()] if isinstance(datum, date) else "–"
+        typ = "Arbeit"
+        if z.get("ist_feiertag"):
+            typ = f"Feiertag"
+        elif z.get("ist_sonntag"):
+            typ = "Sonntag"
+        zuschlag_gesamt = z.get("sonntagszuschlag", 0) + z.get("feiertagszuschlag", 0)
+        data.append([
+            datum_str, wochentag, "–", "–",
+            f"{z.get('pause_minuten', 0)} Min",
+            f"{z.get('netto_stunden', 0):.2f}",
+            typ,
+            f"{z.get('grundlohn', 0):.2f} €",
+            f"+{zuschlag_gesamt:.2f} €" if zuschlag_gesamt > 0 else "–",
+            f"{z.get('gesamtlohn', 0):.2f} €",
+        ])
+
+    ist_stunden = monat_ergebnis.get("gesamt_stunden", 0)
+    gesamtbrutto = monat_ergebnis.get("gesamtbrutto", 0)
+    data.append(['', '', '', '', 'Gesamt:', f"{ist_stunden:.2f}", '', '', '',
+                 f"{gesamtbrutto:.2f} €"])
+
+    col_widths = [1.9*cm, 0.9*cm, 1.2*cm, 1.2*cm, 1.5*cm, 1.4*cm, 1.8*cm, 2.0*cm, 1.8*cm, 2.0*cm]
     t = Table(data, colWidths=col_widths, repeatRows=1)
-    
     ts = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('FONTSIZE', (0, 0), (-1, 0), 7.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 7.5),
+        ('FONTSIZE', (0, 1), (-1, -1), 7),
         ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8f9fa')]),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
         ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e8f4f8')),
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, -1), (-1, -1), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ])
-    
-    # Korrigierte Zeilen markieren
-    for i, z in enumerate(zeilen, start=1):
-        if z['korrigiert']:
-            ts.add('BACKGROUND', (0, i), (-1, i), colors.HexColor('#fff3cd'))
-    
     t.setStyle(ts)
     story.append(t)
     story.append(Spacer(1, 0.8*cm))
 
-    # Zusammenfassung
+    # Zusammenfassung mit Zuschlagsaufschlüsselung
     diff = ist_stunden - soll_stunden
-    diff_str = f"+{diff:.2f}h" if diff >= 0 else f"{diff:.2f}h"
-    
+    diff_str = f"+{diff:.2f} h" if diff >= 0 else f"{diff:.2f} h"
+    stundenlohn = mitarbeiter.get("stundenlohn_brutto", 0) or 0
+
     zusammen = [
         ['Soll-Stunden:', f"{soll_stunden:.2f} h"],
-        ['Ist-Stunden:', f"{ist_stunden:.2f} h"],
+        ['Ist-Stunden (Netto):', f"{ist_stunden:.2f} h"],
         ['Differenz:', diff_str],
-        ['Gesamt-Bruttolohn:', f"{gesamt_brutto:.2f} €"],
+        ['', ''],
+        ['Grundlohn:', f"{monat_ergebnis.get('grundlohn', 0):.2f} €"],
     ]
-    
-    t2 = Table(zusammen, colWidths=[5*cm, 4*cm])
+    if monat_ergebnis.get("sonntags_stunden", 0) > 0:
+        zusammen.append([
+            f"Sonntagszuschlag ({monat_ergebnis['sonntags_stunden']:.2f} h × 50%):",
+            f"+{monat_ergebnis.get('sonntagszuschlag', 0):.2f} €"
+        ])
+    if monat_ergebnis.get("feiertags_stunden", 0) > 0:
+        zusammen.append([
+            f"Feiertagszuschlag ({monat_ergebnis['feiertags_stunden']:.2f} h × 100%):",
+            f"+{monat_ergebnis.get('feiertagszuschlag', 0):.2f} €"
+        ])
+    zusammen.append(['Gesamt-Bruttolohn:', f"{gesamtbrutto:.2f} €"])
+
+    t2 = Table(zusammen, colWidths=[7*cm, 4*cm])
     t2.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, -1), (-1, -1), 11),
         ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEBELOW', (0, -2), (-1, -2), 1, colors.black),
+        ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
     ]))
     story.append(t2)
     story.append(Spacer(1, 1*cm))
-    
-    # Fußzeile
+
     story.append(Paragraph(
         f"Erstellt am: {date.today().strftime('%d.%m.%Y')} | "
-        f"Steakhouse Piccolo – Arbeitszeitverwaltung CrewBase",
+        f"Bundesland: Sachsen (SN) | CrewBase Arbeitszeitverwaltung",
         ParagraphStyle('footer', parent=styles['Normal'], fontSize=7,
                        alignment=TA_CENTER, textColor=colors.grey)
     ))
@@ -253,16 +248,20 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, zeilen: list,
     return buffer.read()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# HAUPTFUNKTION
+# ─────────────────────────────────────────────────────────────────────────────
+
 def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                         filter_mitarbeiter_id: int = None):
     """
     Hauptfunktion: Zeitauswertung / Lohn
-    - admin_modus=True: Admin sieht alle Mitarbeiter
+    - admin_modus=True: Admin sieht alle Mitarbeiter + Audit-Log + Warnungen
     - filter_mitarbeiter_id: Für Admin-Filterung auf einen Mitarbeiter
     """
-    
+
     st.subheader("⏱️ Zeitauswertung / Lohn")
-    
+
     # ── Monat / Jahr Auswahl ──────────────────────────────────────────────────
     heute = date.today()
     col1, col2 = st.columns(2)
@@ -273,18 +272,18 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         monat = st.selectbox("Monat", list(range(1, 13)),
                              format_func=lambda x: MONATE[x - 1],
                              index=heute.month - 1, key="za_monat")
-    
+
     # ── Mitarbeiter-Auswahl (nur Admin) ──────────────────────────────────────
     if admin_modus:
         supabase = get_supabase_client()
         alle_ma = supabase.table('mitarbeiter').select(
             'id,vorname,nachname,monatliche_soll_stunden,stundenlohn_brutto,'
-            'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer'
+            'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
         ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
-        
+
         ma_liste = alle_ma.data or []
         ma_optionen = {f"{m['vorname']} {m['nachname']}": m for m in ma_liste}
-        
+
         ausgewaehlter_name = st.selectbox(
             "Mitarbeiter auswählen",
             list(ma_optionen.keys()),
@@ -293,28 +292,46 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         aktiver_ma = ma_optionen[ausgewaehlter_name]
     else:
         aktiver_ma = mitarbeiter
-    
+
     st.markdown("---")
-    
+
     # ── Daten laden ──────────────────────────────────────────────────────────
     zeiterfassungen = _lade_zeiterfassungen(aktiver_ma['id'], monat, jahr)
     dienstplaene = _lade_dienstplaene(aktiver_ma['id'], monat, jahr)
-    
-    # ── Zeilen berechnen ─────────────────────────────────────────────────────
-    zeilen = [_berechne_zeile(z, aktiver_ma) for z in zeiterfassungen]
-    
-    # ── Soll-Stunden aus Dienstplan ───────────────────────────────────────────
+
+    # ── Lohnberechnung mit neuem Modul ───────────────────────────────────────
+    monat_ergebnis = berechne_monat(zeiterfassungen, aktiver_ma, auto_pause=True)
+
+    # ── Soll-Stunden ─────────────────────────────────────────────────────────
     soll_aus_dienstplan = _berechne_soll_stunden(dienstplaene)
-    # Fallback: monatliche_soll_stunden aus Mitarbeiterprofil
     soll_stunden = soll_aus_dienstplan if soll_aus_dienstplan > 0 else (
         aktiver_ma.get('monatliche_soll_stunden', 0) or 0
     )
-    
-    ist_stunden = sum(z['netto_stunden'] for z in zeilen)
+
+    ist_stunden = monat_ergebnis["gesamt_stunden"]
     differenz = ist_stunden - soll_stunden
-    gesamt_brutto = sum(z['gesamt_brutto'] for z in zeilen)
-    korrektur_count = sum(1 for z in zeilen if z['korrigiert'])
-    
+    gesamtbrutto = monat_ergebnis["gesamtbrutto"]
+    zeilen = monat_ergebnis["zeilen"]
+    warnungen = monat_ergebnis["warnungen"]
+
+    # Korrekturen zählen (Zeilen mit updated_at != created_at)
+    korrektur_count = sum(
+        1 for z_raw in zeiterfassungen
+        if z_raw.get('updated_at') and z_raw.get('created_at')
+        and z_raw['updated_at'] != z_raw['created_at']
+    )
+
+    # ── Feiertag-Warnungen (Admin) ────────────────────────────────────────────
+    if admin_modus and warnungen:
+        for warnung in warnungen:
+            st.warning(warnung)
+
+    if korrektur_count > 0:
+        st.warning(
+            f"⚠️ **{korrektur_count} Eintrag/Einträge** in diesem Monat wurden vom Administrator "
+            f"korrigiert und sind in der Tabelle **gelb markiert**."
+        )
+
     # ── Kennzahlen-Kacheln ────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
     with k1:
@@ -330,59 +347,89 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             delta_color=delta_color
         )
     with k4:
-        st.metric("💶 Bruttolohn (ges.)", f"{gesamt_brutto:.2f} €")
-    
-    if korrektur_count > 0:
-        st.warning(
-            f"⚠️ **{korrektur_count} Eintrag/Einträge** in diesem Monat wurden vom Administrator "
-            f"korrigiert und sind in der Tabelle **gelb markiert**."
-        )
-    
+        st.metric("💶 Bruttolohn (ges.)", f"{gesamtbrutto:.2f} €")
+
     st.markdown("---")
-    
+
     # ── Detailtabelle ─────────────────────────────────────────────────────────
     st.markdown(f"### 📅 Zeiterfassungen – {MONATE[monat-1]} {jahr}")
-    
+
+    # Feiertage des Monats für Tooltip
+    feiertage_monat = get_feiertage_monat(monat, jahr)
+
     if not zeilen:
         st.info(f"Keine Zeiterfassungen für {MONATE[monat-1]} {jahr} vorhanden.")
     else:
-        # Tabelle als HTML für farbige Markierungen
+        # Rohdaten für Zeiten (start_zeit, ende_zeit)
+        raw_map = {z.get("id"): z for z in zeiterfassungen}
+
         html_rows = ""
-        for z in zeilen:
-            bg = "#fff3cd" if z['korrigiert'] else ("white" if zeilen.index(z) % 2 == 0 else "#f8f9fa")
-            
-            typ_badge = ""
-            if z['ist_feiertag']:
-                typ_badge = '<span style="background:#dc3545;color:white;padding:2px 6px;border-radius:4px;font-size:0.75rem;">Feiertag</span>'
-            elif z['ist_sonntag']:
-                typ_badge = '<span style="background:#fd7e14;color:white;padding:2px 6px;border-radius:4px;font-size:0.75rem;">Sonntag</span>'
+        for idx, z in enumerate(zeilen):
+            # Korrektur-Flag aus Rohdaten
+            raw = raw_map.get(z.get("id"), {})
+            korrigiert = bool(
+                raw.get('updated_at') and raw.get('created_at')
+                and raw['updated_at'] != raw['created_at']
+            )
+
+            bg = "#fff3cd" if korrigiert else ("white" if idx % 2 == 0 else "#f8f9fa")
+
+            datum = z["datum"]
+            datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
+            wochentag = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"][datum.weekday()] if isinstance(datum, date) else "–"
+
+            start_str = str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–"
+            ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else '<span style="color:#dc3545;">Offen</span>'
+
+            # Typ-Badge
+            if z.get("ist_feiertag"):
+                ft_name = z.get("feiertag_name", "Feiertag")
+                typ_badge = f'<span style="background:#dc3545;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;" title="{ft_name}">🔴 {ft_name[:12]}</span>'
+            elif z.get("ist_sonntag"):
+                typ_badge = '<span style="background:#fd7e14;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;">🟡 Sonntag</span>'
             else:
-                typ_badge = '<span style="background:#0d6efd;color:white;padding:2px 6px;border-radius:4px;font-size:0.75rem;">Arbeit</span>'
-            
+                typ_badge = '<span style="background:#0d6efd;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;">🔵 Arbeit</span>'
+
             korr_badge = ""
-            if z['korrigiert']:
-                korr_badge = ' <span style="background:#ffc107;color:#212529;padding:2px 5px;border-radius:4px;font-size:0.7rem;">✏️ korrigiert</span>'
-            
+            if korrigiert:
+                korr_badge = ' <span style="background:#ffc107;color:#212529;padding:2px 5px;border-radius:4px;font-size:0.7rem;">✏️ korr.</span>'
+
+            # Zuschlag-Info
             zuschlag_info = ""
-            if z['zuschlag_so'] > 0:
-                zuschlag_info += f'<br><small style="color:#fd7e14;">+{z["zuschlag_so"]:.2f}€ So-Zuschlag</small>'
-            if z['zuschlag_ft'] > 0:
-                zuschlag_info += f'<br><small style="color:#dc3545;">+{z["zuschlag_ft"]:.2f}€ Ft-Zuschlag</small>'
-            
+            so_z = z.get("sonntagszuschlag", 0)
+            ft_z = z.get("feiertagszuschlag", 0)
+            if so_z > 0:
+                zuschlag_info += f'<br><small style="color:#fd7e14;font-weight:600;">+{so_z:.2f}€ So-Zuschlag (50%)</small>'
+            if ft_z > 0:
+                zuschlag_info += f'<br><small style="color:#dc3545;font-weight:600;">+{ft_z:.2f}€ Ft-Zuschlag (100%)</small>'
+
+            # Warnung wenn Feiertag ohne Häkchen
+            warnung_icon = ""
+            if z.get("hat_zuschlag_aber_kein_haekchen"):
+                warnung_icon = ' <span title="Feiertag ohne aktivierten Zuschlag!" style="color:#e65100;cursor:help;">⚠️</span>'
+
+            # Offener Eintrag
+            if z.get("fehler"):
+                netto_str = '<span style="color:#dc3545;">Offen</span>'
+                gesamt_str = "–"
+            else:
+                netto_str = f"{z.get('netto_stunden', 0):.2f} h"
+                gesamt_str = f"{z.get('gesamtlohn', 0):.2f} €"
+
             html_rows += f"""
             <tr style="background:{bg};">
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;font-weight:500;">{z['datum_str']}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;color:#6c757d;">{z['wochentag']}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{str(z['start'])[:5] if z['start'] != '–' else '–'}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{str(z['ende'])[:5] if z['ende'] != 'Offen' else '<span style="color:#dc3545;">Offen</span>'}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;">{z['pause_min']} Min</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;font-weight:600;">{z['netto_stunden']:.2f} h</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{typ_badge}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;">{z['grundlohn']:.2f} €{zuschlag_info}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;font-weight:600;">{z['gesamt_brutto']:.2f} €{korr_badge}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;font-weight:500;">{datum_str}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;color:#6c757d;font-size:0.85rem;">{wochentag[:2]}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{start_str}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{ende_str}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;">{z.get('pause_minuten', 0)} Min</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;font-weight:600;">{netto_str}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{typ_badge}{warnung_icon}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;">{z.get('grundlohn', 0):.2f} €{zuschlag_info}</td>
+                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;font-weight:600;">{gesamt_str}{korr_badge}</td>
             </tr>
             """
-        
+
         html_table = f"""
         <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
@@ -406,24 +453,88 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                     <td style="padding:10px;text-align:center;border-top:2px solid #1a1a2e;">{ist_stunden:.2f} h</td>
                     <td style="padding:10px;border-top:2px solid #1a1a2e;"></td>
                     <td style="padding:10px;border-top:2px solid #1a1a2e;"></td>
-                    <td style="padding:10px;text-align:right;border-top:2px solid #1a1a2e;">{gesamt_brutto:.2f} €</td>
+                    <td style="padding:10px;text-align:right;border-top:2px solid #1a1a2e;">{gesamtbrutto:.2f} €</td>
                 </tr>
             </tbody>
         </table>
         </div>
         """
         st.markdown(html_table, unsafe_allow_html=True)
-    
+
     st.markdown("---")
-    
+
+    # ── Lohnaufschlüsselung ───────────────────────────────────────────────────
+    st.markdown("### 💶 Lohnaufschlüsselung – Zuschlagsübersicht")
+
+    stundenlohn = aktiver_ma.get('stundenlohn_brutto', 0) or 0
+    so_stunden = monat_ergebnis["sonntags_stunden"]
+    ft_stunden = monat_ergebnis["feiertags_stunden"]
+    normal_stunden = max(0, ist_stunden - so_stunden - ft_stunden)
+    grundlohn = monat_ergebnis["grundlohn"]
+    so_zuschlag = monat_ergebnis["sonntagszuschlag"]
+    ft_zuschlag = monat_ergebnis["feiertagszuschlag"]
+
+    lohn_cols = st.columns(3)
+    with lohn_cols[0]:
+        st.markdown(f"""
+        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Normalstunden</div>
+            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">{normal_stunden:.2f} h</div>
+            <div style="font-size:0.95rem;color:#0d6efd;font-weight:600;">{grundlohn:.2f} €</div>
+            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">× {stundenlohn:.2f} €/h</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with lohn_cols[1]:
+        so_aktiv = aktiver_ma.get("sonntagszuschlag_aktiv", False)
+        so_badge = '<span style="background:#fd7e14;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;">+50%</span>' if so_aktiv else '<span style="background:#dee2e6;color:#6c757d;padding:1px 6px;border-radius:3px;font-size:0.7rem;">inaktiv</span>'
+        st.markdown(f"""
+        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Sonntagsstunden {so_badge}</div>
+            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">Davon {so_stunden:.2f} h</div>
+            <div style="font-size:0.95rem;color:#fd7e14;font-weight:600;">+{so_zuschlag:.2f} € Zuschlag</div>
+            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">So 00:00–24:00 Uhr</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with lohn_cols[2]:
+        ft_aktiv = aktiver_ma.get("feiertagszuschlag_aktiv", False)
+        ft_badge = '<span style="background:#dc3545;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;">+100%</span>' if ft_aktiv else '<span style="background:#dee2e6;color:#6c757d;padding:1px 6px;border-radius:3px;font-size:0.7rem;">inaktiv</span>'
+        st.markdown(f"""
+        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Feiertagsstunden {ft_badge}</div>
+            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">Davon {ft_stunden:.2f} h</div>
+            <div style="font-size:0.95rem;color:#dc3545;font-weight:600;">+{ft_zuschlag:.2f} € Zuschlag</div>
+            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">Sachsen (SN) inkl. Buß- &amp; Bettag</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # Gesamtlohn-Box
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:1.2rem 1.5rem;border-radius:12px;color:white;display:flex;justify-content:space-between;align-items:center;">
+        <div>
+            <div style="font-size:0.85rem;opacity:0.7;letter-spacing:1px;text-transform:uppercase;">Gesamt-Bruttolohn {MONATE[monat-1]} {jahr}</div>
+            <div style="font-size:0.8rem;opacity:0.6;margin-top:2px;">
+                {grundlohn:.2f} € Grundlohn
+                {f" + {so_zuschlag:.2f} € So-Zuschlag" if so_zuschlag > 0 else ""}
+                {f" + {ft_zuschlag:.2f} € Ft-Zuschlag" if ft_zuschlag > 0 else ""}
+            </div>
+        </div>
+        <div style="font-size:2rem;font-weight:800;letter-spacing:1px;">{gesamtbrutto:.2f} €</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
     # ── Soll-Ist-Vergleich ────────────────────────────────────────────────────
-    st.markdown("### 📊 Monatsauswertung – Soll-Ist-Vergleich")
-    
+    st.markdown("### 📊 Soll-Ist-Vergleich")
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
         <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid #0d6efd;">
-            <div style="font-size:0.85rem;color:#6c757d;">Soll-Stunden (Dienstplan)</div>
+            <div style="font-size:0.85rem;color:#6c757d;">Soll-Stunden (Dienstplan/Profil)</div>
             <div style="font-size:1.5rem;font-weight:700;">{soll_stunden:.2f} h</div>
         </div>
         """, unsafe_allow_html=True)
@@ -437,59 +548,53 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             <div style="font-size:0.8rem;color:#6c757d;">{'Überstunden' if differenz >= 0 else 'Minusstunden'}</div>
         </div>
         """, unsafe_allow_html=True)
-    
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # Lohnaufschlüsselung
-    so_stunden = sum(z['netto_stunden'] for z in zeilen if z['ist_sonntag'] and not z['ist_feiertag'])
-    ft_stunden = sum(z['netto_stunden'] for z in zeilen if z['ist_feiertag'])
-    normal_stunden = ist_stunden - so_stunden - ft_stunden
-    
-    stundenlohn = aktiver_ma.get('stundenlohn_brutto', 0) or 0
-    
-    if stundenlohn > 0:
-        st.markdown("**Lohnaufschlüsselung:**")
-        lohn_cols = st.columns(3)
-        with lohn_cols[0]:
-            st.markdown(f"""
-            <div style="background:white;padding:0.8rem;border-radius:6px;border:1px solid #dee2e6;text-align:center;">
-                <div style="font-size:0.8rem;color:#6c757d;">Normalstunden</div>
-                <div style="font-weight:600;">{normal_stunden:.2f} h</div>
-                <div style="font-size:0.85rem;color:#0d6efd;">{berechne_grundlohn(stundenlohn, normal_stunden):.2f} €</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with lohn_cols[1]:
-            so_zuschlag = sum(z['zuschlag_so'] for z in zeilen)
-            st.markdown(f"""
-            <div style="background:white;padding:0.8rem;border-radius:6px;border:1px solid #dee2e6;text-align:center;">
-                <div style="font-size:0.8rem;color:#6c757d;">Sonntagsstunden (+50%)</div>
-                <div style="font-weight:600;">{so_stunden:.2f} h</div>
-                <div style="font-size:0.85rem;color:#fd7e14;">+{so_zuschlag:.2f} € Zuschlag</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with lohn_cols[2]:
-            ft_zuschlag = sum(z['zuschlag_ft'] for z in zeilen)
-            st.markdown(f"""
-            <div style="background:white;padding:0.8rem;border-radius:6px;border:1px solid #dee2e6;text-align:center;">
-                <div style="font-size:0.8rem;color:#6c757d;">Feiertagsstunden (+100%)</div>
-                <div style="font-weight:600;">{ft_stunden:.2f} h</div>
-                <div style="font-size:0.85rem;color:#dc3545;">+{ft_zuschlag:.2f} € Zuschlag</div>
-            </div>
-            """, unsafe_allow_html=True)
-    
+
     st.markdown("---")
-    
+
+    # ── Feiertage des Monats (Info) ───────────────────────────────────────────
+    if feiertage_monat:
+        st.markdown(f"### 🗓️ Feiertage in Sachsen – {MONATE[monat-1]} {jahr}")
+        ft_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">'
+        for ft_datum, ft_name in sorted(feiertage_monat.items()):
+            wt = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][ft_datum.weekday()]
+            ruhetag = ft_datum.weekday() in (0, 1)
+            bg = "#dee2e6" if ruhetag else "#dc3545"
+            opacity = "0.5" if ruhetag else "1"
+            hinweis = " (Ruhetag)" if ruhetag else ""
+            ft_html += f'<span style="background:{bg};color:white;padding:4px 10px;border-radius:6px;font-size:0.82rem;opacity:{opacity};">{ft_datum.strftime("%d.%m.")} {wt} – {ft_name}{hinweis}</span>'
+        ft_html += '</div>'
+        st.markdown(ft_html, unsafe_allow_html=True)
+        st.markdown("---")
+
+    # ── Audit-Log (nur Admin) ─────────────────────────────────────────────────
+    if admin_modus:
+        with st.expander("🔍 Audit-Log (Berechnungsprotokoll)", expanded=False):
+            st.markdown("""
+            <div style="background:#f8f9fa;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;">
+                <small style="color:#6c757d;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
+                Es zeigt welcher Zuschlag an welchem Tag durch welche Regel ausgelöst wurde.</small>
+            </div>
+            """, unsafe_allow_html=True)
+            audit_text = "\n".join(monat_ergebnis.get("audit_log_gesamt", []))
+            st.code(audit_text, language=None)
+
+            # Download-Button für Audit-Log
+            if audit_text:
+                st.download_button(
+                    label="⬇️ Audit-Log als TXT herunterladen",
+                    data=audit_text.encode("utf-8"),
+                    file_name=f"AuditLog_{aktiver_ma.get('nachname','MA')}_{jahr}_{monat:02d}.txt",
+                    mime="text/plain"
+                )
+
     # ── PDF-Export ────────────────────────────────────────────────────────────
     st.markdown("### 📥 Monatsauswertung exportieren")
-    
+
     col_pdf, col_info = st.columns([1, 2])
     with col_pdf:
         if st.button("📄 PDF-Monatsauswertung erstellen", type="primary", use_container_width=True):
             try:
-                pdf_bytes = _erstelle_pdf(
-                    aktiver_ma, monat, jahr, zeilen,
-                    soll_stunden, ist_stunden, gesamt_brutto
-                )
+                pdf_bytes = _erstelle_pdf(aktiver_ma, monat, jahr, monat_ergebnis, soll_stunden)
                 dateiname = (
                     f"Zeitauswertung_{aktiver_ma['nachname']}_{aktiver_ma['vorname']}_"
                     f"{jahr}_{monat:02d}.pdf"
@@ -504,19 +609,26 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 st.success("✅ PDF erfolgreich erstellt!")
             except Exception as e:
                 st.error(f"Fehler beim Erstellen der PDF: {str(e)}")
-    
+
     with col_info:
         st.info(
             "📋 Die Monatsauswertung enthält alle Zeiterfassungen, den Soll-Ist-Vergleich, "
-            "Zuschlagsberechnungen und dient als Grundlage für die Lohnabrechnung."
+            "Zuschlagsberechnungen nach Sachsen-Feiertagskalender und dient als Grundlage "
+            "für die Lohnabrechnung."
         )
-    
-    # Hinweis auf Korrekturen
+
     if korrektur_count > 0:
         st.markdown(f"""
         <div style="background:#fff3cd;padding:0.8rem;border-radius:6px;border-left:4px solid #ffc107;margin-top:0.5rem;">
-            <strong>ℹ️ Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en) 
-            wurden in diesem Monat durch den Administrator angepasst. 
+            <strong>ℹ️ Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en)
+            wurden in diesem Monat durch den Administrator angepasst.
             Diese sind in der Tabelle gelb markiert.
         </div>
         """, unsafe_allow_html=True)
+
+    # Offene Einträge
+    if monat_ergebnis.get("offene_eintraege", 0) > 0:
+        st.warning(
+            f"⚠️ **{monat_ergebnis['offene_eintraege']} offene Einträge** (kein Ende gestempelt) "
+            f"wurden nicht in die Lohnberechnung einbezogen."
+        )
