@@ -66,7 +66,7 @@ def show():
     unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
     chat_badge = f" ({unread_count})" if unread_count > 0 else ""
     
-    # Tab-Navigation mit einheitlichen Icons
+    # Tab-Navigation mit einheitlichen Icons (konsolidiert)
     tabs = st.tabs([
         f"{get_icon('dashboard')} Übersicht",
         f"{get_icon('mitarbeiter')} Mitarbeiterverwaltung",
@@ -74,10 +74,8 @@ def show():
         f"{get_icon('urlaub')} Urlaubsgenehmigung",
         f"{get_icon('dienstplan')} Urlaubskalender",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
-        f"{get_icon('zeit')} Zeiterfassung",
-        f"⏱️ Zeitauswertung / Lohn",
-        f"{get_icon('lohn')} Lohnabrechnung",
-        f"{get_icon('mastergeraete')} Mastergeräte",
+        f"⏱️ Lohn & Zeiten",
+        f"{get_icon('mastergeraete')} Mastergärate",
         f"{get_icon('einstellungen')} Einstellungen"
     ])
     
@@ -101,23 +99,118 @@ def show():
         show_plauderecke_admin()
     
     with tabs[6]:
-        show_zeiterfassung_admin()
+        show_lohn_und_zeiten_konsolidiert()
     
     with tabs[7]:
-        from pages.zeitauswertung import show_zeitauswertung
-        # Admin-Modus: alle Mitarbeiter sichtbar
-        admin_ma = st.session_state.get('mitarbeiter_data', {})
-        show_zeitauswertung(admin_ma, admin_modus=True)
-    
-    with tabs[8]:
-        show_lohnabrechnung()
-    
-    with tabs[9]:
         from pages.admin_mastergeraete import show_mastergeraete
         show_mastergeraete()
     
-    with tabs[10]:
+    with tabs[8]:
         show_einstellungen()
+
+
+def show_lohn_und_zeiten_konsolidiert():
+    """Konsolidierter Tab: Zeiterfassung + Zeitauswertung + Lohnabrechnung in einem"""
+    
+    st.markdown('<div class="section-header">⏱️ Lohn & Zeiten</div>', unsafe_allow_html=True)
+    
+    # Sub-Navigation mit Selectbox
+    sub_bereich = st.selectbox(
+        "Bereich wählen:",
+        [
+            "📅 Zeiterfassung – Tagesbuchungen & Korrekturen",
+            "📊 Zeitauswertung & Zuschlagsberechnung",
+            "💰 Lohnabrechnung & Steuerberater-Export",
+            "📜 Audit-Log – Änderungsprotokoll"
+        ],
+        key="lohn_zeiten_sub"
+    )
+    
+    st.markdown("---")
+    
+    if sub_bereich.startswith("📅"):
+        show_zeiterfassung_admin()
+    
+    elif sub_bereich.startswith("📊"):
+        from pages.zeitauswertung import show_zeitauswertung
+        admin_ma = st.session_state.get('mitarbeiter_data', {})
+        show_zeitauswertung(admin_ma, admin_modus=True)
+    
+    elif sub_bereich.startswith("💰"):
+        show_lohnabrechnung()
+    
+    elif sub_bereich.startswith("📜"):
+        show_audit_log_admin()
+
+
+def show_audit_log_admin():
+    """Zeigt das Audit-Log für Admins an"""
+    st.markdown("### 📜 Änderungsprotokoll (Audit-Log)")
+    st.info("ℹ️ Dieses Protokoll ist unveränderlich und dokumentiert alle manuellen Korrekturen durch Admins (DSGVO-konform).")
+    
+    try:
+        from utils.audit_log import get_audit_log
+        from utils.database import get_supabase_client
+        supabase = get_supabase_client()
+        
+        betrieb_id = st.session_state.get('betrieb_id')
+        
+        # Filter-Optionen
+        col1, col2 = st.columns(2)
+        with col1:
+            # Mitarbeiter-Filter
+            ma_response = supabase.table('mitarbeiter').select('id, vorname, nachname').execute()
+            ma_liste = [('Alle', None)] + [(f"{m['vorname']} {m['nachname']}", m['id']) for m in (ma_response.data or [])]
+            ma_auswahl = st.selectbox("Mitarbeiter filtern:", [m[0] for m in ma_liste], key="audit_ma_filter")
+            ma_id_filter = next((m[1] for m in ma_liste if m[0] == ma_auswahl), None)
+        with col2:
+            limit = st.selectbox("Einträge anzeigen:", [25, 50, 100, 200], index=0, key="audit_limit")
+        
+        eintraege = get_audit_log(betrieb_id=betrieb_id, mitarbeiter_id=ma_id_filter, limit=limit)
+        
+        if not eintraege:
+            st.info("📢 Noch keine Audit-Einträge vorhanden.")
+            return
+        
+        st.markdown(f"**{len(eintraege)} Einträge gefunden**")
+        
+        for eintrag in eintraege:
+            zeitstempel = eintrag.get('erstellt_am', '')[:19].replace('T', ' ')
+            aktion = eintrag.get('aktion', '').replace('_', ' ').title()
+            admin = eintrag.get('admin_name', 'Unbekannt')
+            mitarbeiter = eintrag.get('mitarbeiter_name', 'Unbekannt')
+            begruendung = eintrag.get('begruendung', '-')
+            
+            # Farbe je nach Aktion
+            if 'loeschung' in eintrag.get('aktion', ''):
+                farbe = '#9b2c2c'
+                icon = '🗑️'
+            elif 'korrektur' in eintrag.get('aktion', ''):
+                farbe = '#b7791f'
+                icon = '✏️'
+            else:
+                farbe = '#2c5282'
+                icon = '📝'
+            
+            st.markdown(f"""
+            <div style="border-left: 4px solid {farbe}; padding: 0.75rem 1rem; margin: 0.5rem 0;
+                        background: #f8f9fa; border-radius: 0 8px 8px 0;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600; color: {farbe};">{icon} {aktion}</span>
+                    <span style="font-size: 0.8rem; color: #6c757d;">{zeitstempel}</span>
+                </div>
+                <div style="margin-top: 0.3rem; font-size: 0.9rem;">
+                    <strong>Admin:</strong> {admin} &nbsp;&nbsp;
+                    <strong>Mitarbeiter:</strong> {mitarbeiter}
+                </div>
+                <div style="margin-top: 0.2rem; font-size: 0.85rem; color: #495057;">
+                    <strong>Begründung:</strong> {begruendung}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    except Exception as e:
+        st.error(f"Fehler beim Laden des Audit-Logs: {e}")
 
 
 def show_uebersicht():
@@ -1136,7 +1229,43 @@ def show_zeiterfassung_admin():
                                     'korrektur_datum': datetime.now().isoformat()
                                 }
                                 
+                                # Alten Wert für Audit-Log sichern
+                                alter_wert = {
+                                    'start_zeit': ze.get('start_zeit'),
+                                    'ende_zeit': ze.get('ende_zeit'),
+                                    'pause_minuten': ze.get('pause_minuten'),
+                                    'arbeitsstunden': ze.get('arbeitsstunden')
+                                }
+                                
                                 supabase.table('zeiterfassung').update(update_data).eq('id', ze['id']).execute()
+                                
+                                # Audit-Log schreiben (revisionssicher)
+                                try:
+                                    from utils.audit_log import log_zeitkorrektur
+                                    # Hole Mitarbeiter-Name
+                                    ma_result = supabase.table('mitarbeiter').select('vorname, nachname').eq('id', ze['mitarbeiter_id']).execute()
+                                    ma_name = f"{ma_result.data[0]['vorname']} {ma_result.data[0]['nachname']}" if ma_result.data else 'Unbekannt'
+                                    # Hole Admin-Name
+                                    admin_result = supabase.table('users').select('username').eq('id', st.session_state.user_id).execute()
+                                    admin_name = admin_result.data[0]['username'] if admin_result.data else 'Admin'
+                                    log_zeitkorrektur(
+                                        admin_user_id=st.session_state.user_id,
+                                        admin_name=admin_name,
+                                        mitarbeiter_id=ze['mitarbeiter_id'],
+                                        mitarbeiter_name=ma_name,
+                                        zeiterfassung_id=ze['id'],
+                                        alter_wert=alter_wert,
+                                        neuer_wert={
+                                            'start_zeit': new_check_in.strftime('%H:%M:%S'),
+                                            'ende_zeit': new_check_out.strftime('%H:%M:%S'),
+                                            'pause_minuten': new_pause
+                                        },
+                                        begruendung=korrektur_grund,
+                                        betrieb_id=st.session_state.get('betrieb_id')
+                                    )
+                                except Exception as audit_err:
+                                    import logging
+                                    logging.warning(f"Audit-Log konnte nicht geschrieben werden: {audit_err}")
                                 
                                 st.success("✅ Zeiterfassung erfolgreich korrigiert!")
                                 st.rerun()
@@ -1144,6 +1273,33 @@ def show_zeiterfassung_admin():
                     with col2:
                         if st.form_submit_button("🗑️ Löschen", use_container_width=True):
                             if st.session_state.get(f'confirm_delete_{ze["id"]}', False):
+                                # Audit-Log vor dem Löschen schreiben
+                                try:
+                                    from utils.audit_log import log_zeitloeschung
+                                    ma_result = supabase.table('mitarbeiter').select('vorname, nachname').eq('id', ze['mitarbeiter_id']).execute()
+                                    ma_name = f"{ma_result.data[0]['vorname']} {ma_result.data[0]['nachname']}" if ma_result.data else 'Unbekannt'
+                                    admin_result = supabase.table('users').select('username').eq('id', st.session_state.user_id).execute()
+                                    admin_name = admin_result.data[0]['username'] if admin_result.data else 'Admin'
+                                    log_zeitloeschung(
+                                        admin_user_id=st.session_state.user_id,
+                                        admin_name=admin_name,
+                                        mitarbeiter_id=ze['mitarbeiter_id'],
+                                        mitarbeiter_name=ma_name,
+                                        zeiterfassung_id=ze['id'],
+                                        alter_wert={
+                                            'datum': ze.get('datum'),
+                                            'start_zeit': ze.get('start_zeit'),
+                                            'ende_zeit': ze.get('ende_zeit'),
+                                            'pause_minuten': ze.get('pause_minuten'),
+                                            'arbeitsstunden': ze.get('arbeitsstunden')
+                                        },
+                                        begruendung='Manuell gelöscht durch Admin',
+                                        betrieb_id=st.session_state.get('betrieb_id')
+                                    )
+                                except Exception as audit_err:
+                                    import logging
+                                    logging.warning(f"Audit-Log konnte nicht geschrieben werden: {audit_err}")
+                                
                                 supabase.table('zeiterfassung').delete().eq('id', ze['id']).execute()
                                 st.success("✅ Zeiterfassung gelöscht!")
                                 st.rerun()
@@ -1758,6 +1914,44 @@ def show_urlaubskalender_admin():
             "Juli", "August", "September", "Oktober", "November", "Dezember"
         ]
         
+        # ============================================================
+        # MITARBEITER-FARBEN: Jeder Mitarbeiter bekommt eine eindeutige Farbe
+        # Sonderregel: Fernando -> #8A2BE2 (Lila/Violett)
+        # ============================================================
+        FARB_PALETTE = [
+            '#2196F3',  # Blau
+            '#4CAF50',  # Grün
+            '#FF5722',  # Tief-Orange
+            '#009688',  # Türkis
+            '#E91E63',  # Pink
+            '#FF9800',  # Orange
+            '#795548',  # Braun
+            '#607D8B',  # Blaugrau
+            '#3F51B5',  # Indigo
+            '#00BCD4',  # Cyan
+            '#8BC34A',  # Hellgrün
+            '#FFC107',  # Bernstein
+        ]
+        
+        # Weise jedem Mitarbeiter eine Farbe zu
+        mitarbeiter_farben = {}
+        farb_index = 0
+        for ma_name in sorted(urlaube_nach_mitarbeiter.keys()):
+            # Sonderregel: Fernando bekommt immer Lila #8A2BE2
+            if 'fernando' in ma_name.lower():
+                mitarbeiter_farben[ma_name] = '#8A2BE2'
+            else:
+                mitarbeiter_farben[ma_name] = FARB_PALETTE[farb_index % len(FARB_PALETTE)]
+                farb_index += 1
+        
+        # Legende anzeigen
+        st.markdown("**Legende:**")
+        legende_html = '<div style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;">'
+        for ma_name, farbe in sorted(mitarbeiter_farben.items()):
+            legende_html += f'<span style="background: {farbe}; color: white; padding: 3px 10px; border-radius: 12px; font-size: 0.8rem; font-weight: 600;">{ma_name}</span>'
+        legende_html += '</div>'
+        st.markdown(legende_html, unsafe_allow_html=True)
+        
         # Zeige 12 Monate in 3 Spalten
         for quartal in range(4):  # 4 Quartale
             cols = st.columns(3)
@@ -1782,30 +1976,41 @@ def show_urlaubskalender_admin():
                                 else:
                                     aktuelles_datum = date(jahr, monat_nr, tag)
                                     
-                                    # Prüfe ob an diesem Tag jemand im Urlaub ist
-                                    urlaub_heute = []
+                                    # Prüfe welche Mitarbeiter an diesem Tag Urlaub haben
+                                    urlaub_heute_namen = []
                                     for urlaub in urlaube_response.data:
                                         von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
                                         bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
                                         if von <= aktuelles_datum <= bis:
-                                            urlaub_heute.append(f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}")
+                                            ma_name = f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}"
+                                            urlaub_heute_namen.append(ma_name)
                                     
-                                    # Färbe Zelle wenn Urlaub
-                                    if urlaub_heute:
-                                        if len(urlaub_heute) >= 3:
-                                            bg_color = '#ff9800'  # Orange
+                                    # Färbe Zelle mit Mitarbeiter-Farbe
+                                    if urlaub_heute_namen:
+                                        if len(urlaub_heute_namen) == 1:
+                                            # Einzelner Mitarbeiter: dessen persönliche Farbe
+                                            bg_color = mitarbeiter_farben.get(urlaub_heute_namen[0], '#2196F3')
+                                            text_color = 'white'
                                         else:
-                                            bg_color = '#ffeb3b'  # Gelb
-                                        title = f"{len(urlaub_heute)} im Urlaub: {', '.join(urlaub_heute)}"
-                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; background-color: {bg_color}; text-align: center;" title="{title}"><strong>{tag}</strong></td>'
+                                            # Mehrere Mitarbeiter: Farbverlauf des ersten + Indikator
+                                            bg_color = mitarbeiter_farben.get(urlaub_heute_namen[0], '#2196F3')
+                                            text_color = 'white'
+                                        title = f"{len(urlaub_heute_namen)} im Urlaub: {', '.join(urlaub_heute_namen)}"
+                                        multi_indicator = f'+{len(urlaub_heute_namen)-1}' if len(urlaub_heute_namen) > 1 else ''
+                                        sup_tag = f'<sup style="font-size:0.6rem;">{multi_indicator}</sup>' if multi_indicator else ''
+                                        html += (f'<td style="border: 1px solid #ddd; padding: 4px; background-color: {bg_color}; '
+                                                 f'text-align: center; color: {text_color}; font-weight: 700;" '
+                                                 f'title="{title}"><strong>{tag}</strong>'
+                                                 f'{sup_tag}'
+                                                 f'</td>')
                                     else:
-                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; text-align: center;">{tag}</td>'
+                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; text-align: center; color: #333;">{tag}</td>'
                             html += '</tr>'
                         
                         html += '</table>'
                         st.markdown(html, unsafe_allow_html=True)
         
-        st.caption("💡 Tipp: Gelb = 1-2 Mitarbeiter im Urlaub | Orange = 3+ Mitarbeiter im Urlaub. Fahre mit der Maus über die Zelle für Details.")
+        st.caption("💡 Jeder Mitarbeiter hat eine eindeutige Farbe. Fernando = Lila (■ #8A2BE2). Mehrere Urlaube am gleichen Tag: Farbe des ersten Mitarbeiters + Hochzahl.")
         st.markdown("---")
         
         # Export-Funktion

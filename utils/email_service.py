@@ -485,3 +485,210 @@ def send_lohnabrechnung_email(
     html_body = _erstelle_html_template(f"Lohnabrechnung {monat} {jahr}", inhalt)
     
     return send_email(mitarbeiter_email, subject, body, html_body)
+
+
+# ============================================================
+# NEU: STAMMDATEN-ÄNDERUNGSANTRAG (Admin-Benachrichtigung)
+# ============================================================
+
+def send_aenderungsantrag_admin_email(
+    admin_email: str,
+    mitarbeiter_name: str,
+    felder: list,
+    begruendung: str = None,
+    app_url: str = None
+) -> bool:
+    """
+    Sendet E-Mail an Admin wenn ein Mitarbeiter einen Stammdaten-Änderungsantrag stellt.
+    
+    Args:
+        admin_email: E-Mail des Admins
+        mitarbeiter_name: Name des Mitarbeiters
+        felder: Liste der geänderten Felder [{'feld': str, 'alt': str, 'neu': str}]
+        begruendung: Begründung des Mitarbeiters
+        app_url: App-URL
+    """
+    empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
+    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    
+    subject = f"✋ Änderungsantrag von {mitarbeiter_name} – Genehmigung erforderlich"
+    
+    # Felder-Tabelle aufbauen
+    felder_html = ""
+    felder_text = ""
+    for f in felder:
+        felder_html += f"""
+            <tr>
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">{f.get('feld', '')}</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #dc3545;">{f.get('alt', '(leer)')}</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #28a745;">{f.get('neu', '')}</td>
+            </tr>"""
+        felder_text += f"  - {f.get('feld', '')}: {f.get('alt', '')} → {f.get('neu', '')}\n"
+    
+    body = (
+        f"Guten Tag,\n\n"
+        f"{mitarbeiter_name} hat folgende Stammdaten-Änderungen beantragt:\n\n"
+        f"{felder_text}\n"
+        f"{f'Begründung: {begruendung}' if begruendung else ''}\n\n"
+        f"Bitte genehmigen oder ablehnen Sie den Antrag in CrewBase:\n{app_link}\n\n"
+        f"Mit freundlichen Grüßen\nCrewBase"
+    )
+    
+    inhalt = f"""
+        <p><strong>{mitarbeiter_name}</strong> hat einen Stammdaten-Änderungsantrag gestellt:</p>
+        <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
+            <tr style="background-color: #1e3a5f; color: white;">
+                <th style="padding: 10px; text-align: left;">Feld</th>
+                <th style="padding: 10px; text-align: left;">Bisheriger Wert</th>
+                <th style="padding: 10px; text-align: left;">Neuer Wert</th>
+            </tr>
+            {felder_html}
+        </table>
+        {f'<p><strong>Begründung:</strong> {begruendung}</p>' if begruendung else ''}
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0; border-radius: 4px;">
+            <p style="margin: 0; font-weight: bold; color: #856404;">⚠️ Diese Änderungen benötigen Ihre Genehmigung!</p>
+        </div>
+        <div style="text-align: center; margin: 25px 0;">
+            <a href="{app_link}" 
+               style="background-color: #1e3a5f; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                ✋ Antrag prüfen
+            </a>
+        </div>
+    """
+    
+    html_body = _erstelle_html_template(f"Änderungsantrag: {mitarbeiter_name}", inhalt, farbe="#b7791f")
+    
+    return send_email(empfaenger, subject, body, html_body)
+
+
+# ============================================================
+# NEU: CHAT-BENACHRICHTIGUNG (Optional)
+# ============================================================
+
+def send_chat_benachrichtigung_email(
+    empfaenger_email: str,
+    empfaenger_name: str,
+    absender_name: str,
+    nachricht_vorschau: str,
+    app_url: str = None
+) -> bool:
+    """
+    Sendet optionale E-Mail-Benachrichtigung bei neuer Chat-Nachricht.
+    
+    Args:
+        empfaenger_email: E-Mail des Empfängers
+        empfaenger_name: Name des Empfängers
+        absender_name: Name des Absenders
+        nachricht_vorschau: Erste 100 Zeichen der Nachricht
+        app_url: App-URL
+    """
+    if not empfaenger_email:
+        return False
+    
+    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    
+    # Nachricht kürzen für Vorschau
+    vorschau = nachricht_vorschau[:100] + ("..." if len(nachricht_vorschau) > 100 else "")
+    
+    subject = f"💬 Neue Nachricht von {absender_name} in der Plauderecke"
+    
+    body = (
+        f"Hallo {empfaenger_name},\n\n"
+        f"{absender_name} hat eine neue Nachricht in der Plauderecke geschrieben:\n\n"
+        f"\"{vorschau}\"\n\n"
+        f"Jetzt antworten: {app_link}\n\n"
+        f"Mit freundlichen Grüßen\nCrewBase"
+    )
+    
+    inhalt = f"""
+        <p>Hallo <strong>{empfaenger_name}</strong>,</p>
+        <p><strong>{absender_name}</strong> hat eine neue Nachricht in der <strong>Plauderecke</strong> geschrieben:</p>
+        <div style="background-color: #f8f9fa; border-left: 4px solid #1e3a5f; padding: 15px; 
+                    margin: 15px 0; border-radius: 4px; font-style: italic; color: #495057;">
+            "{vorschau}"
+        </div>
+        <div style="text-align: center; margin: 25px 0;">
+            <a href="{app_link}" 
+               style="background-color: #1e3a5f; color: white; padding: 12px 24px; 
+                      text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+                💬 Jetzt antworten
+            </a>
+        </div>
+        <p style="color: #6c757d; font-size: 0.85rem;">
+            Diese Benachrichtigung können Sie in Ihren Profileinstellungen deaktivieren.
+        </p>
+    """
+    
+    html_body = _erstelle_html_template(f"Neue Nachricht von {absender_name}", inhalt)
+    
+    return send_email(empfaenger_email, subject, body, html_body)
+
+
+# ============================================================
+# NEU: DATEN-HYGIENE – Anonymisierungs-Warnung
+# ============================================================
+
+def send_datenhygiene_warnung_email(
+    admin_email: str,
+    faellige_mitarbeiter: list
+) -> bool:
+    """
+    Sendet monatliche E-Mail an Admin mit Mitarbeitern deren Löschfrist abgelaufen ist.
+    
+    Args:
+        admin_email: E-Mail des Admins
+        faellige_mitarbeiter: Liste [{'name': str, 'ausgetreten_am': str, 'loeschfrist': str}]
+    """
+    if not faellige_mitarbeiter:
+        return False
+    
+    empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
+    
+    subject = f"⚠️ DSGVO-Frist: {len(faellige_mitarbeiter)} Datensätze zur Anonymisierung fällig"
+    
+    zeilen_html = ""
+    zeilen_text = ""
+    for ma in faellige_mitarbeiter:
+        zeilen_html += f"""
+            <tr>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">{ma.get('name', '')}</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">{ma.get('ausgetreten_am', '')}</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #dc3545; font-weight: bold;">{ma.get('loeschfrist', '')}</td>
+            </tr>"""
+        zeilen_text += f"  - {ma.get('name', '')}: Frist {ma.get('loeschfrist', '')}\n"
+    
+    body = (
+        f"DSGVO-Hinweis:\n\n"
+        f"Folgende Mitarbeiter-Datensätze haben die gesetzliche Aufbewahrungsfrist (10 Jahre, § 147 AO) überschritten:\n\n"
+        f"{zeilen_text}\n"
+        f"Bitte prüfen Sie diese Datensätze und veranlassen Sie die Anonymisierung in CrewBase.\n\n"
+        f"Mit freundlichen Grüßen\nCrewBase"
+    )
+    
+    inhalt = f"""
+        <p>Folgende Mitarbeiter-Datensätze haben die gesetzliche Aufbewahrungsfrist überschritten und müssen anonymisiert werden:</p>
+        <div style="background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 15px 0; border-radius: 4px;">
+            <p style="margin: 0; font-weight: bold; color: #721c24;">
+                ⚠️ Rechtsgrundlage: § 147 AO – Aufbewahrungsfrist 10 Jahre nach Austritt
+            </p>
+        </div>
+        <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
+            <tr style="background-color: #1e3a5f; color: white;">
+                <th style="padding: 10px; text-align: left;">Mitarbeiter</th>
+                <th style="padding: 10px; text-align: left;">Ausgetreten am</th>
+                <th style="padding: 10px; text-align: left;">Frist abgelaufen</th>
+            </tr>
+            {zeilen_html}
+        </table>
+        <p>Bitte melden Sie sich in CrewBase an und veranlassen Sie die Anonymisierung unter 
+           <strong>Einstellungen → Datenschutz → Daten-Hygiene</strong>.</p>
+    """
+    
+    html_body = _erstelle_html_template(
+        f"DSGVO-Frist: {len(faellige_mitarbeiter)} Datensätze fällig",
+        inhalt,
+        farbe="#9b2c2c"
+    )
+    
+    return send_email(empfaenger, subject, body, html_body)
