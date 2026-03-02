@@ -609,8 +609,67 @@ def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
     """PIN-Eingabe-Bildschirm mit Numpad + Tastaturunterstützung."""
     pin = st.session_state["kiosk_pin"]
 
-    # Tastatur-JS einbinden
-    st.components.v1.html(KEYBOARD_JS, height=0)
+    # ── Verstecktes Text-Input für Tastatureingabe ──
+    # CSS: Das Input-Feld ist unsichtbar, hat aber den Fokus
+    st.markdown("""
+    <style>
+    /* Verstecktes Keyboard-Input-Feld */
+    .st-key-kiosk_keyboard_input {
+        position: absolute !important;
+        width: 1px !important;
+        height: 1px !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        overflow: hidden !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Tastatureingabe über st.text_input (nativ, kein iFrame-Problem)
+    def _verarbeite_tastatur():
+        """Verarbeitet Tastatureingabe aus dem versteckten Input-Feld."""
+        wert = st.session_state.get("kiosk_keyboard_input", "")
+        if not wert:
+            return
+        # Nur die letzte eingegebene Ziffer verarbeiten
+        for zeichen in wert:
+            if zeichen.isdigit() and len(st.session_state["kiosk_pin"]) < 4:
+                st.session_state["kiosk_pin"] += zeichen
+        # Input zurücksetzen
+        st.session_state["kiosk_keyboard_input"] = ""
+        # PIN prüfen wenn 4 Ziffern
+        if len(st.session_state["kiosk_pin"]) == 4:
+            _pin_pruefen(betrieb_id)
+
+    st.text_input(
+        label="PIN-Tastatur",
+        key="kiosk_keyboard_input",
+        label_visibility="collapsed",
+        placeholder="",
+        max_chars=4,
+        on_change=_verarbeite_tastatur,
+        autocomplete="off",
+    )
+
+    # Auto-Fokus auf das Input-Feld setzen via JavaScript
+    st.markdown("""
+    <script>
+    (function() {
+        function focusInput() {
+            var inputs = document.querySelectorAll('.st-key-kiosk_keyboard_input input');
+            if (inputs.length > 0) {
+                inputs[0].focus();
+            }
+        }
+        focusInput();
+        setTimeout(focusInput, 200);
+        setTimeout(focusInput, 600);
+        // Nach Streamlit-Reruns erneut fokussieren
+        var obs = new MutationObserver(function() { focusInput(); });
+        obs.observe(document.body, { childList: true, subtree: true });
+    })();
+    </script>
+    """, unsafe_allow_html=True)
 
     # PIN-Anzeige (Punkte)
     punkte = "●" * len(pin) + "○" * (4 - len(pin))
@@ -620,7 +679,7 @@ def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
     </div>
     """, unsafe_allow_html=True)
     st.markdown('<div class="pin-hint">Bitte 4-stelligen PIN eingeben</div>', unsafe_allow_html=True)
-    st.markdown('<div class="pin-keyboard-hint">Eingabe auch über Tastatur möglich (0–9, Backspace, Esc)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="pin-keyboard-hint">Eingabe auch über Tastatur (0–9, Backspace, Esc)</div>', unsafe_allow_html=True)
 
     # Fehlermeldung
     if st.session_state.get("kiosk_fehler"):
@@ -650,6 +709,7 @@ def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
         st.markdown('<div class="btn-reset">', unsafe_allow_html=True)
         if st.button("✕ Reset", key="pin_reset", use_container_width=True):
             st.session_state["kiosk_pin"] = ""
+            st.session_state["kiosk_keyboard_input"] = ""
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
