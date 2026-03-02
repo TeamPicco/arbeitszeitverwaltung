@@ -228,9 +228,7 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ── KOMMEN-Button ── */
-.btn-kommen div[data-testid="stButton"] > button,
-button[data-testid="baseButton-secondary"][kind="secondary"]:has-text("KOMMEN"),
-[data-testid="stButton"]:has(button[key="btn_kommen"]) button {
+.btn-kommen div[data-testid="stButton"] > button {
     background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -249,8 +247,7 @@ button[data-testid="baseButton-secondary"][kind="secondary"]:has-text("KOMMEN"),
 }
 
 /* ── GEHEN-Button ── */
-.btn-gehen div[data-testid="stButton"] > button,
-[data-testid="stButton"]:has(button[key="btn_gehen"]) button {
+.btn-gehen div[data-testid="stButton"] > button {
     background: linear-gradient(135deg, #7f0000, #c62828) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -728,31 +725,51 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
             _buchung_ausfuehren(betrieb_id, ma, "gehen", geraet_name)
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # JavaScript-Fallback: Buttons direkt per Text-Inhalt stylen
-    st.components.v1.html("""
-    <script>
-    (function applyButtonStyles() {
-        function styleButtons() {
-            const buttons = document.querySelectorAll('[data-testid="stButton"] button');
-            buttons.forEach(function(btn) {
-                const txt = btn.textContent.trim();
-                if (txt.includes('KOMMEN')) {
-                    btn.style.cssText = 'background: linear-gradient(135deg, #1b5e20, #2e7d32) !important; color: #fff !important; font-size: 1.5rem !important; height: 110px !important; border-radius: 18px !important; border: 2px solid #4caf50 !important; letter-spacing: 2px !important; box-shadow: 0 4px 20px rgba(46,125,50,0.5) !important; width: 100% !important; font-weight: 800 !important;';
-                } else if (txt.includes('GEHEN')) {
-                    btn.style.cssText = 'background: linear-gradient(135deg, #7f0000, #c62828) !important; color: #fff !important; font-size: 1.5rem !important; height: 110px !important; border-radius: 18px !important; border: 2px solid #ef5350 !important; letter-spacing: 2px !important; box-shadow: 0 4px 20px rgba(198,40,40,0.5) !important; width: 100% !important; font-weight: 800 !important;';
-                }
-            });
-        }
-        // Sofort und nach kurzer Verzögerung
-        styleButtons();
-        setTimeout(styleButtons, 300);
-        setTimeout(styleButtons, 800);
-        // MutationObserver für dynamische Änderungen
-        const observer = new MutationObserver(styleButtons);
-        observer.observe(document.body, { childList: true, subtree: true });
-    })();
-    </script>
-    """, height=0)
+    # st.html() rendert direkt im Haupt-DOM (kein iFrame)
+    try:
+        st.html("""
+        <script>
+        (function() {
+            function styleKommenGehen() {
+                var buttons = document.querySelectorAll('[data-testid="stButton"] button');
+                buttons.forEach(function(btn) {
+                    var txt = btn.textContent.trim();
+                    if (txt.indexOf('KOMMEN') !== -1) {
+                        btn.style.background = 'linear-gradient(135deg, #1b5e20, #2e7d32)';
+                        btn.style.color = '#ffffff';
+                        btn.style.fontSize = '1.5rem';
+                        btn.style.height = '110px';
+                        btn.style.borderRadius = '18px';
+                        btn.style.border = '2px solid #4caf50';
+                        btn.style.letterSpacing = '2px';
+                        btn.style.boxShadow = '0 4px 20px rgba(46,125,50,0.5)';
+                        btn.style.fontWeight = '800';
+                        btn.style.width = '100%';
+                    } else if (txt.indexOf('GEHEN') !== -1 && txt.indexOf('ZURÜCK') === -1) {
+                        btn.style.background = 'linear-gradient(135deg, #7f0000, #c62828)';
+                        btn.style.color = '#ffffff';
+                        btn.style.fontSize = '1.5rem';
+                        btn.style.height = '110px';
+                        btn.style.borderRadius = '18px';
+                        btn.style.border = '2px solid #ef5350';
+                        btn.style.letterSpacing = '2px';
+                        btn.style.boxShadow = '0 4px 20px rgba(198,40,40,0.5)';
+                        btn.style.fontWeight = '800';
+                        btn.style.width = '100%';
+                    }
+                });
+            }
+            styleKommenGehen();
+            setTimeout(styleKommenGehen, 100);
+            setTimeout(styleKommenGehen, 400);
+            setTimeout(styleKommenGehen, 900);
+            var obs = new MutationObserver(styleKommenGehen);
+            obs.observe(document.body, { childList: true, subtree: true });
+        })();
+        </script>
+        """)
+    except AttributeError:
+        pass  # Fallback: CSS-Klassen übernehmen das Styling
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="btn-zurueck">', unsafe_allow_html=True)
