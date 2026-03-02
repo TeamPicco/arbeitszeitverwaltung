@@ -593,47 +593,50 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
         _zeige_bestaetigung(betrieb_id)
 
 
-# ── PIN-Input Custom Component ──
-import os as _os
-_COMPONENT_DIR = _os.path.join(_os.path.dirname(__file__), "components", "pin_input")
-_pin_input_component = st.components.v1.declare_component(
-    "pin_input",
-    path=_COMPONENT_DIR
-)
-
-
-def pin_input_widget(error: str = "", reset: bool = False, key: str = "pin_input"):
-    """Rendert die PIN-Input-Komponente und gibt den Wert zurück."""
-    return _pin_input_component(error=error, reset=reset, key=key, default=None)
-
-
 def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
-    """PIN-Eingabe-Bildschirm – Custom Component mit nativem HTML-Input."""
+    """PIN-Eingabe-Bildschirm – sichtbares st.text_input mit Tastatur-Support."""
 
     fehler_text = st.session_state.get("kiosk_fehler", "")
     if fehler_text:
         st.session_state["kiosk_fehler"] = None
+        st.markdown(f'<div class="error-box">❌ {fehler_text}</div>', unsafe_allow_html=True)
 
-    # ── Custom Component rendern ──
-    # Die Komponente gibt {action: 'pin', pin: '1234'} oder {action: 'reset'} zurück
-    result = pin_input_widget(
-        error=fehler_text,
-        reset=False,
-        key="kiosk_pin_widget"
-    )
+    st.markdown('<div class="pin-hint">PIN über Tastatur eingeben</div>', unsafe_allow_html=True)
 
-    # Ergebnis verarbeiten
-    if result is not None:
-        action = result.get("action", "")
-        if action == "pin":
-            pin = result.get("pin", "")
-            ziffern = "".join(z for z in pin if z.isdigit())[:4]
-            if len(ziffern) == 4:
-                st.session_state["kiosk_pin"] = ziffern
-                _pin_pruefen(betrieb_id)
-                st.rerun()
-        elif action == "reset":
+    # PIN-Feld: sichtbar, groß, zentriert
+    # Wichtig: type="password" damit Ziffern als Punkte erscheinen
+    # max_chars=4 damit Streamlit den Wert bei 4 Zeichen stoppt
+    def _on_pin_change():
+        wert = st.session_state.get("kiosk_pin_field", "")
+        ziffern = "".join(z for z in wert if z.isdigit())[:4]
+        if len(ziffern) == 4:
+            st.session_state["kiosk_pin"] = ziffern
+            st.session_state["kiosk_pin_field"] = ""
+            _pin_pruefen(betrieb_id)
+
+    if "kiosk_pin_field" not in st.session_state:
+        st.session_state["kiosk_pin_field"] = ""
+
+    # Zentriertes Layout für das PIN-Feld
+    col_l, col_m, col_r = st.columns([1, 2, 1])
+    with col_m:
+        st.text_input(
+            label="PIN",
+            key="kiosk_pin_field",
+            label_visibility="collapsed",
+            placeholder="○ ○ ○ ○",
+            max_chars=4,
+            on_change=_on_pin_change,
+            autocomplete="off",
+            type="password",
+        )
+
+    # Reset-Button
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("✕ PIN löschen", key="kiosk_pin_reset", use_container_width=True):
             st.session_state["kiosk_pin"] = ""
+            st.session_state["kiosk_pin_field"] = ""
             st.rerun()
 
 
