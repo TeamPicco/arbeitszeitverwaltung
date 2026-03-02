@@ -288,13 +288,22 @@ div[data-testid="stButton"] > button:active {
     font-weight: 500;
 }
 
-/* ── Tastatur-Input (versteckt) ── */
-.keyboard-input-wrapper input {
+/* ── Tastatur-Input (versteckt) - via st-key-Klasse ── */
+.st-key-kiosk_keyboard_input {
     position: absolute !important;
-    opacity: 0 !important;
-    pointer-events: none !important;
     width: 1px !important;
     height: 1px !important;
+    opacity: 0 !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    pointer-events: none !important;
+}
+.st-key-kiosk_keyboard_input input {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
 }
 </style>
 """
@@ -608,22 +617,6 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
 def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
     """PIN-Eingabe-Bildschirm mit Numpad + Tastaturunterstützung."""
     pin = st.session_state["kiosk_pin"]
-
-    # ── Verstecktes Text-Input für Tastatureingabe ──
-    # CSS: Das Input-Feld ist unsichtbar, hat aber den Fokus
-    st.markdown("""
-    <style>
-    /* Verstecktes Keyboard-Input-Feld */
-    .st-key-kiosk_keyboard_input {
-        position: absolute !important;
-        width: 1px !important;
-        height: 1px !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        overflow: hidden !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
 
     # Tastatureingabe über st.text_input (nativ, kein iFrame-Problem)
     def _verarbeite_tastatur():
