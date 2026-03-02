@@ -220,10 +220,10 @@ def letzter_eintrag(betrieb_id: int, mitarbeiter_id: int):
     try:
         supabase = get_supabase()
         heute = get_jetzt_berlin().date().isoformat()
-        # zeiterfassung hat datum + start_zeit/ende_zeit Schema
+        # zeiterfassung hat kein betrieb_id - nur mitarbeiter_id als Filter
         result = supabase.table("zeiterfassung").select(
             "id, datum, start_zeit, ende_zeit"
-        ).eq("betrieb_id", betrieb_id).eq("mitarbeiter_id", mitarbeiter_id).eq(
+        ).eq("mitarbeiter_id", mitarbeiter_id).eq(
             "datum", heute
         ).order("created_at", desc=True).limit(1).execute()
         if result.data:
@@ -254,9 +254,8 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
         supabase = get_supabase()
         
         if typ == "kommen":
-            # Neuen Eintrag anlegen
+            # Neuen Eintrag anlegen (zeiterfassung hat kein betrieb_id)
             eintrag = {
-                "betrieb_id": betrieb_id,
                 "mitarbeiter_id": mitarbeiter_id,
                 "datum": heute,
                 "start_zeit": uhrzeit,
@@ -265,8 +264,8 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
         else:  # gehen
             # Letzten offenen Eintrag (start_zeit gesetzt, ende_zeit NULL) aktualisieren
             offene = supabase.table("zeiterfassung").select("id").eq(
-                "betrieb_id", betrieb_id
-            ).eq("mitarbeiter_id", mitarbeiter_id).eq(
+                "mitarbeiter_id", mitarbeiter_id
+            ).eq(
                 "datum", heute
             ).is_("ende_zeit", "null").order("created_at", desc=True).limit(1).execute()
             
@@ -278,7 +277,6 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
             else:
                 # Kein offener Eintrag - trotzdem Eintrag mit ende_zeit anlegen
                 eintrag = {
-                    "betrieb_id": betrieb_id,
                     "mitarbeiter_id": mitarbeiter_id,
                     "datum": heute,
                     "ende_zeit": uhrzeit,
@@ -330,7 +328,6 @@ def offline_puffer_synchronisieren(betrieb_id: int):
             
             if typ == "kommen":
                 db_eintrag = {
-                    "betrieb_id": eintrag["betrieb_id"],
                     "mitarbeiter_id": eintrag["mitarbeiter_id"],
                     "datum": heute,
                     "start_zeit": uhrzeit,
@@ -338,15 +335,14 @@ def offline_puffer_synchronisieren(betrieb_id: int):
                 supabase.table("zeiterfassung").insert(db_eintrag).execute()
             else:
                 offene = supabase.table("zeiterfassung").select("id").eq(
-                    "betrieb_id", eintrag["betrieb_id"]
-                ).eq("mitarbeiter_id", eintrag["mitarbeiter_id"]).eq(
+                    "mitarbeiter_id", eintrag["mitarbeiter_id"]
+                ).eq(
                     "datum", heute
                 ).is_("ende_zeit", "null").order("created_at", desc=True).limit(1).execute()
                 if offene.data:
                     supabase.table("zeiterfassung").update({"ende_zeit": uhrzeit}).eq("id", offene.data[0]["id"]).execute()
                 else:
                     db_eintrag = {
-                        "betrieb_id": eintrag["betrieb_id"],
                         "mitarbeiter_id": eintrag["mitarbeiter_id"],
                         "datum": heute,
                         "ende_zeit": uhrzeit,
