@@ -691,6 +691,68 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     
     st.markdown("---")
     
+    # ── Stempeluhr-PIN verwalten ──────────────────────────────────────────────
+    st.markdown("**🔢 Stempeluhr-PIN**")
+    
+    supabase_pin = get_supabase_client()
+    try:
+        pin_result = supabase_pin.table('mitarbeiter').select('stempel_pin').eq('id', mitarbeiter['id']).execute()
+        aktueller_pin = pin_result.data[0].get('stempel_pin') if pin_result.data else None
+    except Exception:
+        aktueller_pin = None
+    
+    if aktueller_pin:
+        st.success(f"✅ PIN ist gesetzt (●●●●)")
+    else:
+        st.warning("⚠️ Noch kein Stempeluhr-PIN gesetzt")
+    
+    with st.form(f"pin_form_{mitarbeiter['id']}"):
+        col_pin1, col_pin2 = st.columns(2)
+        with col_pin1:
+            neuer_pin = st.text_input(
+                "Neuer PIN (4 Ziffern)",
+                max_chars=4,
+                type="password",
+                placeholder="z.B. 1234",
+                help="Genau 4 Ziffern, nur Zahlen"
+            )
+        with col_pin2:
+            pin_bestaetigung = st.text_input(
+                "PIN bestätigen",
+                max_chars=4,
+                type="password",
+                placeholder="PIN wiederholen"
+            )
+        
+        col_save_pin, col_del_pin = st.columns(2)
+        with col_save_pin:
+            pin_speichern = st.form_submit_button("💾 PIN speichern", use_container_width=True)
+        with col_del_pin:
+            pin_loeschen = st.form_submit_button("🗑️ PIN löschen", use_container_width=True)
+        
+        if pin_speichern:
+            if not neuer_pin or not neuer_pin.isdigit() or len(neuer_pin) != 4:
+                st.error("❌ PIN muss genau 4 Ziffern enthalten.")
+            elif neuer_pin != pin_bestaetigung:
+                st.error("❌ PINs stimmen nicht überein.")
+            else:
+                try:
+                    supabase_pin.table('mitarbeiter').update({'stempel_pin': neuer_pin}).eq('id', mitarbeiter['id']).execute()
+                    st.success("✅ PIN erfolgreich gesetzt!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Fehler beim Speichern: {e}")
+        
+        if pin_loeschen:
+            try:
+                supabase_pin.table('mitarbeiter').update({'stempel_pin': None}).eq('id', mitarbeiter['id']).execute()
+                st.success("✅ PIN gelöscht.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Fehler beim Löschen: {e}")
+    
+    st.markdown("---")
+    
     # Bearbeiten und Löschen-Buttons
     col1, col2 = st.columns(2)
     

@@ -263,6 +263,15 @@ def main():
     # Initialisiere Session State
     init_session_state()
     
+    # ── Kiosk-Modus: Direktzugriff per URL-Parameter ──────────────────────────
+    # Aufruf: ?kiosk=1&geraet=REGISTRIERUNGSCODE
+    kiosk_param = st.query_params.get("kiosk", "")
+    geraet_param = st.query_params.get("geraet", "")
+    
+    if kiosk_param == "1" and geraet_param:
+        _zeige_kiosk_modus(geraet_param)
+        return
+    
     # Prüfe, ob Benutzer authentifiziert ist
     if not st.session_state.get('authenticated', False):
         login_page()
@@ -294,6 +303,51 @@ def main():
         mitarbeiter_dashboard.show()
     else:
         st.error("Ungültige Benutzerrolle.")
+
+
+def _zeige_kiosk_modus(registrierungscode: str):
+    """Kiosk-Modus: Stempeluhr ohne Login, dauerhaft aktiv."""
+    from utils.database import get_supabase_client
+    
+    # Gerät validieren
+    if not st.session_state.get("kiosk_validiert"):
+        try:
+            supabase = get_supabase_client()
+            result = supabase.table("mastergeraete").select(
+                "id, name, betrieb_id, aktiv, registrierungscode"
+            ).eq("registrierungscode", registrierungscode).execute()
+            
+            if result.data and result.data[0].get("aktiv"):
+                geraet = result.data[0]
+                st.session_state["kiosk_validiert"] = True
+                st.session_state["kiosk_betrieb_id"] = geraet["betrieb_id"]
+                st.session_state["kiosk_geraet_name"] = geraet["name"]
+                st.session_state["kiosk_geraet_id"] = str(geraet["id"])
+                # Letzten Zugriff aktualisieren
+                try:
+                    supabase.table("mastergeraete").update({
+                        "letzter_zugriff": datetime.now().isoformat()
+                    }).eq("id", geraet["id"]).execute()
+                except Exception:
+                    pass
+            else:
+                st.error("❌ Ungültiger oder deaktivierter Gerätecode.")
+                st.info("Bitte wenden Sie sich an den Administrator.")
+                return
+        except Exception as e:
+            st.error(f"Verbindungsfehler: {e}")
+            return
+    
+    # Kiosk-Stempeluhr anzeigen
+    from kiosk_stempeluhr import zeige_kiosk
+    betrieb_id = st.session_state.get("kiosk_betrieb_id")
+    geraet_name = st.session_state.get("kiosk_geraet_name", "Stempeluhr")
+    geraet_id = st.session_state.get("kiosk_geraet_id", "")
+    
+    if betrieb_id:
+        zeige_kiosk(betrieb_id, geraet_name)
+    else:
+        st.error("Kiosk-Konfiguration fehlerhaft.")
 
 
 if __name__ == "__main__":

@@ -214,6 +214,16 @@ def show_mastergeraete():
                         st.session_state[f'show_qr_{geraet["id"]}'] = False
                         st.rerun()
                 
+                # Kiosk-URL anzeigen
+                kiosk_url = f"{app_url}?kiosk=1&geraet={geraet['registrierungscode']}"
+                st.markdown(f"""
+                <div style="background:#f0f4ff; border:1px solid #4a90d9; border-radius:8px; padding:10px; margin:8px 0;">
+                    <b>🔗 Kiosk-URL (für Tablet/Terminal):</b><br>
+                    <code style="font-size:0.85rem; word-break:break-all;">{kiosk_url}</code>
+                </div>
+                """, unsafe_allow_html=True)
+                st.caption("ℹ️ Diese URL im Browser des Terminals öffnen – Mitarbeiter stempeln dann per PIN-Eingabe.")
+                
                 # Aktionen
                 col1, col2, col3, col4 = st.columns(4)
                 
