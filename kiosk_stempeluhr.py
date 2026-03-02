@@ -228,7 +228,9 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ── KOMMEN-Button ── */
-.btn-kommen div[data-testid="stButton"] > button {
+.btn-kommen div[data-testid="stButton"] > button,
+button[data-testid="baseButton-secondary"][kind="secondary"]:has-text("KOMMEN"),
+[data-testid="stButton"]:has(button[key="btn_kommen"]) button {
     background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -247,7 +249,8 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ── GEHEN-Button ── */
-.btn-gehen div[data-testid="stButton"] > button {
+.btn-gehen div[data-testid="stButton"] > button,
+[data-testid="stButton"]:has(button[key="btn_gehen"]) button {
     background: linear-gradient(135deg, #7f0000, #c62828) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -714,16 +717,42 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
 
     col_k, col_g = st.columns(2)
     with col_k:
-        st.markdown('<div class="btn-kommen">', unsafe_allow_html=True)
+        st.markdown('<div class="btn-kommen" id="wrap-kommen">', unsafe_allow_html=True)
         if st.button("✅  KOMMEN", key="btn_kommen", use_container_width=True):
             _buchung_ausfuehren(betrieb_id, ma, "kommen", geraet_name)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_g:
-        st.markdown('<div class="btn-gehen">', unsafe_allow_html=True)
+        st.markdown('<div class="btn-gehen" id="wrap-gehen">', unsafe_allow_html=True)
         if st.button("🚪  GEHEN", key="btn_gehen", use_container_width=True):
             _buchung_ausfuehren(betrieb_id, ma, "gehen", geraet_name)
         st.markdown('</div>', unsafe_allow_html=True)
+
+    # JavaScript-Fallback: Buttons direkt per Text-Inhalt stylen
+    st.components.v1.html("""
+    <script>
+    (function applyButtonStyles() {
+        function styleButtons() {
+            const buttons = document.querySelectorAll('[data-testid="stButton"] button');
+            buttons.forEach(function(btn) {
+                const txt = btn.textContent.trim();
+                if (txt.includes('KOMMEN')) {
+                    btn.style.cssText = 'background: linear-gradient(135deg, #1b5e20, #2e7d32) !important; color: #fff !important; font-size: 1.5rem !important; height: 110px !important; border-radius: 18px !important; border: 2px solid #4caf50 !important; letter-spacing: 2px !important; box-shadow: 0 4px 20px rgba(46,125,50,0.5) !important; width: 100% !important; font-weight: 800 !important;';
+                } else if (txt.includes('GEHEN')) {
+                    btn.style.cssText = 'background: linear-gradient(135deg, #7f0000, #c62828) !important; color: #fff !important; font-size: 1.5rem !important; height: 110px !important; border-radius: 18px !important; border: 2px solid #ef5350 !important; letter-spacing: 2px !important; box-shadow: 0 4px 20px rgba(198,40,40,0.5) !important; width: 100% !important; font-weight: 800 !important;';
+                }
+            });
+        }
+        // Sofort und nach kurzer Verzögerung
+        styleButtons();
+        setTimeout(styleButtons, 300);
+        setTimeout(styleButtons, 800);
+        // MutationObserver für dynamische Änderungen
+        const observer = new MutationObserver(styleButtons);
+        observer.observe(document.body, { childList: true, subtree: true });
+    })();
+    </script>
+    """, height=0)
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="btn-zurueck">', unsafe_allow_html=True)
