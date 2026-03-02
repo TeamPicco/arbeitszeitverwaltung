@@ -227,8 +227,8 @@ div[data-testid="stButton"] > button:active {
     color: #cfd8dc !important;
 }
 
-/* ── KOMMEN-Button ── */
-.btn-kommen div[data-testid="stButton"] > button {
+/* ── KOMMEN-Button (via Streamlit st-key-Klasse) ── */
+.st-key-btn_kommen button {
     background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -239,15 +239,15 @@ div[data-testid="stButton"] > button:active {
     box-shadow: 0 4px 20px rgba(46, 125, 50, 0.5) !important;
     text-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
 }
-.btn-kommen div[data-testid="stButton"] > button:hover {
+.st-key-btn_kommen button:hover {
     background: linear-gradient(135deg, #2e7d32, #43a047) !important;
     box-shadow: 0 6px 28px rgba(76, 175, 80, 0.6) !important;
     transform: scale(1.02) !important;
     border-color: #66bb6a !important;
 }
 
-/* ── GEHEN-Button ── */
-.btn-gehen div[data-testid="stButton"] > button {
+/* ── GEHEN-Button (via Streamlit st-key-Klasse) ── */
+.st-key-btn_gehen button {
     background: linear-gradient(135deg, #7f0000, #c62828) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -258,7 +258,7 @@ div[data-testid="stButton"] > button:active {
     box-shadow: 0 4px 20px rgba(198, 40, 40, 0.5) !important;
     text-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
 }
-.btn-gehen div[data-testid="stButton"] > button:hover {
+.st-key-btn_gehen button:hover {
     background: linear-gradient(135deg, #c62828, #e53935) !important;
     box-shadow: 0 6px 28px rgba(239, 83, 80, 0.6) !important;
     transform: scale(1.02) !important;
@@ -266,7 +266,7 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ── Zurück-Button ── */
-.btn-zurueck div[data-testid="stButton"] > button {
+.st-key-btn_zurueck button {
     background: #1a2535 !important;
     color: #7a9cc0 !important;
     border-color: #2a3a50 !important;
@@ -274,7 +274,7 @@ div[data-testid="stButton"] > button:active {
     height: 44px !important;
     border-radius: 10px !important;
 }
-.btn-zurueck div[data-testid="stButton"] > button:hover {
+.st-key-btn_zurueck button:hover {
     background: #263545 !important;
     color: #c8ddf0 !important;
 }
@@ -714,62 +714,16 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
 
     col_k, col_g = st.columns(2)
     with col_k:
-        st.markdown('<div class="btn-kommen" id="wrap-kommen">', unsafe_allow_html=True)
+        st.markdown('<div class="btn-kommen">', unsafe_allow_html=True)
         if st.button("✅  KOMMEN", key="btn_kommen", use_container_width=True):
             _buchung_ausfuehren(betrieb_id, ma, "kommen", geraet_name)
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_g:
-        st.markdown('<div class="btn-gehen" id="wrap-gehen">', unsafe_allow_html=True)
+        st.markdown('<div class="btn-gehen">', unsafe_allow_html=True)
         if st.button("🚪  GEHEN", key="btn_gehen", use_container_width=True):
             _buchung_ausfuehren(betrieb_id, ma, "gehen", geraet_name)
         st.markdown('</div>', unsafe_allow_html=True)
-
-    # st.html() rendert direkt im Haupt-DOM (kein iFrame)
-    try:
-        st.html("""
-        <script>
-        (function() {
-            function styleKommenGehen() {
-                var buttons = document.querySelectorAll('[data-testid="stButton"] button');
-                buttons.forEach(function(btn) {
-                    var txt = btn.textContent.trim();
-                    if (txt.indexOf('KOMMEN') !== -1) {
-                        btn.style.background = 'linear-gradient(135deg, #1b5e20, #2e7d32)';
-                        btn.style.color = '#ffffff';
-                        btn.style.fontSize = '1.5rem';
-                        btn.style.height = '110px';
-                        btn.style.borderRadius = '18px';
-                        btn.style.border = '2px solid #4caf50';
-                        btn.style.letterSpacing = '2px';
-                        btn.style.boxShadow = '0 4px 20px rgba(46,125,50,0.5)';
-                        btn.style.fontWeight = '800';
-                        btn.style.width = '100%';
-                    } else if (txt.indexOf('GEHEN') !== -1 && txt.indexOf('ZURÜCK') === -1) {
-                        btn.style.background = 'linear-gradient(135deg, #7f0000, #c62828)';
-                        btn.style.color = '#ffffff';
-                        btn.style.fontSize = '1.5rem';
-                        btn.style.height = '110px';
-                        btn.style.borderRadius = '18px';
-                        btn.style.border = '2px solid #ef5350';
-                        btn.style.letterSpacing = '2px';
-                        btn.style.boxShadow = '0 4px 20px rgba(198,40,40,0.5)';
-                        btn.style.fontWeight = '800';
-                        btn.style.width = '100%';
-                    }
-                });
-            }
-            styleKommenGehen();
-            setTimeout(styleKommenGehen, 100);
-            setTimeout(styleKommenGehen, 400);
-            setTimeout(styleKommenGehen, 900);
-            var obs = new MutationObserver(styleKommenGehen);
-            obs.observe(document.body, { childList: true, subtree: true });
-        })();
-        </script>
-        """)
-    except AttributeError:
-        pass  # Fallback: CSS-Klassen übernehmen das Styling
 
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="btn-zurueck">', unsafe_allow_html=True)
