@@ -594,50 +594,54 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
 
 
 def _zeige_pin_eingabe(betrieb_id: int, geraet_name: str):
-    """PIN-Eingabe-Bildschirm – sichtbares st.text_input mit Tastatur-Support."""
+    """PIN-Eingabe-Bildschirm – st.form mit Enter-Unterstützung."""
 
     fehler_text = st.session_state.get("kiosk_fehler", "")
     if fehler_text:
         st.session_state["kiosk_fehler"] = None
         st.markdown(f'<div class="error-box">❌ {fehler_text}</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="pin-hint">PIN über Tastatur eingeben</div>', unsafe_allow_html=True)
+    st.markdown('<div class="pin-hint">PIN über Tastatur eingeben und Enter drücken</div>', unsafe_allow_html=True)
 
-    # PIN-Feld: sichtbar, groß, zentriert
-    # Wichtig: type="password" damit Ziffern als Punkte erscheinen
-    # max_chars=4 damit Streamlit den Wert bei 4 Zeichen stoppt
-    def _on_pin_change():
-        wert = st.session_state.get("kiosk_pin_field", "")
-        ziffern = "".join(z for z in wert if z.isdigit())[:4]
-        if len(ziffern) == 4:
-            st.session_state["kiosk_pin"] = ziffern
-            st.session_state["kiosk_pin_field"] = ""
-            _pin_pruefen(betrieb_id)
-
-    if "kiosk_pin_field" not in st.session_state:
-        st.session_state["kiosk_pin_field"] = ""
-
-    # Zentriertes Layout für das PIN-Feld
+    # Zentriertes Layout
     col_l, col_m, col_r = st.columns([1, 2, 1])
     with col_m:
-        st.text_input(
-            label="PIN",
-            key="kiosk_pin_field",
-            label_visibility="collapsed",
-            placeholder="○ ○ ○ ○",
-            max_chars=4,
-            on_change=_on_pin_change,
-            autocomplete="off",
-            type="password",
-        )
+        with st.form(key="kiosk_pin_form", clear_on_submit=True):
+            pin_wert = st.text_input(
+                label="PIN",
+                label_visibility="collapsed",
+                placeholder="○ ○ ○ ○",
+                max_chars=4,
+                autocomplete="off",
+                type="password",
+                key="kiosk_pin_input_field",
+            )
+            col_a, col_b = st.columns([3, 1])
+            with col_a:
+                abschicken = st.form_submit_button(
+                    "✓ Bestätigen",
+                    use_container_width=True,
+                    type="primary",
+                )
+            with col_b:
+                loeschen = st.form_submit_button(
+                    "✕",
+                    use_container_width=True,
+                )
 
-    # Reset-Button
-    col1, col2, col3 = st.columns([1, 1, 1])
-    with col2:
-        if st.button("✕ PIN löschen", key="kiosk_pin_reset", use_container_width=True):
-            st.session_state["kiosk_pin"] = ""
-            st.session_state["kiosk_pin_field"] = ""
-            st.rerun()
+            if abschicken and pin_wert:
+                ziffern = "".join(z for z in pin_wert if z.isdigit())[:4]
+                if len(ziffern) == 4:
+                    st.session_state["kiosk_pin"] = ziffern
+                    _pin_pruefen(betrieb_id)
+                    st.rerun()
+                else:
+                    st.session_state["kiosk_fehler"] = "Bitte genau 4 Ziffern eingeben."
+                    st.rerun()
+
+            if loeschen:
+                st.session_state["kiosk_pin"] = ""
+                st.rerun()
 
 
 def _pin_ziffer_hinzufuegen(betrieb_id: int, ziffer: str):
