@@ -227,8 +227,8 @@ div[data-testid="stButton"] > button:active {
     color: #cfd8dc !important;
 }
 
-/* ── KOMMEN-Button (via Streamlit st-key-Klasse) ── */
-.st-key-btn_kommen button {
+/* ── KOMMEN-Button (via Streamlit st-key-Klasse, höhere Spezifizität) ── */
+.st-key-btn_kommen div[data-testid="stButton"] > button {
     background: linear-gradient(135deg, #1b5e20, #2e7d32) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -239,15 +239,15 @@ div[data-testid="stButton"] > button:active {
     box-shadow: 0 4px 20px rgba(46, 125, 50, 0.5) !important;
     text-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
 }
-.st-key-btn_kommen button:hover {
+.st-key-btn_kommen div[data-testid="stButton"] > button:hover {
     background: linear-gradient(135deg, #2e7d32, #43a047) !important;
     box-shadow: 0 6px 28px rgba(76, 175, 80, 0.6) !important;
     transform: scale(1.02) !important;
     border-color: #66bb6a !important;
 }
 
-/* ── GEHEN-Button (via Streamlit st-key-Klasse) ── */
-.st-key-btn_gehen button {
+/* ── GEHEN-Button (via Streamlit st-key-Klasse, höhere Spezifizität) ── */
+.st-key-btn_gehen div[data-testid="stButton"] > button {
     background: linear-gradient(135deg, #7f0000, #c62828) !important;
     color: #ffffff !important;
     font-size: 1.6rem !important;
@@ -258,7 +258,7 @@ div[data-testid="stButton"] > button:active {
     box-shadow: 0 4px 20px rgba(198, 40, 40, 0.5) !important;
     text-shadow: 0 1px 3px rgba(0,0,0,0.4) !important;
 }
-.st-key-btn_gehen button:hover {
+.st-key-btn_gehen div[data-testid="stButton"] > button:hover {
     background: linear-gradient(135deg, #c62828, #e53935) !important;
     box-shadow: 0 6px 28px rgba(239, 83, 80, 0.6) !important;
     transform: scale(1.02) !important;
@@ -266,7 +266,7 @@ div[data-testid="stButton"] > button:active {
 }
 
 /* ── Zurück-Button ── */
-.st-key-btn_zurueck button {
+.st-key-btn_zurueck div[data-testid="stButton"] > button {
     background: #1a2535 !important;
     color: #7a9cc0 !important;
     border-color: #2a3a50 !important;
@@ -274,7 +274,7 @@ div[data-testid="stButton"] > button:active {
     height: 44px !important;
     border-radius: 10px !important;
 }
-.st-key-btn_zurueck button:hover {
+.st-key-btn_zurueck div[data-testid="stButton"] > button:hover {
     background: #263545 !important;
     color: #c8ddf0 !important;
 }
