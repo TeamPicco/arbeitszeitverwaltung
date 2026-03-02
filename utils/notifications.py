@@ -68,6 +68,33 @@ def create_aenderungsanfrage(mitarbeiter_id: int, feld: str, alter_wert: str, ne
                 'aenderungsanfrage',
                 f"Änderungsanfrage für {feld}: {alter_wert} → {neuer_wert}"
             )
+            # E-Mail an Admin senden
+            try:
+                from utils.email_service import send_stammdaten_aenderung_email
+                # Hole Admin-E-Mail-Adresse
+                admin_email = 'piccolo_leipzig@yahoo.de'  # Fallback: direkte Admin-E-Mail
+                # Versuche Admin-E-Mail aus Datenbank zu laden
+                try:
+                    admin_result = supabase.table('users').select('email').eq('rolle', 'admin').limit(1).execute()
+                    if admin_result.data and admin_result.data[0].get('email'):
+                        admin_email = admin_result.data[0]['email']
+                except Exception:
+                    pass
+                # Hole Mitarbeiter-Name
+                ma_result = supabase.table('mitarbeiter').select('vorname, nachname').eq('id', mitarbeiter_id).execute()
+                ma_name = 'Unbekannt'
+                if ma_result.data:
+                    ma_name = f"{ma_result.data[0].get('vorname','')} {ma_result.data[0].get('nachname','')}".strip()
+                send_stammdaten_aenderung_email(
+                    admin_email=admin_email,
+                    mitarbeiter_name=ma_name,
+                    feld=feld,
+                    alter_wert=str(alter_wert) if alter_wert else '',
+                    neuer_wert=str(neuer_wert) if neuer_wert else '',
+                    benoetigt_genehmigung=True  # Änderungsanfragen benötigen immer Genehmigung
+                )
+            except Exception:
+                pass  # E-Mail-Fehler blockieren nicht den Hauptworkflow
         
         return result.data[0] if result.data else None
     except Exception as e:

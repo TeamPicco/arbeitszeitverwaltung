@@ -526,6 +526,27 @@ def show_monatsplan(supabase):
 
                 supabase.table('dienstplaene').insert(eintrag).execute()
                 st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
+                # E-Mail-Benachrichtigung an Mitarbeiter
+                try:
+                    from utils.email_service import send_dienstplan_email
+                    ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
+                    ma_email = ma_data.get('email', '')
+                    ma_name = f"{ma_data.get('vorname', '')} {ma_data.get('nachname', '')}".strip()
+                    if ma_email:
+                        send_dienstplan_email(
+                            empfaenger_email=ma_email,
+                            empfaenger_name=ma_name,
+                            monat=MONATE_DE[monat],
+                            jahr=str(jahr),
+                            schichten=[{
+                                'datum': dienst_datum.strftime('%d.%m.%Y'),
+                                'typ': SCHICHTTYPEN[schichttyp]['label'],
+                                'start': start_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
+                                'ende': ende_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
+                            }]
+                        )
+                except Exception:
+                    pass  # E-Mail-Fehler sollen den Hauptworkflow nicht blockieren
                 st.rerun()
             except Exception as e:
                 st.error(f"Fehler: {str(e)}")

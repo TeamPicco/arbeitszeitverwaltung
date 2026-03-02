@@ -1267,6 +1267,31 @@ def show_zeiterfassung_admin():
                                     import logging
                                     logging.warning(f"Audit-Log konnte nicht geschrieben werden: {audit_err}")
                                 
+                                # E-Mail-Benachrichtigung an Mitarbeiter über Zeitkorrektur
+                                try:
+                                    from utils.email_service import send_email
+                                    ma_email_result = supabase.table('mitarbeiter').select('email, vorname, nachname').eq('id', ze['mitarbeiter_id']).execute()
+                                    if ma_email_result.data and ma_email_result.data[0].get('email'):
+                                        ma_info = ma_email_result.data[0]
+                                        ma_email_addr = ma_info['email']
+                                        ma_vollname = f"{ma_info.get('vorname','')} {ma_info.get('nachname','')}".strip()
+                                        datum_str = ze.get('datum', '')
+                                        send_email(
+                                            empfaenger=ma_email_addr,
+                                            betreff=f"CrewBase: Ihre Zeiterfassung wurde korrigiert ({datum_str})",
+                                            html_body=f"""<p>Hallo {ma_vollname},</p>
+<p>Ihr Administrator hat eine Zeitkorrektur vorgenommen:</p>
+<ul>
+  <li><strong>Datum:</strong> {datum_str}</li>
+  <li><strong>Neue Zeit:</strong> {new_check_in.strftime('%H:%M')} – {new_check_out.strftime('%H:%M')} Uhr</li>
+  <li><strong>Pause:</strong> {new_pause} Min.</li>
+  <li><strong>Begründung:</strong> {korrektur_grund}</li>
+</ul>
+<p>Bei Fragen wenden Sie sich bitte an Ihren Vorgesetzten.</p>
+<p>Mit freundlichen Grüßen<br>CrewBase – Steakhouse Piccolo</p>"""
+                                        )
+                                except Exception:
+                                    pass  # E-Mail-Fehler blockieren nicht den Hauptworkflow
                                 st.success("✅ Zeiterfassung erfolgreich korrigiert!")
                                 st.rerun()
                     
