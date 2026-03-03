@@ -480,6 +480,29 @@ def apply_custom_css():
         background-color: {COLORS['primary_dark']};
     }}
     
+    /* Streamlit-eigenes Sidebar-Header-Feld (weißes Logo-Feld oben) verstecken */
+    [data-testid="stSidebarHeader"],
+    [data-testid="stSidebarNav"],
+    [data-testid="stSidebarNavItems"],
+    [data-testid="stSidebarNavSeparator"],
+    .stSidebarHeader,
+    section[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child > div[style*="white"],
+    section[data-testid="stSidebar"] [data-testid="stImage"],
+    [data-testid="stSidebar"] [data-testid="stLogo"] {{
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }}
+    
+    /* Streamlit App-Logo in Sidebar verstecken (weißes Feld) */
+    [data-testid="stSidebar"] > div > div > div > div > img,
+    [data-testid="stSidebar"] img[class*="logo"],
+    [data-testid="stSidebar"] > div:first-child > div:first-child {{
+        background-color: {COLORS['primary_dark']} !important;
+    }}
+    
+    /* Alle Texte in der Sidebar WEISS */
     [data-testid="stSidebar"] .stMarkdown {{
         color: {COLORS['text_light']} !important;
     }}
@@ -487,12 +510,21 @@ def apply_custom_css():
     [data-testid="stSidebar"] .stMarkdown p,
     [data-testid="stSidebar"] .stMarkdown div,
     [data-testid="stSidebar"] .stMarkdown span,
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div,
+    [data-testid="stSidebar"] label,
     [data-testid="stSidebar"] * {{
         color: {COLORS['text_light']} !important;
+        background-color: transparent !important;
     }}
     
+    /* Ausnahme: Buttons in Sidebar behalten ihren Hintergrund */
     [data-testid="stSidebar"] .stButton > button {{
-        background-color: {COLORS['accent']};
+        background-color: {COLORS['accent']} !important;
         color: {COLORS['text_light']} !important;
     }}
     
