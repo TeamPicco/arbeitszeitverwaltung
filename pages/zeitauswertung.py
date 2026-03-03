@@ -363,7 +363,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         # Rohdaten für Zeiten (start_zeit, ende_zeit)
         raw_map = {z.get("id"): z for z in zeiterfassungen}
 
-        html_rows = ""
+        df_rows = []
         for idx, z in enumerate(zeilen):
             # Korrektur-Flag aus Rohdaten
             raw = raw_map.get(z.get("id"), {})
@@ -372,94 +372,76 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 and raw['updated_at'] != raw['created_at']
             )
 
-            bg = "#fff3cd" if korrigiert else ("white" if idx % 2 == 0 else "#f8f9fa")
-
             datum = z["datum"]
             datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
             wochentag = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"][datum.weekday()] if isinstance(datum, date) else "–"
 
             start_str = str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–"
-            ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else '<span style="color:#dc3545;">Offen</span>'
+            ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else "Offen"
 
-            # Typ-Badge
+            # Typ
             if z.get("ist_feiertag"):
                 ft_name = z.get("feiertag_name", "Feiertag")
-                typ_badge = f'<span style="background:#dc3545;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;" title="{ft_name}">🔴 {ft_name[:12]}</span>'
+                typ_str = f"🔴 {ft_name[:15]}"
             elif z.get("ist_sonntag"):
-                typ_badge = '<span style="background:#fd7e14;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;">🟡 Sonntag</span>'
+                typ_str = "🟡 Sonntag"
             else:
-                typ_badge = '<span style="background:#0d6efd;color:white;padding:2px 7px;border-radius:4px;font-size:0.75rem;">🔵 Arbeit</span>'
+                typ_str = "🔵 Arbeit"
 
-            korr_badge = ""
             if korrigiert:
-                korr_badge = ' <span style="background:#ffc107;color:#212529;padding:2px 5px;border-radius:4px;font-size:0.7rem;">✏️ korr.</span>'
+                typ_str += " ✏️"
 
             # Zuschlag-Info
-            zuschlag_info = ""
             so_z = z.get("sonntagszuschlag", 0)
             ft_z = z.get("feiertagszuschlag", 0)
+            zuschlag_str = ""
             if so_z > 0:
-                zuschlag_info += f'<br><small style="color:#fd7e14;font-weight:600;">+{so_z:.2f}€ So-Zuschlag (50%)</small>'
+                zuschlag_str += f"+{so_z:.2f}€ So"
             if ft_z > 0:
-                zuschlag_info += f'<br><small style="color:#dc3545;font-weight:600;">+{ft_z:.2f}€ Ft-Zuschlag (100%)</small>'
+                zuschlag_str += f" +{ft_z:.2f}€ Ft"
 
-            # Warnung wenn Feiertag ohne Häkchen
-            warnung_icon = ""
+            # Warnung
             if z.get("hat_zuschlag_aber_kein_haekchen"):
-                warnung_icon = ' <span title="Feiertag ohne aktivierten Zuschlag!" style="color:#e65100;cursor:help;">⚠️</span>'
+                typ_str += " ⚠️"
 
             # Offener Eintrag
             if z.get("fehler"):
-                netto_str = '<span style="color:#dc3545;">Offen</span>'
+                netto_str = "Offen"
                 gesamt_str = "–"
             else:
                 netto_str = f"{z.get('netto_stunden', 0):.2f} h"
                 gesamt_str = f"{z.get('gesamtlohn', 0):.2f} €"
 
-            html_rows += f"""
-            <tr style="background:{bg};">
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;font-weight:500;">{datum_str}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;color:#6c757d;font-size:0.85rem;">{wochentag[:2]}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{start_str}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{ende_str}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;">{z.get('pause_minuten', 0)} Min</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:center;font-weight:600;">{netto_str}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;">{typ_badge}{warnung_icon}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;">{z.get('grundlohn', 0):.2f} €{zuschlag_info}</td>
-                <td style="padding:8px;border-bottom:1px solid #dee2e6;text-align:right;font-weight:600;">{gesamt_str}{korr_badge}</td>
-            </tr>
-            """
+            grundlohn_str = f"{z.get('grundlohn', 0):.2f} €"
+            if zuschlag_str:
+                grundlohn_str += f" ({zuschlag_str.strip()})"
 
-        html_table = f"""
-        <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.875rem;">
-            <thead>
-                <tr style="background:#1a1a2e;color:white;">
-                    <th style="padding:10px;text-align:left;">Datum</th>
-                    <th style="padding:10px;text-align:left;">Tag</th>
-                    <th style="padding:10px;text-align:left;">Von</th>
-                    <th style="padding:10px;text-align:left;">Bis</th>
-                    <th style="padding:10px;text-align:center;">Pause</th>
-                    <th style="padding:10px;text-align:center;">Netto-h</th>
-                    <th style="padding:10px;text-align:left;">Typ</th>
-                    <th style="padding:10px;text-align:right;">Grundlohn</th>
-                    <th style="padding:10px;text-align:right;">Gesamt</th>
-                </tr>
-            </thead>
-            <tbody>
-                {html_rows}
-                <tr style="background:#e8f4f8;font-weight:700;font-size:0.9rem;">
-                    <td colspan="5" style="padding:10px;border-top:2px solid #1a1a2e;">Monatssumme</td>
-                    <td style="padding:10px;text-align:center;border-top:2px solid #1a1a2e;">{ist_stunden:.2f} h</td>
-                    <td style="padding:10px;border-top:2px solid #1a1a2e;"></td>
-                    <td style="padding:10px;border-top:2px solid #1a1a2e;"></td>
-                    <td style="padding:10px;text-align:right;border-top:2px solid #1a1a2e;">{gesamtbrutto:.2f} €</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-        """
-        st.markdown(html_table, unsafe_allow_html=True)
+            df_rows.append({
+                "Datum": datum_str,
+                "Tag": wochentag[:2],
+                "Von": start_str,
+                "Bis": ende_str,
+                "Pause": f"{z.get('pause_minuten', 0)} Min",
+                "Netto-h": netto_str,
+                "Typ": typ_str,
+                "Grundlohn": grundlohn_str,
+                "Gesamt": gesamt_str,
+            })
+
+        # Summenzeile
+        df_rows.append({
+            "Datum": "── Monatssumme ──",
+            "Tag": "",
+            "Von": "",
+            "Bis": "",
+            "Pause": "",
+            "Netto-h": f"{ist_stunden:.2f} h",
+            "Typ": "",
+            "Grundlohn": "",
+            "Gesamt": f"{gesamtbrutto:.2f} €",
+        })
+
+        st.dataframe(df_rows, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
