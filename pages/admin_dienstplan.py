@@ -853,6 +853,45 @@ def show_monatsuebersicht_tabelle(supabase):
                 )
             except Exception as e:
                 st.error(f"PDF-Fehler: {str(e)}")
+    
+    # ============================================================
+    # DIENSTPLAN-VERÖFFENTLICHUNG: E-Mail an alle Mitarbeiter
+    # ============================================================
+    st.markdown("---")
+    st.markdown("### 📧 Dienstplan veröffentlichen & Mitarbeiter benachrichtigen")
+    st.info("⚠️ Dieser Button sendet eine E-Mail an ALLE Mitarbeiter mit E-Mail-Adresse. "
+            "Die Nachricht enthält einen Vorbehalt-Hinweis und den Link zur App.")
+    
+    col_mail1, col_mail2 = st.columns([2, 1])
+    with col_mail1:
+        vorbehalt_aktiv = st.checkbox(
+            "⚠️ Vorbehalt-Hinweis einfügen (Endzeiten richten sich nach wirtschaftlichem Betriebsende)",
+            value=True,
+            key="dienstplan_vorbehalt"
+        )
+    with col_mail2:
+        if st.button("📧 Dienstplan veröffentlichen & E-Mails senden",
+                     use_container_width=True, type="primary", key="dienstplan_publish_email"):
+            try:
+                from utils.email_service import send_dienstplan_veroeffentlichung_alle
+                ergebnis = send_dienstplan_veroeffentlichung_alle(
+                    mitarbeiter_liste=mitarbeiter_liste,
+                    monat=MONATE_DE[monat],
+                    jahr=jahr,
+                    hinweis_vorbehalt=vorbehalt_aktiv
+                )
+                gesendet = ergebnis.get('gesendet', 0)
+                fehlgeschlagen = ergebnis.get('fehlgeschlagen', 0)
+                keine_email = ergebnis.get('keine_email', 0)
+                if gesendet > 0:
+                    st.success(f"✅ {gesendet} E-Mail(s) erfolgreich gesendet!"
+                               f"{f' | {fehlgeschlagen} fehlgeschlagen' if fehlgeschlagen else ''}"
+                               f"{f' | {keine_email} ohne E-Mail' if keine_email else ''}")
+                else:
+                    st.warning(f"⚠️ Keine E-Mails gesendet. "
+                               f"Fehlgeschlagen: {fehlgeschlagen}, Ohne E-Mail: {keine_email}")
+            except Exception as e:
+                st.error(f"E-Mail-Fehler: {str(e)}")
 
 
 # ============================================================

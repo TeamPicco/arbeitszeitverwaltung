@@ -104,20 +104,63 @@ def apply_custom_css():
         background-color: {COLORS['background']} !important;
     }}
     
-    /* Selectbox Container */
+    /* Selectbox Container - KEIN overflow:hidden, kein Clipping */
     .stSelectbox > div {{
         background-color: {COLORS['surface']} !important;
         border-radius: 8px !important;
-        padding: 0.5rem !important;
+        padding: 0.25rem 0 !important;
+        overflow: visible !important;
     }}
     
-    /* Selectbox - Ausgewählter Wert SICHTBAR machen */
-    [data-baseweb="select"] [role="button"],
-    [data-baseweb="select"] [role="button"] > div,
-    [data-baseweb="select"] [role="button"] span {{
+    /* ===== SELECTBOX DROPDOWN - CLIPPING FIX ===== */
+    /* Verhindert das Abschneiden von Buchstaben (g, y, p, etc.) */
+    div[data-baseweb="select"] {{
+        overflow: visible !important;
+    }}
+    
+    div[data-baseweb="select"] > div {{
+        line-height: 1.6 !important;
+        min-height: 42px !important;
+        overflow: visible !important;
+        padding: 6px 12px !important;
+    }}
+    
+    div[data-baseweb="select"] [role="button"] {{
+        line-height: 1.6 !important;
+        min-height: 42px !important;
+        overflow: visible !important;
+        padding: 6px 12px !important;
         color: {COLORS['text_primary']} !important;
         background-color: {COLORS['background']} !important;
         font-weight: 500 !important;
+    }}
+    
+    div[data-baseweb="select"] [role="button"] > div,
+    div[data-baseweb="select"] [role="button"] span,
+    div[data-baseweb="select"] [role="button"] p {{
+        line-height: 1.6 !important;
+        overflow: visible !important;
+        color: {COLORS['text_primary']} !important;
+        font-weight: 500 !important;
+        white-space: nowrap !important;
+        text-overflow: ellipsis !important;
+    }}
+    
+    /* Dropdown-Liste (geöffnet) */
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="menu"] li,
+    div[data-baseweb="menu"] [role="option"] {{
+        line-height: 1.6 !important;
+        padding: 8px 16px !important;
+        color: {COLORS['text_primary']} !important;
+        background-color: {COLORS['background']} !important;
+        overflow: visible !important;
+    }}
+    
+    div[data-baseweb="popover"] li:hover,
+    div[data-baseweb="menu"] [role="option"]:hover {{
+        background-color: {COLORS['surface']} !important;
+        color: {COLORS['primary']} !important;
     }}
     
     /* Date Input */

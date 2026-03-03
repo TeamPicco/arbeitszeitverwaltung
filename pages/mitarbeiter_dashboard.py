@@ -1020,57 +1020,75 @@ def show_urlaubskalender():
         st.markdown("---")
         st.markdown("### 📆 Kalender-Ansicht")
         
-        # Erstelle einfache Kalender-Tabelle
         import calendar
-        import locale
         
-        # Setze Locale auf Deutsch für Monatsnamen
-        try:
-            locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
-        except:
-            try:
-                locale.setlocale(locale.LC_TIME, 'de_DE')
-            except:
-                pass
+        # ============================================================
+        # MITARBEITER-FARBEN: Sonderregel Fernando = Lila #8A2BE2
+        # ============================================================
+        FARB_PALETTE_MA = [
+            '#2196F3',  # Blau
+            '#4CAF50',  # Grün
+            '#FF5722',  # Tief-Orange
+            '#009688',  # Türkis
+            '#E91E63',  # Pink
+            '#FF9800',  # Orange
+            '#795548',  # Braun
+            '#607D8B',  # Blaugrau
+            '#3F51B5',  # Indigo
+            '#00BCD4',  # Cyan
+        ]
+        ma_farben = {}
+        farb_idx = 0
+        for ma_name in sorted(urlaube_nach_mitarbeiter.keys()):
+            if 'fernando' in ma_name.lower():
+                ma_farben[ma_name] = '#8A2BE2'  # Lila – fest für Fernando
+            else:
+                ma_farben[ma_name] = FARB_PALETTE_MA[farb_idx % len(FARB_PALETTE_MA)]
+                farb_idx += 1
+        
+        # Legende
+        legende_html = '<div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.8rem;">'
+        for ma_name, farbe in sorted(ma_farben.items()):
+            legende_html += f'<span style="background:{farbe}; color:white; padding:2px 9px; border-radius:10px; font-size:0.78rem; font-weight:600;">{ma_name}</span>'
+        legende_html += '</div>'
+        st.markdown(legende_html, unsafe_allow_html=True)
         
         cal = calendar.monthcalendar(jahr, monat)
-        
-        # Wochentage als Header
         wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         
-        # Erstelle HTML-Tabelle
         html = '<table style="width:100%; border-collapse: collapse;">'
-        html += '<tr>' + ''.join([f'<th style="border: 1px solid #ddd; padding: 8px; text-align: center;">{tag}</th>' for tag in wochentage]) + '</tr>'
+        html += '<tr>' + ''.join([f'<th style="border:1px solid #ddd; padding:8px; text-align:center; background:#1e3a5f; color:white;">{tag}</th>' for tag in wochentage]) + '</tr>'
         
         for woche in cal:
             html += '<tr>'
             for tag in woche:
                 if tag == 0:
-                    html += '<td style="border: 1px solid #ddd; padding: 8px;"></td>'
+                    html += '<td style="border:1px solid #ddd; padding:8px;"></td>'
                 else:
                     aktuelles_datum = date(jahr, monat, tag)
-                    
-                    # Prüfe ob an diesem Tag jemand im Urlaub ist
-                    urlaub_heute = []
+                    urlaub_heute_namen = []
                     for urlaub in urlaube_response.data:
                         von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
                         bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
                         if von <= aktuelles_datum <= bis:
-                            urlaub_heute.append(urlaub['mitarbeiter']['vorname'][0] + urlaub['mitarbeiter']['nachname'][0])
+                            ma_name = f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}"
+                            urlaub_heute_namen.append(ma_name)
                     
-                    # Färbe Zelle wenn Urlaub
-                    if urlaub_heute:
-                        bg_color = '#ffeb3b'  # Gelb für Urlaub
-                        title = f"{len(urlaub_heute)} im Urlaub: {', '.join(urlaub_heute)}"
-                        html += f'<td style="border: 1px solid #ddd; padding: 8px; background-color: {bg_color}; text-align: center;" title="{title}"><strong>{tag}</strong><br><small>🏖️ {len(urlaub_heute)}</small></td>'
+                    if urlaub_heute_namen:
+                        bg_color = ma_farben.get(urlaub_heute_namen[0], '#2196F3')
+                        kuerzel = ' '.join([n.split()[0][0] + n.split()[-1][0] if len(n.split()) >= 2 else n[:2] for n in urlaub_heute_namen])
+                        anzahl_suffix = f'<sup>+{len(urlaub_heute_namen)-1}</sup>' if len(urlaub_heute_namen) > 1 else ''
+                        title = ', '.join(urlaub_heute_namen)
+                        html += (f'<td style="border:1px solid #ddd; padding:6px; background-color:{bg_color}; '
+                                 f'text-align:center; color:white;" title="{title}">'
+                                 f'<strong>{tag}</strong><br><small style="font-size:0.7rem;">{kuerzel}{anzahl_suffix}</small></td>')
                     else:
-                        html += f'<td style="border: 1px solid #ddd; padding: 8px; text-align: center;">{tag}</td>'
+                        html += f'<td style="border:1px solid #ddd; padding:8px; text-align:center;">{tag}</td>'
             html += '</tr>'
         
         html += '</table>'
         st.markdown(html, unsafe_allow_html=True)
-        
-        st.caption("💡 Tipp: Gelb markierte Tage zeigen an, dass Mitarbeiter im Urlaub sind. Fahre mit der Maus über die Zelle für Details.")
+        st.caption("💡 Jeder Mitarbeiter hat eine eindeutige Farbe. Fernando = Lila (■ #8A2BE2). Mehrere Urlaube am gleichen Tag: Farbe des ersten Mitarbeiters + Hochzahl.")
         
     except Exception as e:
         st.error(f"Fehler beim Laden der Urlaube: {str(e)}")

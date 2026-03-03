@@ -1269,26 +1269,26 @@ def show_zeiterfassung_admin():
                                 
                                 # E-Mail-Benachrichtigung an Mitarbeiter über Zeitkorrektur
                                 try:
-                                    from utils.email_service import send_email
+                                    from utils.email_service import send_zeitkorrektur_email
                                     ma_email_result = supabase.table('mitarbeiter').select('email, vorname, nachname').eq('id', ze['mitarbeiter_id']).execute()
                                     if ma_email_result.data and ma_email_result.data[0].get('email'):
                                         ma_info = ma_email_result.data[0]
                                         ma_email_addr = ma_info['email']
                                         ma_vollname = f"{ma_info.get('vorname','')} {ma_info.get('nachname','')}".strip()
                                         datum_str = ze.get('datum', '')
-                                        send_email(
-                                            empfaenger=ma_email_addr,
-                                            betreff=f"CrewBase: Ihre Zeiterfassung wurde korrigiert ({datum_str})",
-                                            html_body=f"""<p>Hallo {ma_vollname},</p>
-<p>Ihr Administrator hat eine Zeitkorrektur vorgenommen:</p>
-<ul>
-  <li><strong>Datum:</strong> {datum_str}</li>
-  <li><strong>Neue Zeit:</strong> {new_check_in.strftime('%H:%M')} – {new_check_out.strftime('%H:%M')} Uhr</li>
-  <li><strong>Pause:</strong> {new_pause} Min.</li>
-  <li><strong>Begründung:</strong> {korrektur_grund}</li>
-</ul>
-<p>Bei Fragen wenden Sie sich bitte an Ihren Vorgesetzten.</p>
-<p>Mit freundlichen Grüßen<br>CrewBase – Steakhouse Piccolo</p>"""
+                                        alte_start_str = alter_wert.get('start_zeit', '?')[:5] if alter_wert.get('start_zeit') else '?'
+                                        alte_ende_str = alter_wert.get('ende_zeit', '?')[:5] if alter_wert.get('ende_zeit') else '?'
+                                        send_zeitkorrektur_email(
+                                            mitarbeiter_email=ma_email_addr,
+                                            mitarbeiter_name=ma_vollname,
+                                            datum=datum_str,
+                                            alte_start=alte_start_str,
+                                            alte_ende=alte_ende_str,
+                                            neue_start=new_check_in.strftime('%H:%M'),
+                                            neue_ende=new_check_out.strftime('%H:%M'),
+                                            pause_min=new_pause,
+                                            korrektur_grund=korrektur_grund,
+                                            admin_name=admin_name
                                         )
                                 except Exception:
                                     pass  # E-Mail-Fehler blockieren nicht den Hauptworkflow
@@ -1730,6 +1730,51 @@ def show_benachrichtigungen_widget():
                     st.markdown("---")
     else:
         st.success("✅ Keine neuen Benachrichtigungen")
+    
+    # ============================================================
+    # DSGVO-LÖSCHFRISTEN-WARNUNG
+    # ============================================================
+    try:
+        from utils.database import get_supabase_client
+        supabase_dsgvo = get_supabase_client()
+        heute_str = date.today().isoformat()
+        # Mitarbeiter mit fälliger Löschfrist
+        faellig = supabase_dsgvo.table('mitarbeiter').select(
+            'id, vorname, nachname, loeschfrist_datum, austrittsdatum'
+        ).lte('loeschfrist_datum', heute_str).eq('anonymisiert', False).execute()
+        if faellig.data:
+            st.markdown(f"""
+            <div style="background-color:#fef2f2; border-left:5px solid #dc2626; padding:1rem;
+                        margin-bottom:1rem; border-radius:5px;">
+                <strong>⚠️ DSGVO: {len(faellig.data)} Löschfrist(en) fällig!</strong>
+            </div>
+            """, unsafe_allow_html=True)
+            with st.expander(f"🗑️ {len(faellig.data)} DSGVO-Löschfrist(en) fällig", expanded=True):
+                for ma in faellig.data:
+                    st.markdown(
+                        f"**{ma['vorname']} {ma['nachname']}** – Löschfrist: `{ma.get('loeschfrist_datum', '?')}` "
+                        f"| Austritt: `{ma.get('austrittsdatum', '?')}`"
+                    )
+                    # E-Mail an Admin senden (einmalig pro Session)
+                    dsgvo_key = f"dsgvo_email_sent_{ma['id']}"
+                    if not st.session_state.get(dsgvo_key):
+                        try:
+                            from utils.email_service import send_dsgvo_loeschfrist_warnung
+                            admin_email = os.environ.get('SMTP_FROM', '')
+                            if admin_email:
+                                send_dsgvo_loeschfrist_warnung(
+                                    admin_email=admin_email,
+                                    mitarbeiter_liste=[{
+                                        'name': f"{ma['vorname']} {ma['nachname']}",
+                                        'loeschfrist': ma.get('loeschfrist_datum', '?'),
+                                        'austrittsdatum': ma.get('austrittsdatum', '?')
+                                    }]
+                                )
+                                st.session_state[dsgvo_key] = True
+                        except Exception:
+                            pass
+    except Exception:
+        pass  # DSGVO-Check soll Dashboard nicht blockieren
 
 
 def show_plauderecke_admin():

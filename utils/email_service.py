@@ -692,3 +692,213 @@ def send_datenhygiene_warnung_email(
     )
     
     return send_email(empfaenger, subject, body, html_body)
+
+
+# ============================================================
+# ZEITKORREKTUR-BENACHRICHTIGUNG
+# ============================================================
+def send_zeitkorrektur_email(
+    mitarbeiter_email: str,
+    mitarbeiter_name: str,
+    datum: str,
+    alte_start: str,
+    alte_ende: str,
+    neue_start: str,
+    neue_ende: str,
+    pause_min: int,
+    korrektur_grund: str,
+    admin_name: str = "Administrator"
+) -> bool:
+    """Sendet Transparenz-Mail an Mitarbeiter bei Admin-Zeitkorrektur."""
+    if not mitarbeiter_email:
+        return False
+    subject = f"✏️ Zeitkorrektur für {datum} – CrewBase"
+    body = (
+        f"Hallo {mitarbeiter_name},\n\n"
+        f"Ihr Administrator hat eine Zeitkorrektur für den {datum} vorgenommen.\n\n"
+        f"Ursprüngliche Zeit: {alte_start} – {alte_ende} Uhr\n"
+        f"Korrigierte Zeit:   {neue_start} – {neue_ende} Uhr\n"
+        f"Neue Pausenzeit:    {pause_min} Minuten\n\n"
+        f"Begründung: {korrektur_grund}\n\n"
+        f"Diese Korrektur wurde von {admin_name} vorgenommen und im Audit-Log gespeichert.\n\n"
+        f"Mit freundlichen Grüßen\nCrewBase – Steakhouse Piccolo"
+    )
+    inhalt = f"""
+        <p>Hallo <strong>{mitarbeiter_name}</strong>,</p>
+        <p>Ihr Administrator hat eine Zeitkorrektur für den <strong>{datum}</strong> vorgenommen:</p>
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 15px 0; border-radius: 4px;">
+            <p style="margin: 0; font-weight: bold; color: #856404;">✏️ Zeitkorrektur durch {admin_name}</p>
+        </div>
+        <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
+            <tr style="background-color: #1e3a5f; color: white;">
+                <th style="padding: 10px; text-align: left;">Feld</th>
+                <th style="padding: 10px; text-align: left;">Vorher</th>
+                <th style="padding: 10px; text-align: left;">Nachher</th>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Arbeitsbeginn</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #dc3545;">{alte_start} Uhr</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #28a745;">{neue_start} Uhr</td>
+            </tr>
+            <tr style="background-color: #f8f9fa;">
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Arbeitsende</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #dc3545;">{alte_ende} Uhr</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6; color: #28a745;">{neue_ende} Uhr</td>
+            </tr>
+            <tr>
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Pause</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">–</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">{pause_min} Min.</td>
+            </tr>
+            <tr style="background-color: #f8f9fa;">
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Begründung</td>
+                <td colspan="2" style="padding: 10px; border: 1px solid #dee2e6;">{korrektur_grund}</td>
+            </tr>
+        </table>
+        <p style="color: #6c757d; font-size: 0.85rem;">
+            Diese Korrektur wurde im Audit-Log gespeichert. Bei Rückfragen wenden Sie sich bitte an Ihren Vorgesetzten.
+        </p>
+    """
+    html_body = _erstelle_html_template("Zeitkorrektur vorgenommen", inhalt, farbe="#b7791f")
+    return send_email(mitarbeiter_email, subject, body, html_body)
+
+
+# ============================================================
+# DIENSTPLAN-VERÖFFENTLICHUNG MIT VORBEHALT (alle Mitarbeiter)
+# ============================================================
+def send_dienstplan_veroeffentlichung_alle(
+    mitarbeiter_liste: list,
+    monat: str,
+    jahr: int,
+    hinweis_vorbehalt: bool = True,
+    app_url: str = None
+) -> dict:
+    """Sendet Dienstplan-Veröffentlichungs-Mail an ALLE Mitarbeiter mit Vorbehalt-Hinweis."""
+    ergebnis = {'gesendet': 0, 'fehlgeschlagen': 0, 'keine_email': 0}
+    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    vorbehalt_block = ""
+    if hinweis_vorbehalt:
+        vorbehalt_block = """
+        <div style="background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0; font-weight: bold; color: #856404;">⚠️ Hinweis: Dieser Dienstplan steht unter Vorbehalt</p>
+            <p style="margin: 8px 0 0 0; color: #856404; font-size: 0.9rem;">
+                Die angegebenen Endzeiten richten sich nach dem wirtschaftlichen Betriebsende des jeweiligen Abends.
+                Kurzfristige Anpassungen bleiben vorbehalten.
+            </p>
+        </div>"""
+    for ma in mitarbeiter_liste:
+        email = ma.get('email', '').strip()
+        name = f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip()
+        if not email:
+            ergebnis['keine_email'] += 1
+            continue
+        subject = f"📅 Dienstplan {monat} {jahr} wurde veröffentlicht"
+        body = (
+            f"Hallo {name},\n\nIhr Dienstplan für {monat} {jahr} wurde veröffentlicht.\n"
+            f"Bitte melden Sie sich in CrewBase an: {app_link}\n\n"
+            f"Hinweis: Dieser Dienstplan steht unter Vorbehalt. Die Endzeiten richten sich nach dem\n"
+            f"wirtschaftlichen Betriebsende. Kurzfristige Anpassungen bleiben vorbehalten.\n\n"
+            f"Mit freundlichen Grüßen\nCrewBase – Steakhouse Piccolo"
+        )
+        inhalt = f"""
+            <p>Hallo <strong>{name}</strong>,</p>
+            <p>Ihr Dienstplan für <strong>{monat} {jahr}</strong> wurde veröffentlicht.</p>
+            {vorbehalt_block}
+            <div style="text-align: center; margin: 25px 0;">
+                <a href="{app_link}" style="background-color: #1e3a5f; color: white; padding: 12px 28px;
+                   text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                    📅 Meinen Dienstplan ansehen
+                </a>
+            </div>
+        """
+        html_body = _erstelle_html_template(f"Dienstplan {monat} {jahr} veröffentlicht", inhalt)
+        if send_email(email, subject, body, html_body):
+            ergebnis['gesendet'] += 1
+        else:
+            ergebnis['fehlgeschlagen'] += 1
+    return ergebnis
+
+
+# ============================================================
+# DSGVO-WARNUNG BEI NEUEN STAMMDATEN-ANTRÄGEN
+# ============================================================
+def send_dsgvo_stammdaten_antrag_admin(
+    admin_email: str,
+    mitarbeiter_name: str,
+    antrag_typ: str,
+    antrag_details: str = ""
+) -> bool:
+    """Sendet Warnung an Admin bei neuem Stammdaten-Änderungsantrag."""
+    empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
+    subject = f"🔔 Neuer Stammdaten-Antrag von {mitarbeiter_name}"
+    body = (
+        f"Neuer Stammdaten-Änderungsantrag:\n\nMitarbeiter: {mitarbeiter_name}\n"
+        f"Antragstyp: {antrag_typ}\n{f'Details: {antrag_details}' if antrag_details else ''}\n\n"
+        f"Bitte prüfen und genehmigen Sie diesen Antrag in CrewBase.\n\nMit freundlichen Grüßen\nCrewBase"
+    )
+    details_block = f'<p><strong>Details:</strong> {antrag_details}</p>' if antrag_details else ''
+    inhalt = f"""
+        <p>Ein Mitarbeiter hat einen Stammdaten-Änderungsantrag gestellt:</p>
+        <div style="background-color: #e8f4f8; border-left: 4px solid #2c5282; padding: 15px; margin: 15px 0; border-radius: 4px;">
+            <p style="margin: 0; font-weight: bold; color: #2c5282;">🔔 Neuer Antrag zur Bearbeitung</p>
+        </div>
+        <table style="border-collapse: collapse; width: 100%; margin: 15px 0;">
+            <tr><td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold; width: 35%;">Mitarbeiter</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">{mitarbeiter_name}</td></tr>
+            <tr style="background-color: #f8f9fa;">
+                <td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Antragstyp</td>
+                <td style="padding: 10px; border: 1px solid #dee2e6;">{antrag_typ}</td></tr>
+        </table>
+        {details_block}
+        <p>Bitte melden Sie sich in CrewBase an und bearbeiten Sie den Antrag unter
+           <strong>Mitarbeiterverwaltung → Stammdaten-Anträge</strong>.</p>
+    """
+    html_body = _erstelle_html_template("Neuer Stammdaten-Antrag", inhalt, farbe="#2c5282")
+    return send_email(empfaenger, subject, body, html_body)
+
+
+# ============================================================
+# DSGVO-LÖSCHFRISTEN-WARNUNG AN ADMIN
+# ============================================================
+def send_dsgvo_loeschfrist_warnung(
+    admin_email: str,
+    mitarbeiter_liste: list
+) -> bool:
+    """Sendet Warnung an Admin bei fälligen DSGVO-Löschfristen."""
+    empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
+    anzahl = len(mitarbeiter_liste)
+    subject = f"⚠️ DSGVO: {anzahl} Löschfrist(en) fällig – CrewBase"
+    body = (
+        f"DSGVO-Warnung: {anzahl} Mitarbeiter haben eine fällige Löschfrist.\n\n"
+        + "\n".join([f"- {m['name']} | Austritt: {m.get('austrittsdatum','?')} | Frist: {m.get('loeschfrist','?')}" for m in mitarbeiter_liste])
+        + "\n\nBitte prüfen und anonymisieren Sie die betroffenen Datensätze in CrewBase."
+    )
+    zeilen_liste = []
+    for i, m in enumerate(mitarbeiter_liste):
+        bg = ' style="background-color:#f8f9fa;"' if i % 2 else ''
+        zeilen_liste.append(
+            f"<tr{bg}>"
+            f"<td style='padding:8px;border:1px solid #dee2e6;'>{m['name']}</td>"
+            f"<td style='padding:8px;border:1px solid #dee2e6;'>{m.get('austrittsdatum','?')}</td>"
+            f"<td style='padding:8px;border:1px solid #dee2e6;color:#dc2626;font-weight:bold;'>{m.get('loeschfrist','?')}</td>"
+            f"</tr>"
+        )
+    zeilen = "".join(zeilen_liste)
+    inhalt = f"""
+        <p>Folgende Mitarbeiter haben eine <strong>fällige DSGVO-Löschfrist</strong>:</p>
+        <div style="background-color:#fef2f2; border-left:4px solid #dc2626; padding:15px; margin:15px 0; border-radius:4px;">
+            <p style="margin:0; font-weight:bold; color:#dc2626;">⚠️ Sofortiger Handlungsbedarf: {anzahl} Datensatz/Datensätze</p>
+        </div>
+        <table style="border-collapse:collapse; width:100%; margin:15px 0;">
+            <tr style="background-color:#1e3a5f; color:white;">
+                <th style="padding:10px; text-align:left;">Mitarbeiter</th>
+                <th style="padding:10px; text-align:left;">Austrittsdatum</th>
+                <th style="padding:10px; text-align:left;">Löschfrist</th>
+            </tr>
+            {zeilen}
+        </table>
+        <p>Bitte melden Sie sich in CrewBase an und anonymisieren Sie die betroffenen Datensätze unter
+           <strong>Mitarbeiterverwaltung → DSGVO-Verwaltung</strong>.</p>
+    """
+    html_body = _erstelle_html_template("DSGVO-Löschfristen fällig", inhalt, farbe="#dc2626")
+    return send_email(empfaenger, subject, body, html_body)
