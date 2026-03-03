@@ -108,53 +108,90 @@ def apply_custom_css():
     .stSelectbox > div {{
         background-color: {COLORS['surface']} !important;
         border-radius: 8px !important;
-        padding: 0.25rem 0 !important;
+        padding: 0 !important;
         overflow: visible !important;
     }}
     
-    /* ===== SELECTBOX DROPDOWN - CLIPPING FIX ===== */
-    /* Verhindert das Abschneiden von Buchstaben (g, y, p, etc.) */
+    /* ===== SELECTBOX DROPDOWN - VOLLSTÄNDIGER CLIPPING FIX ===== */
+    /* Problem: Text (z.B. "2026", "Februar") wird als kleine Striche oben angezeigt */
+    /* Ursache: height/padding-Konflikte zwischen Streamlit-internen Stilen */
+    
+    /* Äußerster Container */
     div[data-baseweb="select"] {{
         overflow: visible !important;
+        background-color: {COLORS['background']} !important;
     }}
     
+    /* Zweite Ebene - der eigentliche Klick-Bereich */
     div[data-baseweb="select"] > div {{
-        line-height: 1.6 !important;
-        min-height: 42px !important;
+        line-height: normal !important;
+        height: auto !important;
+        min-height: 48px !important;
+        max-height: none !important;
         overflow: visible !important;
-        padding: 6px 12px !important;
+        padding: 8px 14px !important;
+        background-color: {COLORS['background']} !important;
+        color: {COLORS['text_primary']} !important;
+        display: flex !important;
+        align-items: center !important;
     }}
     
+    /* Role=button (der sichtbare Selectbox-Bereich) */
     div[data-baseweb="select"] [role="button"] {{
-        line-height: 1.6 !important;
-        min-height: 42px !important;
+        line-height: normal !important;
+        height: auto !important;
+        min-height: 48px !important;
+        max-height: none !important;
         overflow: visible !important;
-        padding: 6px 12px !important;
+        padding: 8px 14px !important;
         color: {COLORS['text_primary']} !important;
         background-color: {COLORS['background']} !important;
         font-weight: 500 !important;
+        font-size: 16px !important;
+        display: flex !important;
+        align-items: center !important;
     }}
     
+    /* Alle Kindelemente des role=button */
     div[data-baseweb="select"] [role="button"] > div,
+    div[data-baseweb="select"] [role="button"] > div > div,
     div[data-baseweb="select"] [role="button"] span,
-    div[data-baseweb="select"] [role="button"] p {{
-        line-height: 1.6 !important;
+    div[data-baseweb="select"] [role="button"] p,
+    div[data-baseweb="select"] [role="button"] * {{
+        line-height: normal !important;
         overflow: visible !important;
         color: {COLORS['text_primary']} !important;
         font-weight: 500 !important;
+        font-size: 16px !important;
+        height: auto !important;
+        max-height: none !important;
         white-space: nowrap !important;
-        text-overflow: ellipsis !important;
+        display: inline !important;
+        vertical-align: middle !important;
+    }}
+    
+    /* Verhindert dass Streamlit intern height:0 oder clip setzt */
+    div[data-baseweb="select"] [role="button"] > div:first-child {{
+        flex: 1 !important;
+        display: flex !important;
+        align-items: center !important;
+        height: auto !important;
+        min-height: 32px !important;
+        overflow: visible !important;
+        padding: 0 !important;
     }}
     
     /* Dropdown-Liste (geöffnet) */
     div[data-baseweb="popover"] li,
     div[data-baseweb="menu"] li,
     div[data-baseweb="menu"] [role="option"] {{
-        line-height: 1.6 !important;
-        padding: 8px 16px !important;
+        line-height: normal !important;
+        padding: 10px 16px !important;
         color: {COLORS['text_primary']} !important;
         background-color: {COLORS['background']} !important;
         overflow: visible !important;
+        font-size: 16px !important;
+        height: auto !important;
     }}
     
     div[data-baseweb="popover"] li:hover,
