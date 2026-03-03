@@ -391,6 +391,10 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             if korrigiert:
                 typ_str += " ✏️"
 
+            # Manuell angelegter Eintrag kennzeichnen
+            if raw.get('quelle') == 'manuell_admin':
+                typ_str += " 🖊️"
+
             # Zuschlag-Info
             so_z = z.get("sonntagszuschlag", 0)
             ft_z = z.get("feiertagszuschlag", 0)

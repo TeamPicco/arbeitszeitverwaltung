@@ -1070,6 +1070,132 @@ def show_zeiterfassung_admin():
     
     st.subheader("⏰ Zeiterfassung (Übersicht & Korrektur)")
     
+    # ══════════════════════════════════════════════════════════════
+    # MANUELLER ZEITEINTRAG (Admin-Override)
+    # ══════════════════════════════════════════════════════════════
+    with st.expander("✏️ ➕ Zeiteintrag manuell anlegen (Admin-Override)", expanded=False):
+        st.info("ℹ️ Manuelle Einträge werden in der Zeitauswertung mit einem 🖊️-Symbol gekennzeichnet und im Audit-Log dokumentiert.")
+        
+        mitarbeiter_list_neu = get_all_mitarbeiter()
+        if mitarbeiter_list_neu:
+            with st.form("manueller_zeiteintrag_form", clear_on_submit=True):
+                col_m1, col_m2 = st.columns(2)
+                
+                with col_m1:
+                    ma_options_neu = {f"{m['vorname']} {m['nachname']}": m['id'] for m in mitarbeiter_list_neu}
+                    selected_ma_name_neu = st.selectbox(
+                        "Mitarbeiter *",
+                        options=list(ma_options_neu.keys()),
+                        key="manuell_ma_select"
+                    )
+                    selected_ma_id_neu = ma_options_neu[selected_ma_name_neu]
+                    
+                    manuell_datum = st.date_input(
+                        "Datum *",
+                        value=date.today(),
+                        format="DD.MM.YYYY",
+                        key="manuell_datum"
+                    )
+                
+                with col_m2:
+                    manuell_start = st.time_input(
+                        "Startzeit *",
+                        value=datetime.strptime("08:00", "%H:%M").time(),
+                        key="manuell_start"
+                    )
+                    manuell_ende = st.time_input(
+                        "Endzeit *",
+                        value=datetime.strptime("16:00", "%H:%M").time(),
+                        key="manuell_ende"
+                    )
+                
+                col_m3, col_m4 = st.columns(2)
+                with col_m3:
+                    manuell_pause = st.number_input(
+                        "Pause (Minuten)",
+                        min_value=0,
+                        max_value=120,
+                        value=30,
+                        step=5,
+                        key="manuell_pause"
+                    )
+                with col_m4:
+                    manuell_grund = st.text_input(
+                        "Grund / Kommentar *",
+                        placeholder="z.B. Terminal defekt, Vergessen zu stempeln",
+                        key="manuell_grund"
+                    )
+                
+                submitted_manuell = st.form_submit_button(
+                    "💾 Zeiteintrag speichern",
+                    use_container_width=True,
+                    type="primary"
+                )
+                
+                if submitted_manuell:
+                    if not manuell_grund.strip():
+                        st.error("❌ Bitte einen Grund/Kommentar angeben!")
+                    elif manuell_ende <= manuell_start:
+                        st.error("❌ Endzeit muss nach der Startzeit liegen!")
+                    else:
+                        try:
+                            from utils.calculations import berechne_arbeitsstunden, is_sonntag, is_feiertag
+                            
+                            ist_so = is_sonntag(manuell_datum)
+                            ist_ft = is_feiertag(manuell_datum)
+                            arbeitsstunden_neu = berechne_arbeitsstunden(
+                                manuell_start, manuell_ende, manuell_pause
+                            )
+                            
+                            supabase_neu = get_supabase_client()
+                            betrieb_id_neu = st.session_state.get('betrieb_id')
+                            
+                            neuer_eintrag = {
+                                'mitarbeiter_id': selected_ma_id_neu,
+                                'betrieb_id': betrieb_id_neu,
+                                'datum': manuell_datum.isoformat(),
+                                'start_zeit': manuell_start.strftime('%H:%M:%S'),
+                                'ende_zeit': manuell_ende.strftime('%H:%M:%S'),
+                                'pause_minuten': manuell_pause,
+                                'arbeitsstunden': arbeitsstunden_neu,
+                                'ist_sonntag': ist_so,
+                                'ist_feiertag': ist_ft,
+                                'quelle': 'manuell_admin',
+                                'manuell_kommentar': manuell_grund.strip(),
+                                'korrigiert_von_admin': True,
+                                'korrektur_grund': f'Manuell angelegt: {manuell_grund.strip()}',
+                                'korrektur_datum': datetime.now().isoformat()
+                            }
+                            
+                            result_neu = supabase_neu.table('zeiterfassung').insert(neuer_eintrag).execute()
+                            
+                            # Audit-Log
+                            try:
+                                from utils.audit_log import log_zeitkorrektur
+                                admin_result_neu = supabase_neu.table('users').select('username').eq('id', st.session_state.user_id).execute()
+                                admin_name_neu = admin_result_neu.data[0]['username'] if admin_result_neu.data else 'Admin'
+                                log_zeitkorrektur(
+                                    admin_user_id=st.session_state.user_id,
+                                    admin_name=admin_name_neu,
+                                    mitarbeiter_id=selected_ma_id_neu,
+                                    mitarbeiter_name=selected_ma_name_neu,
+                                    zeiterfassung_id=result_neu.data[0]['id'] if result_neu.data else None,
+                                    alter_wert={},
+                                    neuer_wert=neuer_eintrag,
+                                    begruendung=f'Manuell angelegt: {manuell_grund.strip()}',
+                                    betrieb_id=betrieb_id_neu
+                                )
+                            except Exception:
+                                pass
+                            
+                            st.success(f"✅ Zeiteintrag für {selected_ma_name_neu} am {manuell_datum.strftime('%d.%m.%Y')} erfolgreich angelegt! ({arbeitsstunden_neu:.2f} h, {'Sonntag' if ist_so else 'Feiertag' if ist_ft else 'Werktag'})")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Fehler beim Speichern: {str(e)}")
+    
+    st.divider()
+    # ══════════════════════════════════════════════════════════════
+    
     # Filter
     col1, col2, col3 = st.columns(3)
     
@@ -1128,10 +1254,14 @@ def show_zeiterfassung_admin():
         
         # Zeige Zeiterfassungen mit Bearbeitungs-Option
         for ze in zeiterfassungen:
+            # Kennzeichnung manueller Einträge
+            ist_manuell = ze.get('quelle') == 'manuell_admin'
+            manuell_badge = " 🖊️ [Manuell]" if ist_manuell else ""
+            
             with st.expander(
                 f"👤 {ze['mitarbeiter']['vorname']} {ze['mitarbeiter']['nachname']} - "
                 f"{datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')} - "
-                f"{ze['start_zeit'][:5]} bis {ze['ende_zeit'][:5] if ze['ende_zeit'] else 'Offen'}"
+                f"{ze['start_zeit'][:5]} bis {ze['ende_zeit'][:5] if ze['ende_zeit'] else 'Offen'}{manuell_badge}"
             ):
                 col1, col2 = st.columns(2)
                 
@@ -1145,8 +1275,18 @@ def show_zeiterfassung_admin():
                 
                 with col2:
                     st.write(f"**Pause (Min):** {ze.get('pause_minuten', 0)}")
-                    st.write(f"**Sonntag:** {'✅' if ze.get('ist_sonntag') else '❌'}")
-                    st.write(f"**Feiertag:** {'✅' if ze.get('ist_feiertag') else '❌'}")
+                    so_icon = '\u2705' if ze.get('ist_sonntag') else '\u274c'
+                    ft_icon = '\u2705' if ze.get('ist_feiertag') else '\u274c'
+                    st.write(f"**Sonntag:** {so_icon}")
+                    st.write(f"**Feiertag:** {ft_icon}")
+                    # Quelle anzeigen
+                    quelle = ze.get('quelle', 'terminal')
+                    if quelle == 'manuell_admin':
+                        st.markdown("**Quelle:** \ud83d\udd8a\ufe0f Manuell (Admin)")
+                        if ze.get('manuell_kommentar'):
+                            st.markdown(f"**Grund:** *{ze['manuell_kommentar']}*")
+                    else:
+                        st.write("**Quelle:** \ud83d\udcf1 Terminal")
                 
                 # Korrektur-Formular
                 st.markdown("---")
