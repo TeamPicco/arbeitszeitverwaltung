@@ -473,6 +473,16 @@ def change_password(user_id: str, new_password: str) -> bool:
         return False
 
 
+def get_service_role_client() -> Client:
+    """
+    Gibt einen Supabase-Client mit Service-Role-Key zurück (umgeht RLS).
+    Wird nur für Admin-Operationen wie Storage-Upload verwendet.
+    """
+    url = os.getenv("SUPABASE_URL")
+    service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+    return create_client(url, service_key)
+
+
 def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> Optional[str]:
     """
     Lädt eine Datei in Supabase Storage hoch
@@ -489,7 +499,8 @@ def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -
     logger = logging.getLogger(__name__)
     
     try:
-        supabase = get_supabase_client()
+        # Service-Role-Client verwenden um RLS (42501) zu umgehen
+        supabase = get_service_role_client()
         
         logger.info(f"DEBUG: Upload Datei zu Bucket '{bucket_name}', Pfad: {file_path}, Größe: {len(file_data)} bytes")
         

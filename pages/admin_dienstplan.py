@@ -608,8 +608,9 @@ def show_monatsplan(supabase):
                     wt = WOCHENTAGE_DE[datum_obj.weekday()]
                     typ = dienst.get('schichttyp', 'arbeit')
                     typ_info = SCHICHTTYPEN.get(typ, SCHICHTTYPEN['arbeit'])
+                    edit_key = f"edit_dienst_{dienst['id']}"
 
-                    col1, col2, col3, col4 = st.columns([2, 2, 3, 1])
+                    col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 1, 1])
 
                     with col1:
                         st.write(f"**{datum_obj.strftime('%d.%m.%Y')}**")
@@ -635,6 +636,10 @@ def show_monatsplan(supabase):
                             st.write("⚪ Frei")
 
                     with col4:
+                        if st.button("✏️", key=f"edit_btn_{dienst['id']}", help="Direkt bearbeiten"):
+                            st.session_state[edit_key] = not st.session_state.get(edit_key, False)
+
+                    with col5:
                         if st.button("🗑️", key=f"del_{dienst['id']}", help="Löschen"):
                             try:
                                 supabase.table('dienstplaene').delete().eq('id', dienst['id']).execute()
@@ -642,6 +647,58 @@ def show_monatsplan(supabase):
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Fehler: {str(e)}")
+
+                    # Inline-Bearbeitungsformular
+                    if st.session_state.get(edit_key, False):
+                        with st.container():
+                            st.markdown(f"<div style='background:#f0f4ff;padding:12px;border-radius:8px;border-left:4px solid #0d6efd;margin:4px 0 8px 0;'>", unsafe_allow_html=True)
+                            with st.form(key=f"form_edit_{dienst['id']}"):
+                                st.markdown(f"**✏️ Dienst bearbeiten: {datum_obj.strftime('%d.%m.%Y')} ({wt})**")
+                                ec1, ec2 = st.columns(2)
+                                with ec1:
+                                    neuer_typ = st.selectbox(
+                                        "Schichttyp",
+                                        options=list(SCHICHTTYPEN.keys()),
+                                        index=list(SCHICHTTYPEN.keys()).index(typ) if typ in SCHICHTTYPEN else 0,
+                                        format_func=lambda x: SCHICHTTYPEN[x]['label'],
+                                        key=f"typ_edit_{dienst['id']}"
+                                    )
+                                with ec2:
+                                    neues_datum = st.date_input(
+                                        "Datum",
+                                        value=datum_obj,
+                                        key=f"datum_edit_{dienst['id']}"
+                                    )
+                                ec3, ec4 = st.columns(2)
+                                with ec3:
+                                    start_val = dienst.get('start_zeit', '08:00')[:5] if dienst.get('start_zeit') else '08:00'
+                                    neue_start = st.text_input("Startzeit (HH:MM)", value=start_val, key=f"start_edit_{dienst['id']}")
+                                with ec4:
+                                    ende_val = dienst.get('ende_zeit', '16:00')[:5] if dienst.get('ende_zeit') else '16:00'
+                                    neue_ende = st.text_input("Endzeit (HH:MM)", value=ende_val, key=f"ende_edit_{dienst['id']}")
+                                sb1, sb2 = st.columns(2)
+                                with sb1:
+                                    speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
+                                with sb2:
+                                    abbrechen = st.form_submit_button("❌ Abbrechen", use_container_width=True)
+                                if speichern:
+                                    try:
+                                        update_data = {
+                                            'datum': neues_datum.isoformat(),
+                                            'schichttyp': neuer_typ,
+                                            'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
+                                            'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
+                                        }
+                                        supabase.table('dienstplaene').update(update_data).eq('id', dienst['id']).execute()
+                                        st.session_state[edit_key] = False
+                                        st.success("✅ Dienst aktualisiert!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Fehler beim Speichern: {str(e)}")
+                                if abbrechen:
+                                    st.session_state[edit_key] = False
+                                    st.rerun()
+                            st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("Keine Einträge für diesen Monat.")
 
@@ -944,16 +1001,29 @@ def show_schichtvorlagen(supabase):
 
             if st.form_submit_button("💾 Vorlage speichern", use_container_width=True) and name:
                 try:
-                    supabase.table('schichtvorlagen').insert({
-                        'betrieb_id': st.session_state.betrieb_id,
-                        'name': name,
-                        'beschreibung': beschreibung if beschreibung else None,
-                        'start_zeit': start_zeit.strftime('%H:%M:%S'),
-                        'ende_zeit': ende_zeit.strftime('%H:%M:%S'),
-                        'pause_minuten': pause_minuten,
-                        'farbe': farbe,
-                        'ist_urlaub': ist_urlaub
-                    }).execute()
+                    # Versuche mit ist_urlaub-Spalte (falls Migration ausgeführt)
+                    try:
+                        supabase.table('schichtvorlagen').insert({
+                            'betrieb_id': st.session_state.betrieb_id,
+                            'name': name,
+                            'beschreibung': beschreibung if beschreibung else None,
+                            'start_zeit': start_zeit.strftime('%H:%M:%S'),
+                            'ende_zeit': ende_zeit.strftime('%H:%M:%S'),
+                            'pause_minuten': pause_minuten,
+                            'farbe': farbe,
+                            'ist_urlaub': ist_urlaub
+                        }).execute()
+                    except Exception:
+                        # Fallback ohne ist_urlaub (PGRST204-Fix)
+                        supabase.table('schichtvorlagen').insert({
+                            'betrieb_id': st.session_state.betrieb_id,
+                            'name': name,
+                            'beschreibung': beschreibung if beschreibung else None,
+                            'start_zeit': start_zeit.strftime('%H:%M:%S'),
+                            'ende_zeit': ende_zeit.strftime('%H:%M:%S'),
+                            'pause_minuten': pause_minuten,
+                            'farbe': farbe,
+                        }).execute()
                     st.success("✅ Schichtvorlage erstellt!")
                     st.rerun()
                 except Exception as e:

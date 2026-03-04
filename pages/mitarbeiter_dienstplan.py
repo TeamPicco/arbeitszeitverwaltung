@@ -128,7 +128,18 @@ DIENSTPLAN_CSS = """
 
 /* Responsive */
 @media (max-width: 600px) {
-    .dp-weekday { display: none; }
+    .dp-card { flex-wrap: wrap; gap: 6px; }
+    .dp-weekday {
+        order: -1;
+        width: 100%;
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 2px;
+    }
+    .dp-date { min-width: 44px; }
     .dp-date .day { font-size: 1.2rem; }
     .dp-time { font-size: 0.95rem; }
 }

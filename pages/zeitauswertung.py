@@ -90,6 +90,15 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
+    def safe_str(s):
+        """Konvertiert beliebige Werte sicher zu UTF-8-kompatiblen Strings."""
+        if s is None:
+            return "–"
+        try:
+            return str(s).encode('latin-1', errors='replace').decode('latin-1')
+        except Exception:
+            return str(s).encode('ascii', errors='replace').decode('ascii')
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
                             leftMargin=1.5*cm, rightMargin=1.5*cm,

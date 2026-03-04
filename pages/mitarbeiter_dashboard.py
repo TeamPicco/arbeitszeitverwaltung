@@ -79,6 +79,7 @@ def show():
     chat_badge = f" ({unread_count})" if unread_count > 0 else ""
     
     # Tab-Navigation mit einheitlichen Icons
+    # Stempeluhr-Tab wurde entfernt (Zeiterfassung nur über Mastergerät-Terminal)
     tabs = st.tabs([
         f"{get_icon('dashboard')} Dashboard",
         f"{get_icon('zeit')} Zeitauswertung / Lohn",
@@ -99,6 +100,8 @@ def show():
     
     with tabs[2]:
         from pages.mitarbeiter_dienstplan import show_mitarbeiter_dienstplan
+        # Hinweistext über dem Dienstplan
+        st.info("⚠️ **Wichtiger Hinweis:** Die angegebenen Endzeiten sind Richtwerte und variieren je nach betrieblicher Wirtschaftlichkeit und Arbeitsaufkommen.")
         show_mitarbeiter_dienstplan(mitarbeiter)
     
     with tabs[3]:
@@ -855,7 +858,7 @@ def show_plauderecke():
     mark_chat_as_read(st.session_state.user_id)
     
     st.subheader("💬 Plauderecke")
-    st.caption("Interner Chat für alle Mitarbeiter und Administrator")
+    st.info("💬 **Unsere Plauderecke:** Dieser Raum ist für alle betrieblichen Anliegen da – ob Diensttausch-Anfragen oder kurze Absprachen. Locker & flockig, aber immer kollegial!")
     
     # Lade Chat-Nachrichten
     nachrichten = get_chat_nachrichten(limit=100, betrieb_id=st.session_state.betrieb_id)

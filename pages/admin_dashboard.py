@@ -369,21 +369,9 @@ def show_mitarbeiterverwaltung():
         if st.button("➕ Neuer Mitarbeiter", use_container_width=True):
             st.session_state.show_mitarbeiter_form = True
     
-    # Zeige Formular für neuen/bearbeiteten Mitarbeiter
-    if st.session_state.get('show_mitarbeiter_form', False):
-        # Prüfe ob Bearbeitung oder Neuanlage
-        edit_id = st.session_state.get('edit_mitarbeiter_id', None)
-        if edit_id:
-            # Lade Mitarbeiterdaten für Bearbeitung
-            mitarbeiter_to_edit = next((m for m in get_all_mitarbeiter() if m['id'] == edit_id), None)
-            if mitarbeiter_to_edit:
-                show_mitarbeiter_form(mitarbeiter_to_edit)
-            else:
-                st.error("Mitarbeiter nicht gefunden.")
-                st.session_state.show_mitarbeiter_form = False
-                st.session_state.edit_mitarbeiter_id = None
-        else:
-            show_mitarbeiter_form()
+    # Zeige Formular nur wenn KEIN Bearbeitungs-Modus (Neuanlage oben)
+    if st.session_state.get('show_mitarbeiter_form', False) and not st.session_state.get('edit_mitarbeiter_id'):
+        show_mitarbeiter_form()
         st.markdown("---")
     
     # Lade alle Mitarbeiter
@@ -423,6 +411,28 @@ def show_mitarbeiterverwaltung():
     
     if selected_mitarbeiter:
         show_mitarbeiter_details(selected_mitarbeiter)
+    
+    # Bearbeitungsformular DIREKT HIER (nach Details) anzeigen - Focus-Fix
+    if st.session_state.get('show_mitarbeiter_form', False) and st.session_state.get('edit_mitarbeiter_id'):
+        edit_id = st.session_state.get('edit_mitarbeiter_id')
+        mitarbeiter_to_edit = next((m for m in mitarbeiter_list if m['id'] == edit_id), None)
+        # Anchor-Element für Auto-Scroll
+        st.markdown('<div id="edit-form-anchor"></div>', unsafe_allow_html=True)
+        st.markdown("""
+            <script>
+            setTimeout(function() {
+                var el = document.getElementById('edit-form-anchor');
+                if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
+            }, 300);
+            </script>
+        """, unsafe_allow_html=True)
+        st.markdown("---")
+        if mitarbeiter_to_edit:
+            show_mitarbeiter_form(mitarbeiter_to_edit)
+        else:
+            st.error("Mitarbeiter nicht gefunden.")
+            st.session_state.show_mitarbeiter_form = False
+            st.session_state.edit_mitarbeiter_id = None
 
 
 def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
