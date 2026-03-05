@@ -1,14 +1,15 @@
 """
 lohnkern.py – Kernlogik der Lohnberechnung
 
-Kette:
-  1. Lade Mitarbeiterdaten (stundenlohn_brutto, jahres_urlaubstage, resturlaub_vorjahr)
-  2. Summiere alle Zeiterfassungs-Stunden des Monats für diesen Mitarbeiter
-  3. Berechne Bruttolohn: Summe_Stunden * Stundensatz
-  4. Schreibe Ergebnis in lohnabrechnungen-Tabelle
+Lohnprinzip (vertragsbasiert):
+  - Grundlohn  = Soll-Stunden (laut Vertrag) × Stundenlohn
+  - Überstunden (Ist > Soll) → ins Arbeitszeitkonto, NICHT zusätzlich bezahlt
+  - Minusstunden (Ist < Soll) → ins Arbeitszeitkonto, Grundlohn bleibt gleich
+  - Sonntagszuschlag  = tatsächliche Sonntags-Stunden × Stundenlohn × 0,50
+  - Feiertagszuschlag = tatsächliche Feiertags-Stunden × Stundenlohn × 1,00
+  - Gesamtbrutto = Grundlohn + Sonntagszuschlag + Feiertagszuschlag
 
 Keine Steuern, keine Sozialversicherung in dieser Funktion.
-Zuschläge (Sonntag/Feiertag) werden separat addiert.
 """
 
 from datetime import date, datetime
@@ -28,7 +29,7 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
 
     Returns:
         {
-            'gesamt_stunden': float,       # Netto-Arbeitsstunden inkl. Pausenabzug
+            'gesamt_stunden': float,       # Netto-Arbeitsstunden (Ist)
             'sonntags_stunden': float,
             'feiertags_stunden': float,
             'anzahl_eintraege': int,
@@ -49,35 +50,41 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
         von = date(jahr, monat, 1).isoformat()
         bis = date(jahr + 1, 1, 1).isoformat() if monat == 12 else date(jahr, monat + 1, 1).isoformat()
 
-        # Direkte DB-Abfrage: alle abgeschlossenen Einträge des Mitarbeiters im Monat
+        # Alle Einträge des Mitarbeiters im Monat laden
+        # Bevorzuge gespeicherte arbeitsstunden, berechne sonst aus Zeiten
         response = supabase.table('zeiterfassung').select(
-            'start_zeit, ende_zeit, pause_minuten, ist_sonntag, ist_feiertag'
+            'arbeitsstunden, start_zeit, ende_zeit, pause_minuten, ist_sonntag, ist_feiertag, quelle'
         ).eq('mitarbeiter_id', mitarbeiter_id).gte('datum', von).lt('datum', bis).execute()
 
         if not response.data:
-            result['fehler'] = None  # Kein Fehler – einfach keine Einträge
             return result
 
         for eintrag in response.data:
-            # Nur abgeschlossene Einträge (ende_zeit vorhanden)
-            if not eintrag.get('ende_zeit'):
+            # Historische Saldo-Einträge überspringen
+            if eintrag.get('quelle') == 'historischer_saldo':
                 continue
 
             try:
-                # Zeitdifferenz in Stunden berechnen
-                fmt = '%H:%M:%S'
-                start = datetime.strptime(eintrag['start_zeit'], fmt)
-                ende = datetime.strptime(eintrag['ende_zeit'], fmt)
-                differenz_min = (ende - start).seconds / 60
+                # Gespeicherte Arbeitsstunden bevorzugen
+                if eintrag.get('arbeitsstunden') is not None:
+                    netto_h = float(eintrag['arbeitsstunden'])
+                elif eintrag.get('ende_zeit'):
+                    # Aus Zeiten berechnen
+                    fmt = '%H:%M:%S'
+                    start = datetime.strptime(eintrag['start_zeit'], fmt)
+                    ende = datetime.strptime(eintrag['ende_zeit'], fmt)
+                    differenz_min = (ende - start).seconds / 60
+                    pause = int(eintrag.get('pause_minuten') or 0)
+                    netto_min = differenz_min - pause
+                    if netto_min <= 0:
+                        continue
+                    netto_h = round(netto_min / 60, 4)
+                else:
+                    continue  # Offene Buchung – überspringen
 
-                # Pausenabzug
-                pause = int(eintrag.get('pause_minuten') or 0)
-                netto_min = differenz_min - pause
-
-                if netto_min <= 0:
+                if netto_h <= 0:
                     continue
 
-                netto_h = round(netto_min / 60, 4)
                 result['gesamt_stunden'] += netto_h
                 result['anzahl_eintraege'] += 1
 
@@ -86,8 +93,7 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
                 if eintrag.get('ist_feiertag'):
                     result['feiertags_stunden'] += netto_h
 
-            except Exception as parse_err:
-                # Einzelnen fehlerhaften Eintrag überspringen, nicht abbrechen
+            except Exception:
                 continue
 
         # Runden
@@ -109,22 +115,27 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
     """
     Hauptfunktion: Berechnet den Bruttolohn für einen Mitarbeiter und Monat.
 
-    Logik:
-        grundlohn      = gesamt_stunden * stundenlohn_brutto
-        sonntag_bonus  = sonntags_stunden * stundenlohn_brutto * 0.50  (wenn aktiv)
-        feiertag_bonus = feiertags_stunden * stundenlohn_brutto * 1.00 (wenn aktiv)
-        gesamtbrutto   = grundlohn + sonntag_bonus + feiertag_bonus
+    Lohnprinzip (vertragsbasiert):
+        grundlohn       = soll_stunden × stundenlohn_brutto
+        sonntagszuschlag  = sonntags_stunden × stundenlohn × 0,50  (wenn aktiv)
+        feiertagszuschlag = feiertags_stunden × stundenlohn × 1,00 (wenn aktiv)
+        gesamtbrutto    = grundlohn + sonntagszuschlag + feiertagszuschlag
+
+        Überstunden (ist > soll) → Arbeitszeitkonto, nicht bezahlt
+        Minusstunden (ist < soll) → Arbeitszeitkonto, Grundlohn bleibt
 
     Returns:
         {
             'ok': bool,
-            'fehler': None | str,           # Klare Fehlermeldung für die App
+            'fehler': None | str,
             'mitarbeiter_name': str,
             'stundenlohn': float,
-            'gesamt_stunden': float,
+            'soll_stunden': float,          # Vertragliche Soll-Stunden (Basis des Grundlohns)
+            'gesamt_stunden': float,        # Tatsächliche Ist-Stunden
+            'ueberstunden': float,          # Ist - Soll (positiv = Über, negativ = Minus)
             'sonntags_stunden': float,
             'feiertags_stunden': float,
-            'grundlohn': float,
+            'grundlohn': float,             # Soll-Stunden × Stundenlohn
             'sonntagszuschlag': float,
             'feiertagszuschlag': float,
             'gesamtbrutto': float,
@@ -134,7 +145,8 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
     leeres_ergebnis = {
         'ok': False, 'fehler': None,
         'mitarbeiter_name': '', 'stundenlohn': 0.0,
-        'gesamt_stunden': 0.0, 'sonntags_stunden': 0.0, 'feiertags_stunden': 0.0,
+        'soll_stunden': 0.0, 'gesamt_stunden': 0.0, 'ueberstunden': 0.0,
+        'sonntags_stunden': 0.0, 'feiertags_stunden': 0.0,
         'grundlohn': 0.0, 'sonntagszuschlag': 0.0, 'feiertagszuschlag': 0.0,
         'gesamtbrutto': 0.0, 'anzahl_eintraege': 0,
     }
@@ -159,7 +171,7 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
         # ── Stundensatz prüfen ─────────────────────────────────────────────
         stundenlohn_raw = ma.get('stundenlohn_brutto')
         if stundenlohn_raw is None:
-            leeres_ergebnis['fehler'] = f"Fehler: Stundensatz für {name} nicht hinterlegt. Bitte in den Mitarbeiterdaten eintragen."
+            leeres_ergebnis['fehler'] = f"Fehler: Stundensatz für {name} nicht hinterlegt."
             leeres_ergebnis['mitarbeiter_name'] = name
             return leeres_ergebnis
 
@@ -169,7 +181,14 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             leeres_ergebnis['mitarbeiter_name'] = name
             return leeres_ergebnis
 
-        # ── Stunden aus DB summieren ───────────────────────────────────────
+        # ── Soll-Stunden (Vertragsbasis) ───────────────────────────────────
+        soll_stunden = float(ma.get('monatliche_soll_stunden') or 0.0)
+        if soll_stunden <= 0:
+            leeres_ergebnis['fehler'] = f"Fehler: Soll-Stunden für {name} nicht hinterlegt."
+            leeres_ergebnis['mitarbeiter_name'] = name
+            return leeres_ergebnis
+
+        # ── Ist-Stunden aus DB summieren ───────────────────────────────────
         stunden_data = summiere_monatsstunden(mitarbeiter_id, monat, jahr)
 
         if stunden_data['fehler']:
@@ -177,13 +196,18 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             leeres_ergebnis['mitarbeiter_name'] = name
             return leeres_ergebnis
 
-        gesamt_h = stunden_data['gesamt_stunden']
+        ist_h = stunden_data['gesamt_stunden']
         sonntags_h = stunden_data['sonntags_stunden']
         feiertags_h = stunden_data['feiertags_stunden']
 
-        # ── Lohnberechnung ─────────────────────────────────────────────────
-        grundlohn = round(gesamt_h * stundenlohn, 2)
+        # ── Über-/Minusstunden berechnen ───────────────────────────────────
+        ueberstunden = round(ist_h - soll_stunden, 2)
 
+        # ── Lohnberechnung (vertragsbasiert) ───────────────────────────────
+        # Grundlohn basiert auf Soll-Stunden, nicht auf Ist-Stunden
+        grundlohn = round(soll_stunden * stundenlohn, 2)
+
+        # Zuschläge auf tatsächlich gearbeitete Sonderstunden
         sonntagszuschlag = 0.0
         if ma.get('sonntagszuschlag_aktiv') and sonntags_h > 0:
             sonntagszuschlag = round(sonntags_h * stundenlohn * 0.50, 2)
@@ -199,7 +223,9 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             'fehler': None,
             'mitarbeiter_name': name,
             'stundenlohn': stundenlohn,
-            'gesamt_stunden': gesamt_h,
+            'soll_stunden': soll_stunden,
+            'gesamt_stunden': ist_h,
+            'ueberstunden': ueberstunden,
             'sonntags_stunden': sonntags_h,
             'feiertags_stunden': feiertags_h,
             'grundlohn': grundlohn,
@@ -223,9 +249,6 @@ def speichereMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str,
     """
     Berechnet den Monatslohn und speichert ihn in lohnabrechnungen.
     Überschreibt bestehende Einträge (UPSERT-Logik).
-
-    Returns:
-        Ergebnis-Dict von berechneMonatslohn + 'gespeichert': bool
     """
     ergebnis = berechneMonatslohn(mitarbeiter_id, monat, jahr)
 
@@ -253,6 +276,14 @@ def speichereMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str,
             'feiertagszuschlag': ergebnis['feiertagszuschlag'],
             'gesamtbrutto': ergebnis['gesamtbrutto'],
         }
+
+        # Neue Felder hinzufügen falls vorhanden (Migration nötig)
+        try:
+            probe = supabase.table('lohnabrechnungen').select('soll_stunden').limit(0).execute()
+            daten['soll_stunden'] = ergebnis['soll_stunden']
+            daten['ueberstunden'] = ergebnis['ueberstunden']
+        except Exception:
+            pass  # Felder noch nicht migriert – ignorieren
 
         # Prüfe ob bereits vorhanden
         existing = supabase.table('lohnabrechnungen').select('id').eq(
