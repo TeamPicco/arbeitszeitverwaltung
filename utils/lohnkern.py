@@ -234,7 +234,12 @@ def speichereMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str,
         return ergebnis
 
     try:
-        supabase = get_supabase_client()
+        # Service-Role-Client verwenden um RLS-42501 zu umgehen
+        try:
+            from utils.database import get_service_role_client
+            supabase = get_service_role_client()
+        except Exception:
+            supabase = get_supabase_client()
 
         daten = {
             'mitarbeiter_id': mitarbeiter_id,

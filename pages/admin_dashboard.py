@@ -309,17 +309,25 @@ def show_uebersicht():
                                                 'resturlaub_vorjahr': max(0, neuer_rest)
                                             }).eq('id', ma_id).execute()
                                     
-                                    # 3) Benachrichtigung für Mitarbeiter
+                                    # 3) Benachrichtigung für Mitarbeiter (service_role umgeht RLS-42501)
                                     mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
                                     if mitarbeiter_user.data:
-                                        supabase.table('benachrichtigungen').insert({
-                                            'user_id': mitarbeiter_user.data[0]['user_id'],
-                                            'typ': 'urlaubsantrag',
-                                            'titel': 'Urlaubsantrag genehmigt',
-                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde genehmigt.",
-                                            'gelesen': False,
-                                            'betrieb_id': st.session_state.betrieb_id
-                                        }).execute()
+                                        try:
+                                            from utils.database import get_service_role_client
+                                            admin_sb = get_service_role_client()
+                                        except Exception:
+                                            admin_sb = supabase
+                                        try:
+                                            admin_sb.table('benachrichtigungen').insert({
+                                                'user_id': mitarbeiter_user.data[0]['user_id'],
+                                                'typ': 'urlaubsantrag',
+                                                'titel': 'Urlaubsantrag genehmigt',
+                                                'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde genehmigt.",
+                                                'gelesen': False,
+                                                'betrieb_id': st.session_state.betrieb_id
+                                            }).execute()
+                                        except Exception:
+                                            pass  # Benachrichtigung ist optional – blockiert nicht den Hauptworkflow
                                     
                                     st.success(f"✅ Genehmigt! {anzahl_tage:.1f} Urlaubstage abgezogen.")
                                     st.rerun()
@@ -334,17 +342,25 @@ def show_uebersicht():
                                         'bearbeitet_am': datetime.now().isoformat()
                                     }).eq('id', antrag['id']).execute()
                                     
-                                    # Benachrichtigung für Mitarbeiter
+                                    # Benachrichtigung für Mitarbeiter (service_role umgeht RLS-42501)
                                     mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
                                     if mitarbeiter_user.data:
-                                        supabase.table('benachrichtigungen').insert({
-                                            'user_id': mitarbeiter_user.data[0]['user_id'],
-                                            'typ': 'urlaubsantrag',
-                                            'titel': 'Urlaubsantrag abgelehnt',
-                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde abgelehnt.",
-                                            'gelesen': False,
-                                            'betrieb_id': st.session_state.betrieb_id
-                                        }).execute()
+                                        try:
+                                            from utils.database import get_service_role_client
+                                            admin_sb = get_service_role_client()
+                                        except Exception:
+                                            admin_sb = supabase
+                                        try:
+                                            admin_sb.table('benachrichtigungen').insert({
+                                                'user_id': mitarbeiter_user.data[0]['user_id'],
+                                                'typ': 'urlaubsantrag',
+                                                'titel': 'Urlaubsantrag abgelehnt',
+                                                'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde abgelehnt.",
+                                                'gelesen': False,
+                                                'betrieb_id': st.session_state.betrieb_id
+                                            }).execute()
+                                        except Exception:
+                                            pass  # Benachrichtigung ist optional
                                     
                                     st.success("❌ Urlaubsantrag abgelehnt.")
                                     st.rerun()
@@ -417,15 +433,24 @@ def show_mitarbeiterverwaltung():
         edit_id = st.session_state.get('edit_mitarbeiter_id')
         mitarbeiter_to_edit = next((m for m in mitarbeiter_list if m['id'] == edit_id), None)
         # Anchor-Element für Auto-Scroll
-        st.markdown('<div id="edit-form-anchor"></div>', unsafe_allow_html=True)
-        st.markdown("""
+        st.markdown('<div id="edit-form-anchor" style="padding-top:8px;"></div>', unsafe_allow_html=True)
+        # Automatisch zum Formular scrollen (auch nach rerun)
+        scroll_js = """
             <script>
-            setTimeout(function() {
-                var el = document.getElementById('edit-form-anchor');
-                if (el) { el.scrollIntoView({behavior: 'smooth', block: 'start'}); }
-            }, 300);
+            (function() {
+                function scrollToForm() {
+                    var el = document.getElementById('edit-form-anchor');
+                    if (el) {
+                        el.scrollIntoView({behavior: 'smooth', block: 'start'});
+                    } else {
+                        setTimeout(scrollToForm, 200);
+                    }
+                }
+                setTimeout(scrollToForm, 400);
+            })();
             </script>
-        """, unsafe_allow_html=True)
+        """
+        st.markdown(scroll_js, unsafe_allow_html=True)
         st.markdown("---")
         if mitarbeiter_to_edit:
             show_mitarbeiter_form(mitarbeiter_to_edit)
@@ -433,6 +458,8 @@ def show_mitarbeiterverwaltung():
             st.error("Mitarbeiter nicht gefunden.")
             st.session_state.show_mitarbeiter_form = False
             st.session_state.edit_mitarbeiter_id = None
+        # Scroll-Flag zurücksetzen
+        st.session_state.scroll_to_edit_form = False
 
 
 def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
@@ -860,9 +887,11 @@ def show_mitarbeiter_details(mitarbeiter: dict):
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("✏️ Mitarbeiter bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True):
+        if st.button("✏️ Stammdaten bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True, type="primary"):
             st.session_state.edit_mitarbeiter_id = mitarbeiter['id']
             st.session_state.show_mitarbeiter_form = True
+            # Scroll-Flag setzen: nach rerun wird zum Formular gescrollt
+            st.session_state.scroll_to_edit_form = True
             st.rerun()
     
     with col2:
@@ -1203,6 +1232,72 @@ def show_zeiterfassung_admin():
                         except Exception as e:
                             st.error(f"❌ Fehler beim Speichern: {str(e)}")
     
+    st.divider()
+    # ══════════════════════════════════════════════════════════════
+    # OFFENE BUCHUNGEN SCHLIESSEN
+    # ══════════════════════════════════════════════════════════════
+    with st.expander("⚠️ Offene Buchungen schließen (kein Checkout)", expanded=True):
+        st.info("💡 Hier sehen Sie alle Buchungen ohne Endzeit. Wählen Sie eine Endzeit und schließen Sie die Buchung manuell.")
+        try:
+            supabase_offen = get_supabase_client()
+            offene = supabase_offen.table('zeiterfassung').select(
+                '*, mitarbeiter(vorname, nachname, stundenlohn_brutto, sonntagszuschlag_aktiv, feiertagszuschlag_aktiv)'
+            ).is_('ende_zeit', 'null').order('datum', desc=True).execute()
+            
+            if not offene.data:
+                st.success("✅ Keine offenen Buchungen vorhanden.")
+            else:
+                st.warning(f"⚠️ {len(offene.data)} offene Buchung(en) gefunden!")
+                for ze_offen in offene.data:
+                    ma_offen = ze_offen.get('mitarbeiter', {})
+                    ma_name_offen = f"{ma_offen.get('vorname', '')} {ma_offen.get('nachname', '')}".strip()
+                    datum_offen = ze_offen.get('datum', '')
+                    start_offen = (ze_offen.get('start_zeit') or '00:00')[:5]
+                    stundenlohn_offen = float(ma_offen.get('stundenlohn_brutto') or 0)
+                    
+                    with st.form(key=f"offen_close_{ze_offen['id']}"):
+                        st.markdown(f"**{ma_name_offen}** – {datum_offen} – Check-In: {start_offen} | Stundenlohn: {stundenlohn_offen:.2f} €")
+                        oc1, oc2 = st.columns(2)
+                        with oc1:
+                            close_time = st.time_input(
+                                "Endzeit setzen",
+                                value=datetime.now().time(),
+                                key=f"close_time_{ze_offen['id']}"
+                            )
+                        with oc2:
+                            close_pause = st.number_input(
+                                "Pause (Min)",
+                                min_value=0, max_value=120, value=30, step=5,
+                                key=f"close_pause_{ze_offen['id']}"
+                            )
+                        close_grund = st.text_input(
+                            "Grund",
+                            value="Manuell geschlossen durch Admin",
+                            key=f"close_grund_{ze_offen['id']}"
+                        )
+                        if st.form_submit_button("✅ Buchung schließen", use_container_width=True, type="primary"):
+                            try:
+                                from utils.calculations import berechne_arbeitsstunden, is_sonntag, is_feiertag
+                                start_t_offen = datetime.strptime(start_offen, '%H:%M').time()
+                                arbeitsstunden_offen = berechne_arbeitsstunden(start_t_offen, close_time, close_pause)
+                                datum_obj_offen = date.fromisoformat(datum_offen)
+                                supabase_offen.table('zeiterfassung').update({
+                                    'ende_zeit': close_time.strftime('%H:%M:%S'),
+                                    'pause_minuten': close_pause,
+                                    'arbeitsstunden': arbeitsstunden_offen,
+                                    'ist_sonntag': is_sonntag(datum_obj_offen),
+                                    'ist_feiertag': is_feiertag(datum_obj_offen),
+                                    'korrigiert_von_admin': True,
+                                    'korrektur_grund': close_grund,
+                                    'korrektur_datum': datetime.now().isoformat()
+                                }).eq('id', ze_offen['id']).execute()
+                                st.success(f"✅ Buchung für {ma_name_offen} geschlossen! ({arbeitsstunden_offen:.2f} h)")
+                                st.rerun()
+                            except Exception as e_offen:
+                                st.error(f"Fehler: {str(e_offen)}")
+        except Exception as e_load:
+            st.error(f"Fehler beim Laden offener Buchungen: {str(e_load)}")
+
     st.divider()
     # ══════════════════════════════════════════════════════════════
     

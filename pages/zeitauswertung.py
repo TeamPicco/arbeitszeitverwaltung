@@ -91,13 +91,23 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
     def safe_str(s):
-        """Konvertiert beliebige Werte sicher zu UTF-8-kompatiblen Strings."""
+        """Konvertiert beliebige Werte sicher zu ReportLab-kompatiblen Strings (Umlaute korrekt)."""
         if s is None:
-            return "–"
+            return "-"
         try:
-            return str(s).encode('latin-1', errors='replace').decode('latin-1')
+            text = str(s)
+            # Umlaute und Sonderzeichen für ReportLab (latin-1 Subset) ersetzen
+            replacements = {
+                'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
+                'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
+                'ß': 'ss', '€': 'EUR', '–': '-', '—': '-',
+            }
+            for orig, repl in replacements.items():
+                text = text.replace(orig, repl)
+            # Alle verbleibenden nicht-ASCII-Zeichen entfernen
+            return text.encode('ascii', errors='replace').decode('ascii')
         except Exception:
-            return str(s).encode('ascii', errors='replace').decode('ascii')
+            return str(s)[:50]
 
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
@@ -117,9 +127,9 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     story.append(Paragraph(f"{MONATE[monat-1]} {jahr}", sub_style))
     story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph(
-        f"<b>Mitarbeiter:</b> {mitarbeiter['vorname']} {mitarbeiter['nachname']} &nbsp;&nbsp; "
-        f"<b>Personal-Nr.:</b> {mitarbeiter.get('personalnummer', '–')} &nbsp;&nbsp; "
-        f"<b>Stundenlohn:</b> {mitarbeiter.get('stundenlohn_brutto', 0):.2f} €",
+        f"<b>Mitarbeiter:</b> {safe_str(mitarbeiter['vorname'])} {safe_str(mitarbeiter['nachname'])} &nbsp;&nbsp; "
+        f"<b>Personal-Nr.:</b> {safe_str(mitarbeiter.get('personalnummer', '-'))} &nbsp;&nbsp; "
+        f"<b>Stundenlohn:</b> {mitarbeiter.get('stundenlohn_brutto', 0):.2f} EUR",
         info_style))
     story.append(Spacer(1, 0.5*cm))
 

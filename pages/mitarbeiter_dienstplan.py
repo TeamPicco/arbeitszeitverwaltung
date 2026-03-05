@@ -44,21 +44,21 @@ DIENSTPLAN_CSS = """
 .dp-card.frei    { border-left-color: #9ca3af; background: #f9fafb; }
 .dp-card.arbeit  { border-left-color: #10b981; background: #f0fdf4; }
 
-/* Datum-Block */
+/* Datum-Block – Wochentag neben dem Datum */
 .dp-date {
-    min-width: 52px;
-    text-align: center;
+    min-width: 90px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     line-height: 1.2;
 }
 .dp-date .day   { font-size: 1.4rem; font-weight: 700; color: #111827; }
 .dp-date .month { font-size: 0.7rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+.dp-date .weekday-inline { font-size: 0.82rem; color: #374151; font-weight: 600; min-width: 26px; }
 
-/* Wochentag */
+/* Wochentag (versteckt, da jetzt inline im Datum-Block) */
 .dp-weekday {
-    min-width: 80px;
-    font-size: 0.85rem;
-    color: #374151;
-    font-weight: 500;
+    display: none;
 }
 
 /* Zeiten */
@@ -375,10 +375,12 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
             st.markdown(f"""
             <div class="dp-card {typ}">
                 <div class="dp-date">
-                    <div class="day">{tag_num:02d}</div>
-                    <div class="month">{monat_kurz}</div>
+                    <span class="weekday-inline">{wt}</span>
+                    <div>
+                        <div class="day">{tag_num:02d}</div>
+                        <div class="month">{monat_kurz}</div>
+                    </div>
                 </div>
-                <div class="dp-weekday">{wt}</div>
                 <div class="dp-time">{zeit}</div>
                 <div class="dp-badge {typ}">{badge_label}</div>
             </div>

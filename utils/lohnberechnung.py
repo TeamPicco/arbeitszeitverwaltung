@@ -447,8 +447,16 @@ def berechne_eintrag(
         }
     """
     audit_log = []
-    stundenlohn = float(mitarbeiter.get("stundenlohn_brutto") or 0.0)
+    # Numeric-Fix: Leere Strings und None-Werte absichern
+    def safe_float(val, default=0.0):
+        if val is None or val == '':
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
 
+    stundenlohn = safe_float(mitarbeiter.get("stundenlohn_brutto"), 0.0)
     datum_str = eintrag.get("datum", "")
     start_zeit = eintrag.get("start_zeit")
     ende_zeit = eintrag.get("ende_zeit")

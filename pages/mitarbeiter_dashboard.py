@@ -78,45 +78,31 @@ def show():
     unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
     chat_badge = f" ({unread_count})" if unread_count > 0 else ""
     
-    # Tab-Navigation mit einheitlichen Icons
-    # Stempeluhr-Tab wurde entfernt (Zeiterfassung nur über Mastergerät-Terminal)
+    # Tab-Navigation – neue Struktur gemäß Anforderungen
+    # Stempeluhr entfernt, Urlaubskalender (Gesamtübersicht) entfernt
     tabs = st.tabs([
-        f"{get_icon('dashboard')} Dashboard",
-        f"{get_icon('zeit')} Zeitauswertung / Lohn",
         f"{get_icon('dienstplan')} Mein Dienstplan",
+        f"{get_icon('dokument')} Lohn & Dokumente",
         f"{get_icon('urlaub')} Urlaub",
-        f"{get_icon('dienstplan')} Urlaubskalender",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
-        f"{get_icon('dokument')} Dokumente",
         f"{get_icon('einstellungen')} Einstellungen"
     ])
     
     with tabs[0]:
-        show_dashboard(mitarbeiter)
-    
-    with tabs[1]:
-        from pages.zeitauswertung import show_zeitauswertung
-        show_zeitauswertung(mitarbeiter, admin_modus=False)
-    
-    with tabs[2]:
         from pages.mitarbeiter_dienstplan import show_mitarbeiter_dienstplan
-        # Hinweistext über dem Dienstplan
         st.info("⚠️ **Wichtiger Hinweis:** Die angegebenen Endzeiten sind Richtwerte und variieren je nach betrieblicher Wirtschaftlichkeit und Arbeitsaufkommen.")
         show_mitarbeiter_dienstplan(mitarbeiter)
     
-    with tabs[3]:
+    with tabs[1]:
+        show_lohn_und_dokumente(mitarbeiter)
+    
+    with tabs[2]:
         show_urlaub(mitarbeiter)
     
-    with tabs[4]:
-        show_urlaubskalender()
-    
-    with tabs[5]:
+    with tabs[3]:
         show_plauderecke()
     
-    with tabs[6]:
-        show_dokumente(mitarbeiter)
-    
-    with tabs[7]:
+    with tabs[4]:
         show_einstellungen_mitarbeiter()
 
 
@@ -533,18 +519,26 @@ def show_urlaub(mitarbeiter: dict):
                             'betrieb_id': st.session_state.betrieb_id
                         }).execute()
                         
-                        # Erstelle Benachrichtigung für Admin
+                        # Erstelle Benachrichtigung für Admin (service_role umgeht RLS-42501)
                         admin_users = supabase.table('users').select('id').eq('role', 'admin').eq('betrieb_id', st.session_state.betrieb_id).execute()
                         if admin_users.data:
+                            try:
+                                from utils.database import get_service_role_client
+                                admin_sb = get_service_role_client()
+                            except Exception:
+                                admin_sb = supabase
                             for admin in admin_users.data:
-                                supabase.table('benachrichtigungen').insert({
-                                    'user_id': admin['id'],
-                                    'typ': 'urlaubsantrag',
-                                    'titel': 'Neuer Urlaubsantrag',
-                                    'nachricht': f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} hat einen Urlaubsantrag gestellt ({von_datum.strftime('%d.%m.%Y')} - {bis_datum.strftime('%d.%m.%Y')}, {anzahl_tage} Tage)",
-                                    'gelesen': False,
-                                    'betrieb_id': st.session_state.betrieb_id
-                                }).execute()
+                                try:
+                                    admin_sb.table('benachrichtigungen').insert({
+                                        'user_id': admin['id'],
+                                        'typ': 'urlaubsantrag',
+                                        'titel': 'Neuer Urlaubsantrag',
+                                        'nachricht': f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} hat einen Urlaubsantrag gestellt ({von_datum.strftime('%d.%m.%Y')} - {bis_datum.strftime('%d.%m.%Y')}, {anzahl_tage} Tage)",
+                                        'gelesen': False,
+                                        'betrieb_id': st.session_state.betrieb_id
+                                    }).execute()
+                                except Exception:
+                                    pass  # Benachrichtigung ist optional
                         
                         # E-Mail an Admin senden
                         try:
@@ -611,10 +605,27 @@ def show_urlaub(mitarbeiter: dict):
         st.error(f"Fehler beim Laden der Urlaubsdaten: {str(e)}")
 
 
-def show_dokumente(mitarbeiter: dict):
-    """Zeigt Dokumente an"""
+def show_lohn_und_dokumente(mitarbeiter: dict):
+    """Zeigt Lohn & Dokumente an: Zeitauswertung, Lohnabrechnungen, Arbeitsvertrag"""
     
-    st.subheader("📄 Meine Dokumente")
+    st.subheader("💰 Lohn & Dokumente")
+    
+    # Zeitauswertung einbinden
+    lohn_tabs = st.tabs(["📊 Zeitauswertung", "📄 Lohnabrechnungen", "📄 Arbeitsvertrag"])
+    
+    with lohn_tabs[0]:
+        from pages.zeitauswertung import show_zeitauswertung
+        show_zeitauswertung(mitarbeiter, admin_modus=False)
+    
+    with lohn_tabs[1]:
+        _show_lohnabrechnungen(mitarbeiter)
+    
+    with lohn_tabs[2]:
+        _show_arbeitsvertrag(mitarbeiter)
+
+
+def _show_arbeitsvertrag(mitarbeiter: dict):
+    """Zeigt Arbeitsvertrag an"""
     
     # Arbeitsvertrag
     st.markdown("**Arbeitsvertrag**")
@@ -666,10 +677,9 @@ def show_dokumente(mitarbeiter: dict):
     else:
         st.info("Noch kein Arbeitsvertrag hinterlegt. Bitte wenden Sie sich an Ihren Administrator.")
     
-    st.markdown("---")
-    
-    # Lohnabrechnungen
-    # Lohnabrechnungen
+
+def _show_lohnabrechnungen(mitarbeiter: dict):
+    """Zeigt Lohnabrechnungen an"""
     st.markdown("**Lohnabrechnungen**")
     
     try:
@@ -693,13 +703,12 @@ def show_dokumente(mitarbeiter: dict):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
-                        st.write(f"**Bruttolohn:** {abrechnung.get('bruttolohn', 0):.2f} €")
-                        st.write(f"**Nettolohn:** {abrechnung.get('nettolohn', 0):.2f} €")
-                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0):.2f} h")
+                        st.write(f"**Bruttolohn:** {abrechnung.get('gesamtbrutto', abrechnung.get('bruttolohn', 0) or 0):.2f} €")
+                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0) or 0:.2f} h")
                         
-                        if abrechnung.get('sonntagsstunden', 0) > 0:
+                        if (abrechnung.get('sonntagsstunden') or 0) > 0:
                             st.write(f"**Sonntagsstunden:** {abrechnung['sonntagsstunden']:.2f} h")
-                        if abrechnung.get('feiertagsstunden', 0) > 0:
+                        if (abrechnung.get('feiertagsstunden') or 0) > 0:
                             st.write(f"**Feiertagsstunden:** {abrechnung['feiertagsstunden']:.2f} h")
                     
                     with col2:
