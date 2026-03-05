@@ -75,6 +75,7 @@ def show():
         f"{get_icon('dienstplan')} Urlaubskalender",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
         f"⏱️ Lohn & Zeiten",
+        f"📥 Datenimport",
         f"{get_icon('mastergeraete')} Mastergärate",
         f"{get_icon('einstellungen')} Einstellungen"
     ])
@@ -102,10 +103,13 @@ def show():
         show_lohn_und_zeiten_konsolidiert()
     
     with tabs[7]:
+        show_historischer_import()
+    
+    with tabs[8]:
         from pages.admin_mastergeraete import show_mastergeraete
         show_mastergeraete()
     
-    with tabs[8]:
+    with tabs[9]:
         show_einstellungen()
 
 
@@ -2353,3 +2357,214 @@ def show_urlaubskalender_admin():
         
     except Exception as e:
         st.error(f"Fehler beim Laden der Urlaube: {str(e)}")
+
+
+# ============================================================
+# HISTORISCHER DATENIMPORT (Altsystem → CrewBase)
+# ============================================================
+
+def show_historischer_import():
+    """Import-Maske für historische Arbeitszeitdaten aus dem Altsystem."""
+
+    st.subheader("📥 Historischer Datenimport")
+    st.info(
+        "**Altsystem → CrewBase:** Laden Sie hier die Excel-Auswertungsdateien aus Ihrem bisherigen "
+        "Zeiterfassungssystem hoch. Die Daten werden automatisch dem richtigen Mitarbeiter zugeordnet "
+        "und in die Zeiterfassung sowie das Arbeitszeitkonto importiert."
+    )
+
+    from utils.historischer_import import lese_excel_datei, importiere_in_crewbase
+    from utils.database import get_service_role_client
+    import tempfile, os
+
+    supabase = get_service_role_client()
+    betrieb_id = st.session_state.get('betrieb_id')
+
+    # ── Mitarbeiter-Liste laden ───────────────────────────────
+    mitarbeiter_list = get_all_mitarbeiter()
+    if not mitarbeiter_list:
+        st.warning("Keine Mitarbeiter vorhanden. Bitte zuerst Mitarbeiter anlegen.")
+        return
+
+    ma_options = {
+        f"{m['vorname']} {m['nachname']} (Nr. {m['personalnummer']})": m['id']
+        for m in mitarbeiter_list
+    }
+
+    st.markdown("---")
+    st.markdown("### Schritt 1: Datei hochladen & Vorschau prüfen")
+
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        uploaded_file = st.file_uploader(
+            "Excel-Datei hochladen (.xlsx)",
+            type=['xlsx'],
+            key="historisch_upload",
+            help="Format: Arbeitszeitauswertung aus dem Altsystem (Spalten: Datum, Tag, Soll, Plan, Ist, Saldo, Lauf. Saldo, Std. Konto, Lohn)"
+        )
+
+    with col2:
+        ueberschreiben = st.checkbox(
+            "Bestehende Einträge überschreiben",
+            value=False,
+            help="Falls bereits importierte Daten für diesen Zeitraum vorhanden sind, werden sie ersetzt."
+        )
+
+    if uploaded_file is not None:
+        # Temporäre Datei speichern
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
+
+        try:
+            # Datei parsen
+            daten = lese_excel_datei(tmp_path)
+        finally:
+            os.unlink(tmp_path)
+
+        if daten['fehler']:
+            for f in daten['fehler']:
+                st.error(f"❌ {f}")
+            return
+
+        # ── Vorschau ──────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### Schritt 2: Vorschau & Mitarbeiter zuordnen")
+
+        col_v1, col_v2, col_v3 = st.columns(3)
+        with col_v1:
+            zeitraum = daten.get('zeitraum', {})
+            von_str = zeitraum.get('von', '?')
+            bis_str = zeitraum.get('bis', '?')
+            if hasattr(von_str, 'strftime'):
+                von_str = von_str.strftime('%d.%m.%Y')
+            if hasattr(bis_str, 'strftime'):
+                bis_str = bis_str.strftime('%d.%m.%Y')
+            st.metric("Zeitraum", f"{von_str} – {bis_str}")
+        with col_v2:
+            arbeitstage = [t for t in daten['tage'] if t['ist'] > 0]
+            st.metric("Arbeitstage", len(arbeitstage))
+        with col_v3:
+            st.metric("Startsaldo (Übertrag)", f"{daten['startsaldo']:+.2f} h")
+
+        # Mitarbeiter aus Datei
+        ma_aus_datei = daten.get('mitarbeiter', {})
+        st.markdown(f"**Erkannter Mitarbeiter in Datei:** `{ma_aus_datei.get('vollname', '–')}` "
+                    f"(Personalnr.: `{ma_aus_datei.get('personalnummer', '–')}`)")
+
+        # Auto-Zuordnung versuchen
+        auto_match = None
+        for m in mitarbeiter_list:
+            if ma_aus_datei.get('personalnummer') and str(m['personalnummer']) == str(ma_aus_datei.get('personalnummer')):
+                auto_match = f"{m['vorname']} {m['nachname']} (Nr. {m['personalnummer']})"
+                break
+            # Namens-Fuzzy-Match
+            if (ma_aus_datei.get('vorname', '').lower() in m['vorname'].lower() or
+                    m['vorname'].lower() in ma_aus_datei.get('vorname', '').lower()):
+                if (ma_aus_datei.get('nachname', '').lower() in m['nachname'].lower() or
+                        m['nachname'].lower() in ma_aus_datei.get('nachname', '').lower()):
+                    auto_match = f"{m['vorname']} {m['nachname']} (Nr. {m['personalnummer']})"
+                    break
+
+        default_idx = list(ma_options.keys()).index(auto_match) if auto_match and auto_match in ma_options else 0
+
+        selected_ma_label = st.selectbox(
+            "Mitarbeiter in CrewBase zuordnen *",
+            options=list(ma_options.keys()),
+            index=default_idx,
+            key="historisch_ma_select"
+        )
+        selected_ma_id = ma_options[selected_ma_label]
+
+        if auto_match and auto_match == selected_ma_label:
+            st.success(f"✅ Automatisch zugeordnet: **{selected_ma_label}**")
+        else:
+            st.warning("⚠️ Bitte Zuordnung manuell prüfen.")
+
+        # ── Tagesdaten-Vorschau ───────────────────────────────
+        with st.expander("📋 Tagesdaten-Vorschau (erste 10 Arbeitstage)", expanded=False):
+            arbeitstage_preview = [t for t in daten['tage'] if t['ist'] > 0][:10]
+            if arbeitstage_preview:
+                import pandas as pd
+                df = pd.DataFrame([{
+                    'Datum': t['datum'].strftime('%d.%m.%Y'),
+                    'Tag': t['wochentag'],
+                    'Ist (h)': f"{t['ist']:.2f}",
+                    'Soll (h)': f"{t['soll']:.2f}",
+                    'Saldo (h)': f"{t['saldo']:+.2f}",
+                    'Lauf. Saldo': f"{t['laufender_saldo']:+.2f}",
+                    'Lohn (€)': f"{t['lohn']:.2f}",
+                } for t in arbeitstage_preview])
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("Keine Arbeitstage gefunden.")
+
+        # Summen anzeigen
+        if daten.get('summen'):
+            s = daten['summen']
+            st.markdown("**Monatssummen aus Datei:**")
+            sc1, sc2, sc3, sc4 = st.columns(4)
+            sc1.metric("Soll-Stunden", f"{s.get('soll', 0):.2f} h")
+            sc2.metric("Ist-Stunden", f"{s.get('ist', 0):.2f} h")
+            sc3.metric("Lohn gesamt", f"{s.get('lohn', 0):.2f} €")
+            sc4.metric("Endsaldo", f"{s.get('laufender_saldo', 0):+.2f} h")
+
+        # ── Import-Button ─────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### Schritt 3: Import starten")
+
+        if st.button(
+            "📥 Daten importieren",
+            use_container_width=True,
+            type="primary",
+            key="historisch_import_btn"
+        ):
+            with st.spinner("Importiere Daten..."):
+                ergebnis = importiere_in_crewbase(
+                    daten=daten,
+                    mitarbeiter_id=selected_ma_id,
+                    betrieb_id=betrieb_id,
+                    supabase_client=supabase,
+                    ueberschreiben=ueberschreiben
+                )
+
+            if ergebnis['ok']:
+                st.success(
+                    f"✅ Import erfolgreich! "
+                    f"**{ergebnis['importiert']}** Einträge importiert, "
+                    f"**{ergebnis['uebersprungen']}** übersprungen. "
+                    f"Startsaldo: **{ergebnis['startsaldo']:+.2f} h**"
+                )
+                if ergebnis['fehler']:
+                    with st.expander("⚠️ Warnungen", expanded=False):
+                        for f in ergebnis['fehler']:
+                            st.warning(f)
+            else:
+                st.error("❌ Import fehlgeschlagen.")
+                for f in ergebnis['fehler']:
+                    st.error(f)
+
+    # ── Import-Historie ───────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### Import-Übersicht (bereits importierte historische Daten)")
+
+    try:
+        historisch = supabase.table('zeiterfassung').select(
+            '*, mitarbeiter(vorname, nachname)'
+        ).eq('quelle', 'historischer_import').order('datum', desc=True).limit(50).execute()
+
+        if historisch.data:
+            import pandas as pd
+            df_hist = pd.DataFrame([{
+                'Mitarbeiter': f"{z['mitarbeiter']['vorname']} {z['mitarbeiter']['nachname']}",
+                'Datum': z['datum'],
+                'Ist (h)': f"{z.get('arbeitsstunden', 0) or 0:.2f}",
+                'Notiz': (z.get('manuell_kommentar') or '')[:60],
+            } for z in historisch.data])
+            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+            st.caption(f"Zeigt die letzten 50 historisch importierten Einträge.")
+        else:
+            st.info("Noch keine historischen Daten importiert.")
+    except Exception as e:
+        st.warning(f"Import-Übersicht konnte nicht geladen werden: {e}")
