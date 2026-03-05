@@ -1358,6 +1358,21 @@ def show_zeiterfassung_admin():
         
         response = query.execute()
         zeiterfassungen = response.data if response.data else []
+
+        # UTF-8 Surrogate-Zeichen in Strings bereinigen
+        def clean_str(s):
+            if isinstance(s, str):
+                return s.encode('utf-8', errors='replace').decode('utf-8')
+            return s
+
+        def clean_record(rec):
+            if isinstance(rec, dict):
+                return {k: clean_record(v) for k, v in rec.items()}
+            if isinstance(rec, list):
+                return [clean_record(i) for i in rec]
+            return clean_str(rec)
+
+        zeiterfassungen = [clean_record(ze) for ze in zeiterfassungen]
         
         if not zeiterfassungen:
             st.info("ℹ️ Keine Zeiterfassungen im gewählten Zeitraum gefunden.")
@@ -1395,11 +1410,11 @@ def show_zeiterfassung_admin():
                     # Quelle anzeigen
                     quelle = ze.get('quelle', 'terminal')
                     if quelle == 'manuell_admin':
-                        st.markdown("**Quelle:** \ud83d\udd8a\ufe0f Manuell (Admin)")
+                        st.markdown("**Quelle:** ✏️ Manuell (Admin)")
                         if ze.get('manuell_kommentar'):
                             st.markdown(f"**Grund:** *{ze['manuell_kommentar']}*")
                     else:
-                        st.write("**Quelle:** \ud83d\udcf1 Terminal")
+                        st.write("**Quelle:** 📱 Terminal")
                 
                 # Korrektur-Formular
                 st.markdown("---")

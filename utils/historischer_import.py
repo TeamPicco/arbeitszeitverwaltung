@@ -23,10 +23,14 @@ Mapping:
   Korrektur Notiz → zeiterfassung.manuell_kommentar
 """
 
-import openpyxl
 from datetime import date, datetime, time
 from typing import Optional
 import re
+
+try:
+    import openpyxl
+except ImportError:
+    openpyxl = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -136,6 +140,10 @@ def lese_excel_datei(dateipfad: str) -> dict:
         'startsaldo': 0.0,
         'fehler': []
     }
+
+    if openpyxl is None:
+        result['fehler'].append("openpyxl ist nicht installiert. Bitte requirements.txt prüfen.")
+        return result
 
     try:
         wb = openpyxl.load_workbook(dateipfad, data_only=True)
