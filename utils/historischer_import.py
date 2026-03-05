@@ -238,6 +238,14 @@ def lese_excel_datei(dateipfad: str) -> dict:
         ist_ruhetag = (wochentag in ('Mo', 'Di') and soll == 0.0 and ist == 0.0)
         # Korrekturzeile: Datum doppelt, korrektur_notiz gefüllt
         ist_korrekturzeile = bool(korrektur_notiz and korrektur != 0.0)
+        # Krankheitstag: Soll > 0, Ist = 0, Abwesend > 0 ODER Korrektur-Notiz enthält 'krank'
+        ist_krank = (
+            soll > 0 and ist == 0.0 and abwesend > 0
+        ) or (
+            'krank' in korrektur_notiz.lower() or
+            'au ' in korrektur_notiz.lower() or
+            'arbeitsunfähig' in korrektur_notiz.lower()
+        )
 
         # Letzten Saldo merken (für Startsaldo)
         if laufender_saldo != 0.0:
@@ -260,6 +268,7 @@ def lese_excel_datei(dateipfad: str) -> dict:
             'lohn': lohn,
             'ist_ruhetag': ist_ruhetag,
             'ist_korrekturzeile': ist_korrekturzeile,
+            'ist_krank': ist_krank,
         })
 
     # Startsaldo = letzter Lauf. Saldo-Wert (Übertrag für CrewBase)
@@ -389,8 +398,68 @@ def importiere_in_crewbase(
 
         except Exception as e:
             result['fehler'].append(f"Fehler bei {datum}: {str(e)}")
+    # ── 1b. Krankheitstage importieren (EFZG) ─────────────────────────────
+    kranke_tage = [t for t in daten['tage'] if t.get('ist_krank')]
+    if kranke_tage:
+        try:
+            from utils.efzg import erstelle_krankheitstag_eintrag, berechne_episode_zusammenfassung
+            # Eintrittsdatum und Stammdaten aus Mitarbeiter-Tabelle holen
+            ma_res = supabase_client.table('mitarbeiter').select(
+                'eintrittsdatum, monatliche_soll_stunden, stundenlohn_brutto'
+            ).eq('id', mitarbeiter_id).execute()
+            ma_data = ma_res.data[0] if ma_res.data else {}
+            from datetime import date as _date
+            eintrittsdatum = _date.fromisoformat(ma_data.get('eintrittsdatum', '2020-01-01'))
+            soll_stunden = float(ma_data.get('monatliche_soll_stunden') or 0)
+            stundenlohn = float(ma_data.get('stundenlohn_brutto') or 0)
 
-    # ── 2. Arbeitszeitkonto: Monatssaldo speichern ────────────
+            # Episode für diesen Import-Block anlegen
+            ep_res = supabase_client.table('krankheit_episoden').insert({
+                'mitarbeiter_id': mitarbeiter_id,
+                'beginn_datum': kranke_tage[0]['datum'].isoformat(),
+            }).execute()
+            episode_id = ep_res.data[0]['id'] if ep_res.data else None
+            episode_beginn = kranke_tage[0]['datum']
+
+            importierte_kranktage = []
+            for kt in kranke_tage:
+                eintrag = erstelle_krankheitstag_eintrag(
+                    mitarbeiter_id=mitarbeiter_id,
+                    datum=kt['datum'],
+                    eintrittsdatum=eintrittsdatum,
+                    episode_beginn=episode_beginn,
+                    episode_id=episode_id,
+                    monatliche_soll_stunden=soll_stunden,
+                    stundenlohn=stundenlohn,
+                    arbeitstage_im_monat=23,
+                    notiz=kt.get('korrektur_notiz', ''),
+                    quelle='historischer_import',
+                )
+                # Duplikat-Prüfung
+                ex = supabase_client.table('krankheitstage').select('id').eq(
+                    'mitarbeiter_id', mitarbeiter_id
+                ).eq('datum', kt['datum'].isoformat()).execute()
+                if not ex.data:
+                    supabase_client.table('krankheitstage').insert(eintrag).execute()
+                    importierte_kranktage.append(eintrag)
+
+            # Episode aktualisieren
+            if episode_id and importierte_kranktage:
+                zusammenfassung = berechne_episode_zusammenfassung(importierte_kranktage)
+                supabase_client.table('krankheit_episoden').update({
+                    'ende_datum': kranke_tage[-1]['datum'].isoformat(),
+                    'gesamt_tage': zusammenfassung.get('gesamt_tage', 0),
+                    'arbeitstage_krank': zusammenfassung.get('arbeitstage_krank', 0),
+                    'lohnfortzahlung_tage': zusammenfassung.get('lohnfortzahlung_tage', 0),
+                    'krankengeld_tage': zusammenfassung.get('krankengeld_tage', 0),
+                    'gesamt_lohnfortzahlung': zusammenfassung.get('gesamt_lohnfortzahlung', 0),
+                }).eq('id', episode_id).execute()
+
+            result['kranktage_importiert'] = len(importierte_kranktage)
+        except Exception as e:
+            result['fehler'].append(f"Fehler beim Krankheitstage-Import: {str(e)}")
+
+    # ── 2. Arbeitszeitkonto: Monatssaldo speichern ────────────────────────
     try:
         # Summenwerte aus den Tagesdaten berechnen
         arbeitstage = [t for t in daten['tage'] if not t['ist_ruhetag'] and t['ist'] > 0]

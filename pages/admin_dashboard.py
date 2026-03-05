@@ -123,6 +123,7 @@ def show_lohn_und_zeiten_konsolidiert():
         "Bereich wählen:",
         [
             "📅 Zeiterfassung – Tagesbuchungen & Korrekturen",
+            "🤒 Krankheitserfassung (EFZG)",
             "📊 Zeitauswertung & Zuschlagsberechnung",
             "💰 Lohnabrechnung & Steuerberater-Export",
             "📜 Audit-Log – Änderungsprotokoll"
@@ -134,6 +135,9 @@ def show_lohn_und_zeiten_konsolidiert():
     
     if sub_bereich.startswith("📅"):
         show_zeiterfassung_admin()
+    
+    elif sub_bereich.startswith("🤒"):
+        show_krankheitserfassung_admin()
     
     elif sub_bereich.startswith("📊"):
         from pages.zeitauswertung import show_zeitauswertung
@@ -2568,3 +2572,441 @@ def show_historischer_import():
             st.info("Noch keine historischen Daten importiert.")
     except Exception as e:
         st.warning(f"Import-Übersicht konnte nicht geladen werden: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+# KRANKHEITSERFASSUNG (EFZG) – Admin-Funktion
+# ══════════════════════════════════════════════════════════════
+
+def show_krankheitserfassung_admin():
+    """
+    Krankheitserfassung nach EFZG im Admin-Bereich.
+    
+    Implementiert:
+    - 4-Wochen-Sperrfrist (§ 3 Abs. 3 EFZG)
+    - 6-Wochen-Lohnfortzahlung (§ 3 Abs. 1 EFZG)
+    - Automatische Berechnung auf Basis Soll-Stunden × Stundenlohn
+    - Steuerberater-Export mit U1-Kennzeichnung
+    """
+    import pandas as pd
+    from datetime import date, timedelta
+    from utils.database import get_supabase_client
+    from utils.efzg import (
+        erstelle_krankheitstag_eintrag,
+        berechne_episode_zusammenfassung,
+        pruefe_4_wochen_sperrfrist,
+        pruefe_6_wochen_regel,
+        erstelle_monatsauswertung_krankheit,
+        ist_arbeitstag,
+        berechne_soll_stunden_tag,
+    )
+
+    supabase = get_supabase_client()
+    betrieb_id = st.session_state.get('betrieb_id', 1)
+
+    st.markdown("### 🤒 Krankheitserfassung (EFZG)")
+    st.info(
+        "**Rechtliche Grundlage:** Entgeltfortzahlungsgesetz (EFZG)\n\n"
+        "- **4-Wochen-Sperrfrist** (§ 3 Abs. 3): Kein Anspruch in den ersten 28 Tagen\n"
+        "- **6-Wochen-Lohnfortzahlung** (§ 3 Abs. 1): Arbeitgeber zahlt 100% für max. 42 Tage\n"
+        "- **Ab Tag 43**: Krankengeld durch Krankenkasse – kein Lohnaufwand\n"
+        "- **U1-Erstattung**: Lohnfortzahlungstage sind erstattungsfähig (U1-Verfahren)"
+    )
+
+    # Mitarbeiter laden
+    try:
+        ma_res = supabase.table('mitarbeiter').select(
+            'id, vorname, nachname, eintrittsdatum, monatliche_soll_stunden, stundenlohn_brutto'
+        ).eq('betrieb_id', betrieb_id).order('nachname').execute()
+        mitarbeiter_liste = [m for m in ma_res.data if not m.get('anonymisiert')]
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Mitarbeiter: {e}")
+        return
+
+    if not mitarbeiter_liste:
+        st.warning("Keine Mitarbeiter gefunden.")
+        return
+
+    ma_namen = {m['id']: f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste}
+    ma_dict = {m['id']: m for m in mitarbeiter_liste}
+
+    tab_erfassen, tab_uebersicht, tab_export = st.tabs([
+        "➕ Krankheitstage erfassen",
+        "📋 Übersicht & Episoden",
+        "📄 Steuerberater-Export"
+    ])
+
+    # ── Tab 1: Krankheitstage erfassen ───────────────────────
+    with tab_erfassen:
+        st.markdown("#### Krankheitstage eintragen")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            ma_options = [f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste]
+            ma_selected_name = st.selectbox("Mitarbeiter", ma_options, key="krank_ma")
+            ma_selected = next(m for m in mitarbeiter_liste if f"{m['vorname']} {m['nachname']}" == ma_selected_name)
+            ma_id = ma_selected['id']
+
+        with col2:
+            heute = date.today()
+            datum_von = st.date_input("Krank von", value=heute, key="krank_von")
+            datum_bis = st.date_input("Krank bis (inkl.)", value=heute, key="krank_bis")
+
+        if datum_bis < datum_von:
+            st.error("Das Enddatum darf nicht vor dem Startdatum liegen.")
+            return
+
+        # Stammdaten des Mitarbeiters
+        eintrittsdatum = date.fromisoformat(ma_selected['eintrittsdatum']) if ma_selected.get('eintrittsdatum') else date.today()
+        soll_stunden = float(ma_selected.get('monatliche_soll_stunden') or 0)
+        stundenlohn = float(ma_selected.get('stundenlohn_brutto') or 0)
+
+        # Arbeitstage im Zeitraum ermitteln
+        arbeitstage = []
+        d = datum_von
+        while d <= datum_bis:
+            if ist_arbeitstag(d):  # Mo/Di = Ruhetage
+                arbeitstage.append(d)
+            d += timedelta(days=1)
+
+        st.markdown(f"**Arbeitstage im Zeitraum:** {len(arbeitstage)} Tage (Mo/Di ausgeschlossen)")
+
+        # Sperrfrist-Prüfung
+        in_sperrfrist, sperrfrist_tage = pruefe_4_wochen_sperrfrist(eintrittsdatum, datum_von)
+        if in_sperrfrist:
+            st.warning(
+                f"⚠️ **4-Wochen-Sperrfrist aktiv!** "
+                f"Eintrittsdatum: {eintrittsdatum.strftime('%d.%m.%Y')} – "
+                f"Noch {sperrfrist_tage} Tage bis zum Ende der Sperrfrist. "
+                f"Kein Anspruch auf Lohnfortzahlung (§ 3 Abs. 3 EFZG)."
+            )
+
+        # Episode-Beginn bestimmen (neue oder bestehende Episode?)
+        col3, col4 = st.columns(2)
+        with col3:
+            neue_episode = st.checkbox("Neue Krankheitsepisode beginnen", value=True, key="krank_neue_episode")
+        with col4:
+            au_nr = st.text_input("AU-Bescheinigung Nr. (optional)", key="krank_au_nr")
+
+        notiz = st.text_area("Notiz (optional)", key="krank_notiz", height=60)
+
+        # Vorschau berechnen
+        if arbeitstage:
+            episode_beginn = datum_von  # Beginn der Episode = erster Krankheitstag
+
+            # Bestehende Episode laden falls nicht neue
+            episode_id = None
+            if not neue_episode:
+                try:
+                    ep_res = supabase.table('krankheit_episoden').select('*').eq(
+                        'mitarbeiter_id', ma_id
+                    ).is_('ende_datum', 'null').order('beginn_datum', desc=True).limit(1).execute()
+                    if ep_res.data:
+                        ep = ep_res.data[0]
+                        episode_id = ep['id']
+                        episode_beginn = date.fromisoformat(ep['beginn_datum'])
+                        st.info(f"Fortsetzung der Episode vom {episode_beginn.strftime('%d.%m.%Y')}")
+                except:
+                    pass
+
+            # Vorschau-Tabelle
+            vorschau = []
+            for d in arbeitstage:
+                eintrag = erstelle_krankheitstag_eintrag(
+                    mitarbeiter_id=ma_id,
+                    datum=d,
+                    eintrittsdatum=eintrittsdatum,
+                    episode_beginn=episode_beginn,
+                    episode_id=episode_id,
+                    monatliche_soll_stunden=soll_stunden,
+                    stundenlohn=stundenlohn,
+                    arbeitstage_im_monat=23,
+                    au_bescheinigung_nr=au_nr,
+                    notiz=notiz,
+                )
+                status_label = {
+                    'sperrfrist': '🔒 Sperrfrist',
+                    'lohnfortzahlung': '✅ Lohnfortzahlung',
+                    'krankengeld': '🏥 Krankengeld',
+                }.get(eintrag['efzg_status'], eintrag['efzg_status'])
+                vorschau.append({
+                    'Datum': d.strftime('%d.%m.%Y (%a)'),
+                    'Status': status_label,
+                    'Soll-h/Tag': f"{eintrag['soll_stunden_tag']:.2f} h",
+                    'Lohnfortzahlung': f"{eintrag['lohnfortzahlung_betrag']:.2f} €",
+                    'U1-relevant': '✓' if eintrag['u1_relevant'] else '–',
+                    'Episode-Tag': eintrag['episode_tag_nr'],
+                })
+
+            st.markdown("**Vorschau:**")
+            st.dataframe(pd.DataFrame(vorschau), use_container_width=True, hide_index=True)
+
+            gesamt_lohn = sum(d['lohnfortzahlung_betrag'] for d in [
+                erstelle_krankheitstag_eintrag(
+                    ma_id, d, eintrittsdatum, episode_beginn, episode_id,
+                    soll_stunden, stundenlohn, 23, au_nr, notiz
+                ) for d in arbeitstage
+            ])
+            st.markdown(f"**Gesamt Lohnfortzahlung: {gesamt_lohn:.2f} €**")
+
+        # Speichern
+        if st.button("💾 Krankheitstage speichern", type="primary", key="krank_speichern"):
+            if not arbeitstage:
+                st.error("Keine Arbeitstage im gewählten Zeitraum.")
+                return
+
+            try:
+                from utils.database import get_service_role_client
+                sb_admin = get_service_role_client()
+
+                # Episode anlegen falls neu
+                if neue_episode or episode_id is None:
+                    ep_res = sb_admin.table('krankheit_episoden').insert({
+                        'mitarbeiter_id': ma_id,
+                        'beginn_datum': datum_von.isoformat(),
+                    }).execute()
+                    if ep_res.data:
+                        episode_id = ep_res.data[0]['id']
+                        episode_beginn = datum_von
+
+                # Krankheitstage einzeln einfügen
+                gespeichert = 0
+                uebersprungen = 0
+                for d in arbeitstage:
+                    eintrag = erstelle_krankheitstag_eintrag(
+                        mitarbeiter_id=ma_id,
+                        datum=d,
+                        eintrittsdatum=eintrittsdatum,
+                        episode_beginn=episode_beginn,
+                        episode_id=episode_id,
+                        monatliche_soll_stunden=soll_stunden,
+                        stundenlohn=stundenlohn,
+                        arbeitstage_im_monat=23,
+                        au_bescheinigung_nr=au_nr,
+                        notiz=notiz,
+                    )
+                    # Prüfen ob bereits vorhanden
+                    ex = sb_admin.table('krankheitstage').select('id').eq(
+                        'mitarbeiter_id', ma_id
+                    ).eq('datum', d.isoformat()).execute()
+                    if ex.data:
+                        uebersprungen += 1
+                        continue
+
+                    sb_admin.table('krankheitstage').insert(eintrag).execute()
+
+                    # zeiterfassung-Eintrag als krank markieren
+                    ze = sb_admin.table('zeiterfassung').select('id').eq(
+                        'mitarbeiter_id', ma_id
+                    ).eq('datum', d.isoformat()).execute()
+                    if ze.data:
+                        sb_admin.table('zeiterfassung').update({
+                            'ist_krank': True,
+                            'arbeitsstunden': float(eintrag['soll_stunden_tag']),
+                            'manuell_kommentar': f"Krank (EFZG) | {eintrag['efzg_status']} | {eintrag['lohnfortzahlung_betrag']:.2f}€",
+                        }).eq('id', ze.data[0]['id']).execute()
+                    else:
+                        # Neuen Zeiteintrag als krank anlegen
+                        sb_admin.table('zeiterfassung').insert({
+                            'mitarbeiter_id': ma_id,
+                            'datum': d.isoformat(),
+                            'start_zeit': '00:00:00',
+                            'ende_zeit': '00:00:00',
+                            'pause_minuten': 0,
+                            'arbeitsstunden': float(eintrag['soll_stunden_tag']),
+                            'ist_sonntag': d.weekday() == 6,
+                            'ist_feiertag': False,
+                            'ist_krank': True,
+                            'quelle': 'manuell',
+                            'manuell_kommentar': f"Krank (EFZG) | {eintrag['efzg_status']} | {eintrag['lohnfortzahlung_betrag']:.2f}€",
+                        }).execute()
+                    gespeichert += 1
+
+                # Episode aktualisieren
+                if episode_id:
+                    alle_tage = sb_admin.table('krankheitstage').select('*').eq(
+                        'episode_id', episode_id
+                    ).execute()
+                    zusammenfassung = berechne_episode_zusammenfassung(alle_tage.data)
+                    sb_admin.table('krankheit_episoden').update({
+                        'ende_datum': datum_bis.isoformat(),
+                        'gesamt_tage': zusammenfassung.get('gesamt_tage', 0),
+                        'arbeitstage_krank': zusammenfassung.get('arbeitstage_krank', 0),
+                        'lohnfortzahlung_tage': zusammenfassung.get('lohnfortzahlung_tage', 0),
+                        'krankengeld_tage': zusammenfassung.get('krankengeld_tage', 0),
+                        'gesamt_lohnfortzahlung': zusammenfassung.get('gesamt_lohnfortzahlung', 0),
+                    }).eq('id', episode_id).execute()
+
+                st.success(f"✅ {gespeichert} Krankheitstage gespeichert. {uebersprungen} bereits vorhanden (übersprungen).")
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"Fehler beim Speichern: {e}")
+
+    # ── Tab 2: Übersicht & Episoden ───────────────────────────
+    with tab_uebersicht:
+        st.markdown("#### Krankheitsepisoden-Übersicht")
+
+        col_ma, col_jahr = st.columns(2)
+        with col_ma:
+            filter_ma = st.selectbox(
+                "Mitarbeiter", ["Alle"] + list(ma_namen.values()),
+                key="krank_filter_ma"
+            )
+        with col_jahr:
+            filter_jahr = st.selectbox("Jahr", [2026, 2025, 2024], key="krank_filter_jahr")
+
+        try:
+            # Episoden laden
+            ep_query = supabase.table('krankheit_episoden').select(
+                '*, mitarbeiter(vorname, nachname)'
+            ).order('beginn_datum', desc=True)
+
+            if filter_ma != "Alle":
+                ma_id_filter = next(
+                    (m['id'] for m in mitarbeiter_liste
+                     if f"{m['vorname']} {m['nachname']}" == filter_ma), None
+                )
+                if ma_id_filter:
+                    ep_query = ep_query.eq('mitarbeiter_id', ma_id_filter)
+
+            episoden = ep_query.execute()
+
+            if not episoden.data:
+                st.info("Keine Krankheitsepisoden gefunden.")
+            else:
+                ep_rows = []
+                for ep in episoden.data:
+                    name = f"{ep['mitarbeiter']['vorname']} {ep['mitarbeiter']['nachname']}"
+                    beginn = ep['beginn_datum']
+                    ende = ep['ende_datum'] or 'offen'
+                    status = '🟡 Offen' if not ep['ende_datum'] else '✅ Abgeschlossen'
+                    ep_rows.append({
+                        'Mitarbeiter': name,
+                        'Beginn': beginn,
+                        'Ende': ende,
+                        'Kal.-Tage': ep.get('gesamt_tage', 0),
+                        'Arbeitstage krank': ep.get('arbeitstage_krank', 0),
+                        'Lohnfortzahlung-Tage': ep.get('lohnfortzahlung_tage', 0),
+                        'Krankengeld-Tage': ep.get('krankengeld_tage', 0),
+                        'Lohnfortzahlung gesamt': f"{ep.get('gesamt_lohnfortzahlung', 0):.2f} €",
+                        'Status': status,
+                    })
+
+                st.dataframe(pd.DataFrame(ep_rows), use_container_width=True, hide_index=True)
+
+        except Exception as e:
+            st.warning(f"Tabelle 'krankheitstage' noch nicht angelegt. Bitte SQL-Migration ausführen. ({e})")
+
+    # ── Tab 3: Steuerberater-Export ───────────────────────────
+    with tab_export:
+        st.markdown("#### 📄 Monatsauswertung für Steuerberater")
+        st.info(
+            "Diese Auswertung unterscheidet klar zwischen:\n"
+            "- **Lohnfortzahlungstagen** (SV-pflichtig, U1-erstattungsfähig)\n"
+            "- **Krankengeldtagen** (Krankenkasse zahlt, kein Lohnaufwand)\n"
+            "- **Sperrtagen** (§ 3 Abs. 3 EFZG, kein Anspruch)"
+        )
+
+        col_e1, col_e2, col_e3 = st.columns(3)
+        with col_e1:
+            export_ma = st.selectbox(
+                "Mitarbeiter", list(ma_namen.values()),
+                key="krank_export_ma"
+            )
+        with col_e2:
+            export_monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1, key="krank_export_monat")
+        with col_e3:
+            export_jahr = st.selectbox("Jahr", [2026, 2025], key="krank_export_jahr")
+
+        export_ma_id = next(
+            (m['id'] for m in mitarbeiter_liste
+             if f"{m['vorname']} {m['nachname']}" == export_ma), None
+        )
+
+        if export_ma_id and st.button("📊 Auswertung erstellen", key="krank_export_btn"):
+            try:
+                import calendar
+                _, letzter_tag = calendar.monthrange(export_jahr, export_monat)
+                datum_von_export = date(export_jahr, export_monat, 1)
+                datum_bis_export = date(export_jahr, export_monat, letzter_tag)
+
+                krank_res = supabase.table('krankheitstage').select('*').eq(
+                    'mitarbeiter_id', export_ma_id
+                ).gte('datum', datum_von_export.isoformat()).lte(
+                    'datum', datum_bis_export.isoformat()
+                ).order('datum').execute()
+
+                if not krank_res.data:
+                    st.info(f"Keine Krankheitstage für {export_ma} im {export_monat:02d}/{export_jahr}.")
+                else:
+                    auswertung = erstelle_monatsauswertung_krankheit(
+                        krank_res.data, export_ma, export_monat, export_jahr
+                    )
+
+                    st.markdown(f"### Krankheitsauswertung: {export_ma} – {export_monat:02d}/{export_jahr}")
+
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.metric("Krankheitstage gesamt", auswertung['krankheitstage_gesamt'])
+                    with col_b:
+                        st.metric(
+                            "Lohnfortzahlung",
+                            f"{auswertung['lohnfortzahlung']['tage']} Tage",
+                            f"{auswertung['lohnfortzahlung']['betrag']:.2f} €"
+                        )
+                    with col_c:
+                        st.metric("Krankengeld-Tage", auswertung['krankengeld']['tage'])
+
+                    # Detailtabelle
+                    detail_rows = []
+                    for t in krank_res.data:
+                        status_map = {
+                            'lohnfortzahlung': '✅ Lohnfortzahlung (U1)',
+                            'krankengeld': '🏥 Krankengeld (KK zahlt)',
+                            'sperrfrist': '🔒 Sperrfrist (§3 Abs.3)',
+                        }
+                        detail_rows.append({
+                            'Datum': t['datum'],
+                            'Status': status_map.get(t['efzg_status'], t['efzg_status']),
+                            'Soll-h': f"{t['soll_stunden_tag']:.2f}",
+                            'Stundenlohn': f"{t['stundenlohn']:.2f} €",
+                            'Lohnfortzahlung': f"{t['lohnfortzahlung_betrag']:.2f} €",
+                            'U1-relevant': '✓' if t['u1_relevant'] else '–',
+                            'Episode-Tag': t['episode_tag_nr'],
+                        })
+
+                    st.dataframe(pd.DataFrame(detail_rows), use_container_width=True, hide_index=True)
+
+                    # Hinweise für Steuerberater
+                    st.markdown("---")
+                    st.markdown("**📋 Hinweise für den Steuerberater:**")
+                    if auswertung['lohnfortzahlung']['tage'] > 0:
+                        st.success(
+                            f"✅ **U1-Erstattung möglich:** {auswertung['lohnfortzahlung']['tage']} Lohnfortzahlungstage "
+                            f"= {auswertung['lohnfortzahlung']['betrag']:.2f} € erstattungsfähig. "
+                            f"Antrag beim zuständigen Krankenversicherungsträger stellen."
+                        )
+                    if auswertung['krankengeld']['tage'] > 0:
+                        st.info(
+                            f"🏥 **Krankengeld-Phase:** {auswertung['krankengeld']['tage']} Tage. "
+                            f"Krankenkasse zahlt direkt an Arbeitnehmer. Kein Lohnaufwand für Arbeitgeber."
+                        )
+                    if auswertung['sperrfrist']['tage'] > 0:
+                        st.warning(
+                            f"🔒 **Sperrfrist:** {auswertung['sperrfrist']['tage']} Tage ohne Lohnfortzahlungsanspruch "
+                            f"(§ 3 Abs. 3 EFZG – Arbeitsverhältnis < 4 Wochen)."
+                        )
+
+                    # CSV-Export
+                    df_export = pd.DataFrame(detail_rows)
+                    csv = df_export.to_csv(index=False, sep=';', decimal=',').encode('utf-8-sig')
+                    st.download_button(
+                        "⬇️ CSV für Steuerberater herunterladen",
+                        data=csv,
+                        file_name=f"Krankheit_{export_ma.replace(' ', '_')}_{export_monat:02d}_{export_jahr}.csv",
+                        mime="text/csv",
+                    )
+
+            except Exception as e:
+                st.warning(f"Fehler beim Erstellen der Auswertung: {e}")
