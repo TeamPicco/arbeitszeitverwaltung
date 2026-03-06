@@ -1,10 +1,11 @@
 """
 lohnkern.py – Kernlogik der Lohnberechnung
 
-Lohnprinzip (vertragsbasiert):
-  - Grundlohn  = Soll-Stunden (laut Vertrag) × Stundenlohn
-  - Überstunden (Ist > Soll) → ins Arbeitszeitkonto, NICHT zusätzlich bezahlt
-  - Minusstunden (Ist < Soll) → ins Arbeitszeitkonto, Grundlohn bleibt gleich
+Lohnprinzip (vertragsbasiert, planovo-kompatibel):
+  - Grundlohn  = vergütete_stunden × Stundenlohn
+  - vergütete_stunden = gearbeitete Ist-Stunden + Urlaubsstunden + Krank-LFZ-Stunden
+  - Überstunden (vergütete_h > Soll) → ins Arbeitszeitkonto, WERDEN BEZAHLT
+  - Minusstunden (vergütete_h < Soll) → ins Arbeitszeitkonto, nur tatsächliche Stunden bezahlt
   - Sonntagszuschlag  = tatsächliche Sonntags-Stunden × Stundenlohn × 0,50
   - Feiertagszuschlag = tatsächliche Feiertags-Stunden × Stundenlohn × 1,00
   - Gesamtbrutto = Grundlohn + Sonntagszuschlag + Feiertagszuschlag
@@ -24,20 +25,25 @@ from utils.database import get_supabase_client
 
 def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, Any]:
     """
-    Summiert alle abgeschlossenen Zeiterfassungs-Einträge eines Mitarbeiters
-    für den angegebenen Monat direkt aus der Datenbank.
+    Summiert alle vergütungsrelevanten Stunden eines Mitarbeiters für den Monat.
 
     Returns:
         {
-            'gesamt_stunden': float,       # Netto-Arbeitsstunden (Ist)
-            'sonntags_stunden': float,
-            'feiertags_stunden': float,
+            'gesamt_stunden': float,       # Netto-Arbeitsstunden (Ist, gearbeitet)
+            'urlaub_stunden': float,       # Urlaubsstunden (vergütet)
+            'krank_lfz_stunden': float,    # Krankheits-LFZ-Stunden (vergütet)
+            'verguetete_stunden': float,   # = gesamt + urlaub + krank_lfz
+            'sonntags_stunden': float,     # Für Zuschlagsberechnung
+            'feiertags_stunden': float,    # Für Zuschlagsberechnung
             'anzahl_eintraege': int,
             'fehler': None | str
         }
     """
     result = {
         'gesamt_stunden': 0.0,
+        'urlaub_stunden': 0.0,
+        'krank_lfz_stunden': 0.0,
+        'verguetete_stunden': 0.0,
         'sonntags_stunden': 0.0,
         'feiertags_stunden': 0.0,
         'anzahl_eintraege': 0,
@@ -50,10 +56,10 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
         von = date(jahr, monat, 1).isoformat()
         bis = date(jahr + 1, 1, 1).isoformat() if monat == 12 else date(jahr, monat + 1, 1).isoformat()
 
-        # Alle Einträge des Mitarbeiters im Monat laden
-        # Bevorzuge gespeicherte arbeitsstunden, berechne sonst aus Zeiten
+        # Alle Zeiterfassungs-Einträge des Mitarbeiters im Monat laden
         response = supabase.table('zeiterfassung').select(
-            'arbeitsstunden, start_zeit, ende_zeit, pause_minuten, ist_sonntag, ist_feiertag, quelle'
+            'arbeitsstunden, start_zeit, ende_zeit, pause_minuten, '
+            'ist_sonntag, ist_feiertag, quelle, schichttyp'
         ).eq('mitarbeiter_id', mitarbeiter_id).gte('datum', von).lt('datum', bis).execute()
 
         if not response.data:
@@ -64,12 +70,26 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
             if eintrag.get('quelle') == 'historischer_saldo':
                 continue
 
+            schichttyp = (eintrag.get('schichttyp') or '').lower()
+
+            # ── Urlaubsstunden ────────────────────────────────────────────
+            if schichttyp in ('urlaub', 'vacation', 'u'):
+                urlaub_h = float(eintrag.get('arbeitsstunden') or 0)
+                result['urlaub_stunden'] += urlaub_h
+                continue
+
+            # ── Krankheitsstunden (LFZ) ───────────────────────────────────
+            if schichttyp in ('krank', 'k', 'krank_lfz'):
+                krank_h = float(eintrag.get('arbeitsstunden') or 0)
+                result['krank_lfz_stunden'] += krank_h
+                continue
+
+            # ── Reguläre Arbeitsstunden ───────────────────────────────────
             try:
                 # Gespeicherte Arbeitsstunden bevorzugen
                 if eintrag.get('arbeitsstunden') is not None:
                     netto_h = float(eintrag['arbeitsstunden'])
                 elif eintrag.get('ende_zeit'):
-                    # Aus Zeiten berechnen
                     fmt = '%H:%M:%S'
                     start = datetime.strptime(eintrag['start_zeit'], fmt)
                     ende = datetime.strptime(eintrag['ende_zeit'], fmt)
@@ -96,8 +116,15 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
             except Exception:
                 continue
 
+        # Vergütete Stunden = gearbeitet + Urlaub + Krank-LFZ
+        result['verguetete_stunden'] = round(
+            result['gesamt_stunden'] + result['urlaub_stunden'] + result['krank_lfz_stunden'], 2
+        )
+
         # Runden
         result['gesamt_stunden'] = round(result['gesamt_stunden'], 2)
+        result['urlaub_stunden'] = round(result['urlaub_stunden'], 2)
+        result['krank_lfz_stunden'] = round(result['krank_lfz_stunden'], 2)
         result['sonntags_stunden'] = round(result['sonntags_stunden'], 2)
         result['feiertags_stunden'] = round(result['feiertags_stunden'], 2)
 
@@ -115,40 +142,34 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
     """
     Hauptfunktion: Berechnet den Bruttolohn für einen Mitarbeiter und Monat.
 
-    Lohnprinzip (vertragsbasiert):
-        grundlohn       = soll_stunden × stundenlohn_brutto
-        sonntagszuschlag  = sonntags_stunden × stundenlohn × 0,50  (wenn aktiv)
-        feiertagszuschlag = feiertags_stunden × stundenlohn × 1,00 (wenn aktiv)
+    Lohnprinzip:
+        vergütete_h     = gearbeitete Ist-h + Urlaubs-h + Krank-LFZ-h
+        grundlohn       = vergütete_h × stundenlohn_brutto
+        sonntagszuschlag  = sonntags_h × stundenlohn × 0,50  (wenn aktiv)
+        feiertagszuschlag = feiertags_h × stundenlohn × 1,00 (wenn aktiv)
         gesamtbrutto    = grundlohn + sonntagszuschlag + feiertagszuschlag
 
-        Überstunden (ist > soll) → Arbeitszeitkonto, nicht bezahlt
-        Minusstunden (ist < soll) → Arbeitszeitkonto, Grundlohn bleibt
+        Saldo (Arbeitszeitkonto) = vergütete_h - soll_h
+        (positiv = Überstunden, negativ = Minusstunden)
 
-    Returns:
-        {
-            'ok': bool,
-            'fehler': None | str,
-            'mitarbeiter_name': str,
-            'stundenlohn': float,
-            'soll_stunden': float,          # Vertragliche Soll-Stunden (Basis des Grundlohns)
-            'gesamt_stunden': float,        # Tatsächliche Ist-Stunden
-            'ueberstunden': float,          # Ist - Soll (positiv = Über, negativ = Minus)
-            'sonntags_stunden': float,
-            'feiertags_stunden': float,
-            'grundlohn': float,             # Soll-Stunden × Stundenlohn
-            'sonntagszuschlag': float,
-            'feiertagszuschlag': float,
-            'gesamtbrutto': float,
-            'anzahl_eintraege': int,
-        }
+    Returns dict mit allen Berechnungsdetails.
     """
     leeres_ergebnis = {
         'ok': False, 'fehler': None,
         'mitarbeiter_name': '', 'stundenlohn': 0.0,
-        'soll_stunden': 0.0, 'gesamt_stunden': 0.0, 'ueberstunden': 0.0,
-        'sonntags_stunden': 0.0, 'feiertags_stunden': 0.0,
-        'grundlohn': 0.0, 'sonntagszuschlag': 0.0, 'feiertagszuschlag': 0.0,
-        'gesamtbrutto': 0.0, 'anzahl_eintraege': 0,
+        'soll_stunden': 0.0,
+        'gesamt_stunden': 0.0,        # Nur gearbeitete Stunden
+        'urlaub_stunden': 0.0,        # Urlaubsstunden
+        'krank_lfz_stunden': 0.0,     # Krank-LFZ-Stunden
+        'verguetete_stunden': 0.0,    # Basis für Grundlohn
+        'saldo_stunden': 0.0,         # Arbeitszeitkonto-Saldo
+        'sonntags_stunden': 0.0,
+        'feiertags_stunden': 0.0,
+        'grundlohn': 0.0,
+        'sonntagszuschlag': 0.0,
+        'feiertagszuschlag': 0.0,
+        'gesamtbrutto': 0.0,
+        'anzahl_eintraege': 0,
     }
 
     try:
@@ -181,14 +202,10 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             leeres_ergebnis['mitarbeiter_name'] = name
             return leeres_ergebnis
 
-        # ── Soll-Stunden (Vertragsbasis) ───────────────────────────────────
+        # ── Soll-Stunden (Vertragsbasis für Saldo-Berechnung) ─────────────
         soll_stunden = float(ma.get('monatliche_soll_stunden') or 0.0)
-        if soll_stunden <= 0:
-            leeres_ergebnis['fehler'] = f"Fehler: Soll-Stunden für {name} nicht hinterlegt."
-            leeres_ergebnis['mitarbeiter_name'] = name
-            return leeres_ergebnis
 
-        # ── Ist-Stunden aus DB summieren ───────────────────────────────────
+        # ── Stunden aus DB summieren ───────────────────────────────────────
         stunden_data = summiere_monatsstunden(mitarbeiter_id, monat, jahr)
 
         if stunden_data['fehler']:
@@ -197,15 +214,18 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             return leeres_ergebnis
 
         ist_h = stunden_data['gesamt_stunden']
+        urlaub_h = stunden_data['urlaub_stunden']
+        krank_lfz_h = stunden_data['krank_lfz_stunden']
+        verguetete_h = stunden_data['verguetete_stunden']
         sonntags_h = stunden_data['sonntags_stunden']
         feiertags_h = stunden_data['feiertags_stunden']
 
-        # ── Über-/Minusstunden berechnen ───────────────────────────────────
-        ueberstunden = round(ist_h - soll_stunden, 2)
+        # ── Saldo (Arbeitszeitkonto) ───────────────────────────────────────
+        saldo = round(verguetete_h - soll_stunden, 2) if soll_stunden > 0 else 0.0
 
-        # ── Lohnberechnung (vertragsbasiert) ───────────────────────────────
-        # Grundlohn basiert auf Soll-Stunden, nicht auf Ist-Stunden
-        grundlohn = round(soll_stunden * stundenlohn, 2)
+        # ── Lohnberechnung ─────────────────────────────────────────────────
+        # Grundlohn auf vergütete Stunden (gearbeitet + Urlaub + Krank-LFZ)
+        grundlohn = round(verguetete_h * stundenlohn, 2)
 
         # Zuschläge auf tatsächlich gearbeitete Sonderstunden
         sonntagszuschlag = 0.0
@@ -225,7 +245,10 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             'stundenlohn': stundenlohn,
             'soll_stunden': soll_stunden,
             'gesamt_stunden': ist_h,
-            'ueberstunden': ueberstunden,
+            'urlaub_stunden': urlaub_h,
+            'krank_lfz_stunden': krank_lfz_h,
+            'verguetete_stunden': verguetete_h,
+            'saldo_stunden': saldo,
             'sonntags_stunden': sonntags_h,
             'feiertags_stunden': feiertags_h,
             'grundlohn': grundlohn,
@@ -279,9 +302,9 @@ def speichereMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str,
 
         # Neue Felder hinzufügen falls vorhanden (Migration nötig)
         try:
-            probe = supabase.table('lohnabrechnungen').select('soll_stunden').limit(0).execute()
+            supabase.table('lohnabrechnungen').select('soll_stunden').limit(0).execute()
             daten['soll_stunden'] = ergebnis['soll_stunden']
-            daten['ueberstunden'] = ergebnis['ueberstunden']
+            daten['ueberstunden'] = ergebnis['saldo_stunden']
         except Exception:
             pass  # Felder noch nicht migriert – ignorieren
 
