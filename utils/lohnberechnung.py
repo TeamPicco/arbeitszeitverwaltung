@@ -488,6 +488,30 @@ def berechne_eintrag(
     if ist_so and not mitarbeiter.get("sonntagszuschlag_aktiv", False):
         audit_log.append("ℹ️ Sonntag, aber sonntagszuschlag_aktiv=False → kein Zuschlag")
 
+    # ── Krankheitstag: 0 Stunden, kein Lohn ─────────────────────────────────
+    if eintrag.get('ist_krank') or eintrag.get('quelle') == 'au_bescheinigung':
+        audit_log.append("→ Krankheitstag (AU-Bescheinigung) – 0 Arbeitsstunden, kein Lohn")
+        return {
+            "id": eintrag.get("id"),
+            "datum": datum,
+            "netto_stunden": 0.0,
+            "pause_minuten": 0,
+            "grundlohn": 0.0,
+            "sonntags_stunden": 0.0,
+            "feiertags_stunden": 0.0,
+            "sonntagszuschlag": 0.0,
+            "feiertagszuschlag": 0.0,
+            "gesamt_zuschlag": 0.0,
+            "gesamtlohn": 0.0,
+            "ist_sonntag": ist_so,
+            "ist_feiertag": ist_ft,
+            "feiertag_name": ft_name,
+            "hat_zuschlag_aber_kein_haekchen": False,
+            "audit_log": audit_log,
+            "fehler": None,
+            "ist_krank": True,
+        }
+
     # Kein vollständiger Eintrag
     if not start_zeit or not ende_zeit:
         audit_log.append("Eintrag unvollständig (kein Ende) – übersprungen")

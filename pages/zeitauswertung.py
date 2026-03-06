@@ -399,7 +399,9 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else "Offen"
 
             # Typ
-            if z.get("ist_feiertag"):
+            if z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung":
+                typ_str = "🤒 Krank (AU)"
+            elif z.get("ist_feiertag"):
                 ft_name = z.get("feiertag_name", "Feiertag")
                 typ_str = f"🔴 {ft_name[:15]}"
             elif z.get("ist_sonntag"):
