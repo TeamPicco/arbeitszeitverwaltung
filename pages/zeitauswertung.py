@@ -395,12 +395,18 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
             wochentag = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"][datum.weekday()] if isinstance(datum, date) else "–"
 
-            start_str = str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–"
-            ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else "Offen"
+            ist_krank_eintrag = z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung"
+            if ist_krank_eintrag:
+                start_str = "LFZ"
+                ende_str = "LFZ"
+            else:
+                start_str = str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–"
+                ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else "Offen"
 
             # Typ
-            if z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung":
-                typ_str = "🤒 Krank (AU)"
+            if ist_krank_eintrag:
+                lfz_h = z.get("lfz_stunden", z.get("netto_stunden", 0))
+                typ_str = f"🤒 Krank (LFZ {lfz_h:.2f}h)"
             elif z.get("ist_feiertag"):
                 ft_name = z.get("feiertag_name", "Feiertag")
                 typ_str = f"🔴 {ft_name[:15]}"

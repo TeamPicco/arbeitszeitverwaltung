@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Any, Optional, Tuple
+import calendar
 import holidays
 
 
@@ -488,21 +489,40 @@ def berechne_eintrag(
     if ist_so and not mitarbeiter.get("sonntagszuschlag_aktiv", False):
         audit_log.append("ℹ️ Sonntag, aber sonntagszuschlag_aktiv=False → kein Zuschlag")
 
-    # ── Krankheitstag: 0 Stunden, kein Lohn ─────────────────────────────────
+    # ── Krankheitstag: Lohnfortzahlung nach EFZG § 4 (Ansatz A: Tages-Soll) ──
     if eintrag.get('ist_krank') or eintrag.get('quelle') == 'au_bescheinigung':
-        audit_log.append("→ Krankheitstag (AU-Bescheinigung) – 0 Arbeitsstunden, kein Lohn")
+        # Soll-Stunden pro Tag = monatliche Soll-Stunden ÷ Arbeitstage im Monat
+        # Arbeitstage = alle Tage im Monat OHNE Montag (0) und Dienstag (1)
+        monatliche_soll = float(mitarbeiter.get('monatliche_soll_stunden') or 0.0)
+        _, tage_im_monat = calendar.monthrange(datum.year, datum.month)
+        arbeitstage_monat = sum(
+            1 for t in range(1, tage_im_monat + 1)
+            if date(datum.year, datum.month, t).weekday() not in (0, 1)
+        )
+        lfz_stunden = round(monatliche_soll / arbeitstage_monat, 4) if arbeitstage_monat > 0 else 0.0
+        lfz_grundlohn = round(lfz_stunden * stundenlohn, 2)
+        audit_log.append(
+            f"→ Krankheitstag (AU-Bescheinigung) – Lohnfortzahlung nach EFZG § 4"
+        )
+        audit_log.append(
+            f"  Soll-Stunden/Monat: {monatliche_soll:.2f} h ÷ {arbeitstage_monat} Arbeitstage "
+            f"= {lfz_stunden:.4f} h LFZ"
+        )
+        audit_log.append(
+            f"  LFZ-Grundlohn: {lfz_stunden:.4f} h × {stundenlohn:.2f} € = {lfz_grundlohn:.2f} €"
+        )
         return {
             "id": eintrag.get("id"),
             "datum": datum,
-            "netto_stunden": 0.0,
+            "netto_stunden": lfz_stunden,   # zählt in Ist-Stunden → kein Minussaldo
             "pause_minuten": 0,
-            "grundlohn": 0.0,
+            "grundlohn": lfz_grundlohn,
             "sonntags_stunden": 0.0,
             "feiertags_stunden": 0.0,
             "sonntagszuschlag": 0.0,
             "feiertagszuschlag": 0.0,
             "gesamt_zuschlag": 0.0,
-            "gesamtlohn": 0.0,
+            "gesamtlohn": lfz_grundlohn,
             "ist_sonntag": ist_so,
             "ist_feiertag": ist_ft,
             "feiertag_name": ft_name,
@@ -510,6 +530,7 @@ def berechne_eintrag(
             "audit_log": audit_log,
             "fehler": None,
             "ist_krank": True,
+            "lfz_stunden": lfz_stunden,
         }
 
     # Kein vollständiger Eintrag
