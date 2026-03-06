@@ -2872,10 +2872,16 @@ def show_krankheitserfassung_admin():
             filter_jahr = st.selectbox("Jahr", [2026, 2025, 2024], key="krank_filter_jahr")
 
         try:
-            # Episoden laden
-            ep_query = supabase.table('krankheit_episoden').select(
-                '*, mitarbeiter(vorname, nachname)'
-            ).order('beginn_datum', desc=True)
+            # Kranktage direkt aus zeiterfassung.ist_krank laden und zu Episoden gruppieren
+            from datetime import timedelta
+            from collections import defaultdict
+            import datetime as dt
+
+            krank_query = supabase.table('zeiterfassung').select(
+                'datum, mitarbeiter_id, arbeitsstunden, manuell_kommentar'
+            ).eq('ist_krank', True).gte('datum', f'{filter_jahr}-01-01').lte(
+                'datum', f'{filter_jahr}-12-31'
+            ).order('mitarbeiter_id').order('datum')
 
             if filter_ma != "Alle":
                 ma_id_filter = next(
@@ -2883,35 +2889,69 @@ def show_krankheitserfassung_admin():
                      if f"{m['vorname']} {m['nachname']}" == filter_ma), None
                 )
                 if ma_id_filter:
-                    ep_query = ep_query.eq('mitarbeiter_id', ma_id_filter)
+                    krank_query = krank_query.eq('mitarbeiter_id', ma_id_filter)
 
-            episoden = ep_query.execute()
+            krank_eintraege = krank_query.execute()
 
-            if not episoden.data:
+            if not krank_eintraege.data:
                 st.info("Keine Krankheitsepisoden gefunden.")
             else:
-                ep_rows = []
-                for ep in episoden.data:
-                    name = f"{ep['mitarbeiter']['vorname']} {ep['mitarbeiter']['nachname']}"
-                    beginn = ep['beginn_datum']
-                    ende = ep['ende_datum'] or 'offen'
-                    status = '🟡 Offen' if not ep['ende_datum'] else '✅ Abgeschlossen'
-                    ep_rows.append({
-                        'Mitarbeiter': name,
-                        'Beginn': beginn,
-                        'Ende': ende,
-                        'Kal.-Tage': ep.get('gesamt_tage', 0),
-                        'Arbeitstage krank': ep.get('arbeitstage_krank', 0),
-                        'Lohnfortzahlung-Tage': ep.get('lohnfortzahlung_tage', 0),
-                        'Krankengeld-Tage': ep.get('krankengeld_tage', 0),
-                        'Lohnfortzahlung gesamt': f"{ep.get('gesamt_lohnfortzahlung', 0):.2f} €",
-                        'Status': status,
-                    })
+                ma_id_to_name = {m['id']: f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste}
 
-                st.dataframe(pd.DataFrame(ep_rows), use_container_width=True, hide_index=True)
+                by_ma = defaultdict(list)
+                for e in krank_eintraege.data:
+                    by_ma[e['mitarbeiter_id']].append(e['datum'])
+
+                ep_rows = []
+                for mid, tage in by_ma.items():
+                    tage_sorted = sorted(tage)
+                    episoden_lokal = []
+                    ep_start = tage_sorted[0]
+                    ep_end = tage_sorted[0]
+                    for t in tage_sorted[1:]:
+                        d_prev = dt.date.fromisoformat(ep_end)
+                        d_curr = dt.date.fromisoformat(t)
+                        if (d_curr - d_prev).days <= 3:
+                            ep_end = t
+                        else:
+                            episoden_lokal.append((ep_start, ep_end))
+                            ep_start = t
+                            ep_end = t
+                    episoden_lokal.append((ep_start, ep_end))
+
+                    for ep_s, ep_e in episoden_lokal:
+                        arbeitstage = sum(1 for t in tage_sorted if ep_s <= t <= ep_e)
+                        d_s = dt.date.fromisoformat(ep_s)
+                        d_e = dt.date.fromisoformat(ep_e)
+                        kal_tage = (d_e - d_s).days + 1
+                        ma_info = next((m for m in mitarbeiter_liste if m['id'] == mid), {})
+                        eintrittsdatum = ma_info.get('eintrittsdatum')
+                        sperrfrist_aktiv = False
+                        if eintrittsdatum:
+                            eintritt = dt.date.fromisoformat(eintrittsdatum)
+                            sperrfrist_ende = eintritt + timedelta(days=28)
+                            if d_s <= sperrfrist_ende:
+                                sperrfrist_aktiv = True
+                        lfz_tage = min(arbeitstage, 42) if not sperrfrist_aktiv else 0
+                        kg_tage = max(0, arbeitstage - 42)
+                        ep_rows.append({
+                            'Mitarbeiter': ma_id_to_name.get(mid, str(mid)),
+                            'Beginn': ep_s,
+                            'Ende': ep_e,
+                            'Kal.-Tage': kal_tage,
+                            'Arbeitstage krank': arbeitstage,
+                            'LFZ-Tage (U1)': lfz_tage,
+                            'Krankengeld-Tage': kg_tage,
+                            'Sperrfrist': '⚠️ Ja' if sperrfrist_aktiv else '–',
+                        })
+
+                if ep_rows:
+                    st.dataframe(pd.DataFrame(ep_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.info("Keine Krankheitsepisoden gefunden.")
 
         except Exception as e:
-            st.warning(f"Tabelle 'krankheitstage' noch nicht angelegt. Bitte SQL-Migration ausführen. ({e})")
+            st.warning(f"Fehler beim Laden der Krankheitsepisoden: {e}")
 
     # ── Tab 3: Steuerberater-Export ───────────────────────────
     with tab_export:
@@ -2946,8 +2986,10 @@ def show_krankheitserfassung_admin():
                 datum_von_export = date(export_jahr, export_monat, 1)
                 datum_bis_export = date(export_jahr, export_monat, letzter_tag)
 
-                krank_res = supabase.table('krankheitstage').select('*').eq(
-                    'mitarbeiter_id', export_ma_id
+                krank_res = supabase.table('zeiterfassung').select(
+                    'datum, arbeitsstunden, manuell_kommentar'
+                ).eq('mitarbeiter_id', export_ma_id).eq(
+                    'ist_krank', True
                 ).gte('datum', datum_von_export.isoformat()).lte(
                     'datum', datum_bis_export.isoformat()
                 ).order('datum').execute()
@@ -2955,8 +2997,19 @@ def show_krankheitserfassung_admin():
                 if not krank_res.data:
                     st.info(f"Keine Krankheitstage für {export_ma} im {export_monat:02d}/{export_jahr}.")
                 else:
+                    # Daten in Format für erstelle_monatsauswertung_krankheit konvertieren
+                    krank_data_konv = []
+                    for e in krank_res.data:
+                        krank_data_konv.append({
+                            'datum': e['datum'],
+                            'lohnfortzahlung_stunden': float(e.get('arbeitsstunden') or 0),
+                            'lohn_betrag': float(e.get('arbeitsstunden') or 0),
+                            'efzg_status': 'lohnfortzahlung',
+                            'u1_relevant': True,
+                            'notiz': e.get('manuell_kommentar', ''),
+                        })
                     auswertung = erstelle_monatsauswertung_krankheit(
-                        krank_res.data, export_ma, export_monat, export_jahr
+                        krank_data_konv, export_ma, export_monat, export_jahr
                     )
 
                     st.markdown(f"### Krankheitsauswertung: {export_ma} – {export_monat:02d}/{export_jahr}")
