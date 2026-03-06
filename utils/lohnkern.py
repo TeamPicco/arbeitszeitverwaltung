@@ -223,9 +223,14 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
         # ── Saldo (Arbeitszeitkonto) ───────────────────────────────────────
         saldo = round(verguetete_h - soll_stunden, 2) if soll_stunden > 0 else 0.0
 
+        # ── Bezahlte Stunden (max. Soll-Stunden) ──────────────────────────
+        # Überstunden (vergütete_h > soll_h) → ins Arbeitszeitkonto, NICHT bezahlt
+        # Minusstunden (vergütete_h < soll_h) → nur tatsächliche Stunden bezahlt
+        bezahlte_h = round(min(verguetete_h, soll_stunden), 2) if soll_stunden > 0 else verguetete_h
+
         # ── Lohnberechnung ─────────────────────────────────────────────────
-        # Grundlohn auf vergütete Stunden (gearbeitet + Urlaub + Krank-LFZ)
-        grundlohn = round(verguetete_h * stundenlohn, 2)
+        # Grundlohn auf bezahlte Stunden (max. Soll-Stunden)
+        grundlohn = round(bezahlte_h * stundenlohn, 2)
 
         # Zuschläge auf tatsächlich gearbeitete Sonderstunden
         sonntagszuschlag = 0.0
@@ -248,6 +253,7 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             'urlaub_stunden': urlaub_h,
             'krank_lfz_stunden': krank_lfz_h,
             'verguetete_stunden': verguetete_h,
+            'bezahlte_stunden': bezahlte_h,
             'saldo_stunden': saldo,
             'sonntags_stunden': sonntags_h,
             'feiertags_stunden': feiertags_h,
