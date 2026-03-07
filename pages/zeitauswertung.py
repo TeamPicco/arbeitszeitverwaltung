@@ -489,55 +489,46 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     lohn_cols = st.columns(3)
     with lohn_cols[0]:
-        st.markdown(f"""
-        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Normalstunden</div>
-            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">{normal_stunden:.2f} h</div>
-            <div style="font-size:0.95rem;color:#0d6efd;font-weight:600;">{grundlohn:.2f} €</div>
-            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">× {stundenlohn:.2f} €/h</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            label="🔵 Normalstunden",
+            value=f"{normal_stunden:.2f} h",
+            help=f"× {stundenlohn:.2f} €/h"
+        )
+        st.caption(f"{grundlohn:.2f} € Grundlohn")
 
     with lohn_cols[1]:
         so_aktiv = aktiver_ma.get("sonntagszuschlag_aktiv", False)
-        so_badge = '<span style="background:#fd7e14;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;">+50%</span>' if so_aktiv else '<span style="background:#dee2e6;color:#6c757d;padding:1px 6px;border-radius:3px;font-size:0.7rem;">inaktiv</span>'
-        st.markdown(f"""
-        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Sonntagsstunden {so_badge}</div>
-            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">Davon {so_stunden:.2f} h</div>
-            <div style="font-size:0.95rem;color:#fd7e14;font-weight:600;">+{so_zuschlag:.2f} € Zuschlag</div>
-            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">So 00:00–24:00 Uhr</div>
-        </div>
-        """, unsafe_allow_html=True)
+        so_label = "🟡 Sonntagsstunden (+50%)" if so_aktiv else "🟡 Sonntagsstunden (inaktiv)"
+        st.metric(
+            label=so_label,
+            value=f"{so_stunden:.2f} h",
+            help="Sonntag 00:00–24:00 Uhr"
+        )
+        st.caption(f"+{so_zuschlag:.2f} € Zuschlag")
 
     with lohn_cols[2]:
         ft_aktiv = aktiver_ma.get("feiertagszuschlag_aktiv", False)
-        ft_badge = '<span style="background:#dc3545;color:white;padding:1px 6px;border-radius:3px;font-size:0.7rem;">+100%</span>' if ft_aktiv else '<span style="background:#dee2e6;color:#6c757d;padding:1px 6px;border-radius:3px;font-size:0.7rem;">inaktiv</span>'
-        st.markdown(f"""
-        <div style="background:white;padding:1rem;border-radius:10px;border:1px solid #dee2e6;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
-            <div style="font-size:0.8rem;color:#6c757d;margin-bottom:4px;">Feiertagsstunden {ft_badge}</div>
-            <div style="font-size:1.4rem;font-weight:700;color:#1a1a2e;">Davon {ft_stunden:.2f} h</div>
-            <div style="font-size:0.95rem;color:#dc3545;font-weight:600;">+{ft_zuschlag:.2f} € Zuschlag</div>
-            <div style="font-size:0.75rem;color:#adb5bd;margin-top:4px;">Sachsen (SN) inkl. Buß- &amp; Bettag</div>
-        </div>
-        """, unsafe_allow_html=True)
+        ft_label = "🔴 Feiertagsstunden (+100%)" if ft_aktiv else "🔴 Feiertagsstunden (inaktiv)"
+        st.metric(
+            label=ft_label,
+            value=f"{ft_stunden:.2f} h",
+            help="Gesetzliche Feiertage Sachsen (SN)"
+        )
+        st.caption(f"+{ft_zuschlag:.2f} € Zuschlag")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Gesamtlohn-Box
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#1a1a2e,#16213e);padding:1.2rem 1.5rem;border-radius:12px;color:white;display:flex;justify-content:space-between;align-items:center;">
-        <div>
-            <div style="font-size:0.85rem;opacity:0.7;letter-spacing:1px;text-transform:uppercase;">Gesamt-Bruttolohn {MONATE[monat-1]} {jahr}</div>
-            <div style="font-size:0.8rem;opacity:0.6;margin-top:2px;">
-                {grundlohn:.2f} € Grundlohn
-                {f" + {so_zuschlag:.2f} € So-Zuschlag" if so_zuschlag > 0 else ""}
-                {f" + {ft_zuschlag:.2f} € Ft-Zuschlag" if ft_zuschlag > 0 else ""}
-            </div>
-        </div>
-        <div style="font-size:2rem;font-weight:800;letter-spacing:1px;">{gesamtbrutto:.2f} €</div>
-    </div>
-    """, unsafe_allow_html=True)
+    # Gesamtlohn-Box als native Streamlit-Komponenten (kein HTML wegen Streamlit 1.40+ Bug)
+    st.markdown("---")
+    gl_col1, gl_col2 = st.columns([2, 1])
+    with gl_col1:
+        detail_parts = [f"{grundlohn:.2f} € Grundlohn"]
+        if so_zuschlag > 0:
+            detail_parts.append(f"+ {so_zuschlag:.2f} € So-Zuschlag")
+        if ft_zuschlag > 0:
+            detail_parts.append(f"+ {ft_zuschlag:.2f} € Ft-Zuschlag")
+        st.markdown(f"**Gesamt-Bruttolohn {MONATE[monat-1]} {jahr}**")
+        st.caption(" • ".join(detail_parts))
+    with gl_col2:
+        st.metric(label="💶 Bruttolohn gesamt", value=f"{gesamtbrutto:.2f} €")
 
     st.markdown("---")
 

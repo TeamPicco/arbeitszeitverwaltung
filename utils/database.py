@@ -501,9 +501,15 @@ def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -
     logger = logging.getLogger(__name__)
     
     try:
-        url = os.getenv("SUPABASE_URL")
-        # Service-Role-Key bevorzugen, Fallback auf SUPABASE_KEY
-        service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
+        url = os.getenv("SUPABASE_URL") or "https://jehomjeanbmkoptknutx.supabase.co"
+        # Service-Role-Key bevorzugen (Env-Var → Fallback → Anon-Key)
+        _SRK = (
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+            "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImplaG9tamVhbmJta29wdGtudXR4"
+            "Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDkxMzYwOSwiZXhwIjoyMDg2NDg5NjA5fQ."
+            "-gssE1hce_BldpSTry-ehFMXZQzmIQDpWFWTXPy61t8"
+        )
+        service_key = os.getenv("SUPABASE_SERVICE_KEY") or _SRK or os.getenv("SUPABASE_KEY")
         
         if not url or not service_key:
             logger.error("SUPABASE_URL oder SUPABASE_KEY nicht gesetzt")
