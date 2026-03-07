@@ -485,7 +485,8 @@ def get_service_role_client() -> Client:
 
 def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> Optional[str]:
     """
-    Lädt eine Datei in Supabase Storage hoch
+    Lädt eine Datei in Supabase Storage hoch.
+    Verwendet direkt die REST API mit dem Service-Role-Key, um RLS-Fehler zu vermeiden.
     
     Args:
         bucket_name: Name des Buckets
@@ -493,39 +494,48 @@ def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -
         file_data: Datei-Bytes
         
     Returns:
-        Optional[str]: Öffentlicher Pfad wenn erfolgreich
+        Optional[str]: Pfad wenn erfolgreich, sonst None
     """
     import logging
+    import requests as _requests
     logger = logging.getLogger(__name__)
     
     try:
-        # Service-Role-Client verwenden um RLS (42501) zu umgehen
-        supabase = get_service_role_client()
+        url = os.getenv("SUPABASE_URL")
+        # Service-Role-Key bevorzugen, Fallback auf SUPABASE_KEY
+        service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
         
-        logger.info(f"DEBUG: Upload Datei zu Bucket '{bucket_name}', Pfad: {file_path}, Größe: {len(file_data)} bytes")
+        if not url or not service_key:
+            logger.error("SUPABASE_URL oder SUPABASE_KEY nicht gesetzt")
+            st.error("Konfigurationsfehler: Supabase-Zugangsdaten fehlen.")
+            return None
         
-        # Lösche existierende Datei falls vorhanden
-        try:
-            supabase.storage.from_(bucket_name).remove([file_path])
-            logger.info(f"DEBUG: Alte Datei gelöscht: {file_path}")
-        except Exception as e:
-            logger.info(f"DEBUG: Keine alte Datei zu löschen: {e}")
+        logger.info(f"Upload zu Bucket '{bucket_name}', Pfad: {file_path}, Größe: {len(file_data)} bytes")
         
-        # Lade neue Datei hoch
-        logger.info(f"DEBUG: Starte Upload...")
-        response = supabase.storage.from_(bucket_name).upload(file_path, file_data)
+        headers = {
+            'apikey': service_key,
+            'Authorization': f'Bearer {service_key}',
+            'Content-Type': 'application/pdf',
+            'x-upsert': 'true',  # Überschreibt existierende Datei
+        }
         
-        logger.info(f"DEBUG: Upload Response: {response}")
+        # Direkt über REST API hochladen (umgeht Python-Client RLS-Probleme)
+        upload_url = f"{url}/storage/v1/object/{bucket_name}/{file_path}"
+        response = _requests.post(upload_url, headers=headers, data=file_data, timeout=30)
         
-        if response:
-            logger.info(f"DEBUG: Upload erfolgreich! Pfad: {file_path}")
+        logger.info(f"Upload Response: {response.status_code} – {response.text[:200]}")
+        
+        if response.status_code in [200, 201]:
+            logger.info(f"Upload erfolgreich: {file_path}")
             return file_path
         else:
-            logger.error(f"DEBUG: Upload fehlgeschlagen, keine Response")
+            error_msg = response.text[:300]
+            logger.error(f"Upload fehlgeschlagen: {response.status_code} – {error_msg}")
+            st.error(f"Fehler beim Hochladen der Datei: {error_msg}")
             return None
         
     except Exception as e:
-        logger.error(f"DEBUG ERROR beim Hochladen: {e}", exc_info=True)
+        logger.error(f"Fehler beim Hochladen: {e}", exc_info=True)
         st.error(f"Fehler beim Hochladen der Datei: {str(e)}")
         return None
 
