@@ -1244,7 +1244,13 @@ def show_zeiterfassung_admin():
     # ══════════════════════════════════════════════════════════════
     # OFFENE BUCHUNGEN SCHLIESSEN
     # ══════════════════════════════════════════════════════════════
-    with st.expander("⚠️ Offene Buchungen schließen (kein Checkout)", expanded=True):
+    # Expander nur öffnen wenn tatsächlich offene Buchungen vorhanden sind
+    try:
+        _check_offen = get_supabase_client().table('zeiterfassung').select('id').is_('ende_zeit', 'null').execute()
+        _hat_offene = bool(_check_offen.data)
+    except Exception:
+        _hat_offene = False
+    with st.expander("⚠️ Offene Buchungen schließen (kein Checkout)", expanded=_hat_offene):
         st.info("💡 Hier sehen Sie alle Buchungen ohne Endzeit. Wählen Sie eine Endzeit und schließen Sie die Buchung manuell.")
         try:
             supabase_offen = get_supabase_client()
