@@ -57,9 +57,10 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
         bis = date(jahr + 1, 1, 1).isoformat() if monat == 12 else date(jahr, monat + 1, 1).isoformat()
 
         # Alle Zeiterfassungs-Einträge des Mitarbeiters im Monat laden
+        # Hinweis: zeiterfassung hat KEINE schichttyp-Spalte, stattdessen abwesenheitstyp + ist_krank
         response = supabase.table('zeiterfassung').select(
             'arbeitsstunden, start_zeit, ende_zeit, pause_minuten, '
-            'ist_sonntag, ist_feiertag, quelle, schichttyp'
+            'ist_sonntag, ist_feiertag, quelle, abwesenheitstyp, ist_krank'
         ).eq('mitarbeiter_id', mitarbeiter_id).gte('datum', von).lt('datum', bis).execute()
 
         if not response.data:
@@ -70,16 +71,19 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
             if eintrag.get('quelle') == 'historischer_saldo':
                 continue
 
-            schichttyp = (eintrag.get('schichttyp') or '').lower()
+            # abwesenheitstyp ist das korrekte Feld in zeiterfassung
+            abwesenheitstyp = (eintrag.get('abwesenheitstyp') or '').lower()
+            ist_krank_flag = eintrag.get('ist_krank') or False
 
             # ── Urlaubsstunden ────────────────────────────────────────────
-            if schichttyp in ('urlaub', 'vacation', 'u'):
+            if abwesenheitstyp in ('urlaub', 'vacation', 'u'):
                 urlaub_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['urlaub_stunden'] += urlaub_h
                 continue
 
             # ── Krankheitsstunden (LFZ) ───────────────────────────────────
-            if schichttyp in ('krank', 'k', 'krank_lfz'):
+            # Erkannt durch abwesenheitstyp='krank' ODER ist_krank=True
+            if abwesenheitstyp in ('krank', 'k', 'krank_lfz') or ist_krank_flag:
                 krank_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['krank_lfz_stunden'] += krank_h
                 continue
