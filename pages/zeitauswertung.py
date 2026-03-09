@@ -551,9 +551,83 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         </div>
         """, unsafe_allow_html=True)
 
+    # ── Arbeitszeitkonto & Überstunden-Saldo ────────────────────────────────────────────────────
+    if admin_modus:
+        st.markdown("### ⏱️ Arbeitszeitkonto")
+        try:
+            from utils.lohnabrechnung import berechne_arbeitszeitkonto
+            konto = berechne_arbeitszeitkonto(aktiver_ma['id'], monat, jahr)
+            if konto:
+                vortrag = float(konto.get('ueberstunden_vortrag') or 0)
+                saldo = float(konto.get('ueberstunden_saldo') or 0)
+                diff_mon = float(konto.get('differenz_stunden') or 0)
+                
+                col_k1, col_k2, col_k3 = st.columns(3)
+                with col_k1:
+                    st.metric("⏪ Vortrag Vormonat", f"{vortrag:+.2f} h")
+                with col_k2:
+                    st.metric("± Differenz diesen Monat", f"{diff_mon:+.2f} h")
+                with col_k3:
+                    saldo_farbe = "🟢" if saldo >= 0 else "🔴"
+                    st.metric(f"{saldo_farbe} Aktueller Saldo", f"{saldo:+.2f} h")
+                
+                # Korrekturbuchung: Überstunden auszahlen
+                if saldo > 0:
+                    st.markdown("---")
+                    st.markdown("#### 💰 Überstunden auszahlen (Korrekturbuchung)")
+                    st.info(f"💡 Aktuelles Guthaben: **{saldo:.2f} Überstunden**. Sie können einen Teil oder alle Stunden zur Auszahlung freigeben.")
+                    
+                    col_korr1, col_korr2 = st.columns(2)
+                    with col_korr1:
+                        auszahl_stunden = st.number_input(
+                            "Stunden zur Auszahlung",
+                            min_value=0.0,
+                            max_value=float(saldo),
+                            value=0.0,
+                            step=0.5,
+                            format="%.2f",
+                            key=f"auszahl_stunden_{monat}_{jahr}"
+                        )
+                    with col_korr2:
+                        stundenlohn = float(aktiver_ma.get('stundenlohn') or 0)
+                        auszahl_betrag = round(auszahl_stunden * stundenlohn, 2)
+                        st.metric("💵 Auszahlungsbetrag", f"{auszahl_betrag:.2f} €")
+                    
+                    korr_grund = st.text_input(
+                        "Begründung",
+                        placeholder="z.B. Auszahlung 20 Überstunden März 2026",
+                        key=f"korr_grund_{monat}_{jahr}"
+                    )
+                    
+                    if st.button("💾 Korrekturbuchung speichern", type="primary", key=f"korr_save_{monat}_{jahr}"):
+                        if auszahl_stunden <= 0:
+                            st.error("❌ Bitte Stunden > 0 eingeben!")
+                        elif not korr_grund.strip():
+                            st.error("❌ Bitte eine Begründung angeben!")
+                        else:
+                            try:
+                                supabase_k = get_supabase_client()
+                                supabase_k.table('ueberstunden_korrekturen').insert({
+                                    'mitarbeiter_id': aktiver_ma['id'],
+                                    'betrieb_id': st.session_state.betrieb_id,
+                                    'monat': monat,
+                                    'jahr': jahr,
+                                    'stunden': auszahl_stunden,
+                                    'betrag': auszahl_betrag,
+                                    'grund': korr_grund.strip(),
+                                    'erstellt_am': datetime.now().isoformat()
+                                }).execute()
+                                st.success(f"✅ Korrekturbuchung gespeichert: {auszahl_stunden:.2f} h = {auszahl_betrag:.2f} € werden ausgezahlt. Saldo reduziert sich auf {saldo - auszahl_stunden:.2f} h.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Fehler beim Speichern: {str(e)}")
+        except Exception as e:
+            st.warning(f"⚠️ Arbeitszeitkonto konnte nicht geladen werden: {str(e)}")
+        st.markdown("---")
+
     st.markdown("---")
 
-    # ── Feiertage des Monats (Info) ───────────────────────────────────────────
+    # ── Feiertage des Monats (Info) ─────────────────────────────────────────────────────
     if feiertage_monat:
         st.markdown(f"### 🗓️ Feiertage in Sachsen – {MONATE[monat-1]} {jahr}")
         ft_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">'

@@ -119,9 +119,39 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
                     ist_stunden += u_stunden
                     urlaubsstunden_gesamt += u_stunden
                 
+                elif typ == 'krank':
+                    # Krank: LFZ-Stunden aus urlaub_stunden-Feld (werden als Ist-Stunden gezählt)
+                    lfz_stunden = float(dienst.get('urlaub_stunden') or stunden_pro_urlaubstag)
+                    ist_stunden += lfz_stunden
+                
                 elif typ == 'arbeit':
                     # Arbeit: kein Urlaub, keine Sonderbehandlung
                     pass
+        
+        # Überstunden-Vortrag aus Vormonat laden
+        if monat == 1:
+            vormonat, vorjahr = 12, jahr - 1
+        else:
+            vormonat, vorjahr = monat - 1, jahr
+        
+        vormonat_konto = supabase.table('arbeitszeitkonto').select(
+            'ueberstunden_saldo'
+        ).eq('mitarbeiter_id', mitarbeiter_id).eq('monat', vormonat).eq('jahr', vorjahr).execute()
+        
+        ueberstunden_vortrag = 0.0
+        if vormonat_konto.data and vormonat_konto.data[0].get('ueberstunden_saldo') is not None:
+            ueberstunden_vortrag = float(vormonat_konto.data[0]['ueberstunden_saldo'])
+        
+        # Ausgezahlte Überstunden dieses Monats abziehen
+        korrekturen_resp = supabase.table('ueberstunden_korrekturen').select(
+            'stunden'
+        ).eq('mitarbeiter_id', mitarbeiter_id).eq('monat', monat).eq('jahr', jahr).execute()
+        ausgezahlte_stunden = sum(float(k.get('stunden') or 0) for k in (korrekturen_resp.data or []))
+        
+        # Neuen Saldo berechnen: Vortrag + Differenz (Ist - Soll) - Ausgezahlte
+        soll_stunden_monat = float(mitarbeiter.get('monatliche_soll_stunden') or 160.0)
+        differenz_monat = round(ist_stunden - soll_stunden_monat, 2)
+        neuer_saldo = round(ueberstunden_vortrag + differenz_monat - ausgezahlte_stunden, 2)
         
         # Lade genommene Urlaubstage
         urlaub_response = supabase.table('urlaubsantraege').select('anzahl_tage').eq(
@@ -143,6 +173,9 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'soll_stunden': float(mitarbeiter.get('monatliche_soll_stunden') or 160.0),
             'ist_stunden': round(ist_stunden, 2),
             'urlaubstage_genommen': float(urlaubstage_genommen),
+            'differenz_stunden': differenz_monat,
+            'ueberstunden_vortrag': round(ueberstunden_vortrag, 2),
+            'ueberstunden_saldo': neuer_saldo,
         }
         
         # Optionale Felder (nur wenn Migration ausgeführt wurde)

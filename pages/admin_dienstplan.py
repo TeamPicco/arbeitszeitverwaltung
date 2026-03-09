@@ -30,6 +30,7 @@ WOCHENTAGE_KURZ = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 SCHICHTTYPEN = {
     'arbeit': {'label': '🔵 Arbeit',      'farbe': '#0d6efd', 'kuerzel': 'A'},
     'urlaub': {'label': '🟡 Urlaub',      'farbe': '#ffeb3b', 'kuerzel': 'U'},
+    'krank':  {'label': '🤒 Krank',        'farbe': '#ff9800', 'kuerzel': 'K'},
     'frei':   {'label': '⚪ Frei',         'farbe': '#e9ecef', 'kuerzel': 'F'},
 }
 
@@ -100,6 +101,8 @@ def _pdf_dienste_tabelle(elements, dienstplaene):
 
         if schichttyp == 'urlaub':
             zeit = "Urlaub"
+        elif schichttyp == 'krank':
+            zeit = "Krank (LFZ)"
         elif schichttyp == 'frei':
             zeit = "Frei"
         else:
@@ -115,6 +118,7 @@ def _pdf_dienste_tabelle(elements, dienstplaene):
     dark = colors.HexColor('#111827')
     light_row = colors.HexColor('#f9fafb')
     green_bg = colors.HexColor('#d1fae5')
+    orange_bg = colors.HexColor('#ffe0b2')
     yellow_bg = colors.HexColor('#fef3c7')
     grey_bg = colors.HexColor('#f3f4f6')
 
@@ -136,6 +140,8 @@ def _pdf_dienste_tabelle(elements, dienstplaene):
         typ = dienst.get('schichttyp', 'arbeit')
         if typ == 'urlaub':
             ts.append(('BACKGROUND', (0, i), (-1, i), yellow_bg))
+        elif typ == 'krank':
+            ts.append(('BACKGROUND', (0, i), (-1, i), orange_bg))
         elif typ == 'frei':
             ts.append(('BACKGROUND', (0, i), (-1, i), grey_bg))
         else:
@@ -496,6 +502,23 @@ def show_monatsplan(supabase):
             ende_z = datetime.strptime("00:00", "%H:%M").time()
             pause_m = 0
             vorlage_id = None
+        elif schichttyp == 'krank':
+            # Krankheitsstunden = LFZ-Tagessatz (Soll-Stunden / Arbeitstage)
+            ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
+            soll = float(ma_data.get('monatliche_soll_stunden') or 160.0)
+            stunden_pro_tag = round(soll / 20.0, 2)  # 20 Arbeitstage/Monat
+            krank_stunden = st.number_input(
+                "LFZ-Stunden (Tagessatz)",
+                min_value=0.0, max_value=24.0,
+                value=stunden_pro_tag, step=0.5, format="%.2f",
+                help=f"Lohnfortzahlungsstunden: Soll ({soll}h) ÷ 20 Arbeitstage"
+            )
+            st.info("💡 Krankheitstage werden mit Lohnfortzahlung (EFZG) eingetragen.")
+            start_z = datetime.strptime("00:00", "%H:%M").time()
+            ende_z = datetime.strptime("00:00", "%H:%M").time()
+            pause_m = 0
+            vorlage_id = None
+            urlaub_stunden = 0.0
         else:  # frei
             st.info("💡 Freie Tage werden ohne Lohn eingetragen.")
             start_z = datetime.strptime("00:00", "%H:%M").time()
@@ -503,6 +526,7 @@ def show_monatsplan(supabase):
             pause_m = 0
             vorlage_id = None
             urlaub_stunden = 0.0
+            krank_stunden = 0.0
 
         if st.button("✅ Eintragen", use_container_width=True, type="primary"):
             try:
@@ -523,6 +547,8 @@ def show_monatsplan(supabase):
                     urlaub_key = (mitarbeiter_id, dienst_datum.isoformat())
                     if urlaub_key in urlaub_map:
                         eintrag['urlaubsantrag_id'] = urlaub_map[urlaub_key]['id']
+                elif schichttyp == 'krank':
+                    eintrag['urlaub_stunden'] = krank_stunden  # LFZ-Stunden im urlaub_stunden-Feld speichern
 
                 supabase.table('dienstplaene').insert(eintrag).execute()
                 st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")

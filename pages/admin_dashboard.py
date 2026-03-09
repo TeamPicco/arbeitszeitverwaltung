@@ -1156,15 +1156,23 @@ def show_zeiterfassung_admin():
                         key="manuell_ende"
                     )
                 
-                col_m3, col_m4 = st.columns(2)
-                with col_m3:
+                col_m3a, col_m3b, col_m4 = st.columns(3)
+                with col_m3a:
+                    manuell_abwesenheit = st.selectbox(
+                        "Eintragstyp",
+                        options=['arbeit', 'krank', 'urlaub'],
+                        format_func=lambda x: {'arbeit': '🔵 Arbeit', 'krank': '🤒 Krank (LFZ)', 'urlaub': '🟡 Urlaub'}[x],
+                        key="manuell_abwesenheit"
+                    )
+                with col_m3b:
                     manuell_pause = st.number_input(
                         "Pause (Minuten)",
                         min_value=0,
                         max_value=120,
-                        value=30,
+                        value=30 if manuell_abwesenheit == 'arbeit' else 0,
                         step=5,
-                        key="manuell_pause"
+                        key="manuell_pause",
+                        disabled=(manuell_abwesenheit != 'arbeit')
                     )
                 with col_m4:
                     manuell_grund = st.text_input(
@@ -1182,7 +1190,7 @@ def show_zeiterfassung_admin():
                 if submitted_manuell:
                     if not manuell_grund.strip():
                         st.error("❌ Bitte einen Grund/Kommentar angeben!")
-                    elif manuell_ende <= manuell_start:
+                    elif manuell_abwesenheit == 'arbeit' and manuell_ende <= manuell_start:
                         st.error("❌ Endzeit muss nach der Startzeit liegen!")
                     else:
                         try:
@@ -1190,9 +1198,29 @@ def show_zeiterfassung_admin():
                             
                             ist_so = is_sonntag(manuell_datum)
                             ist_ft = is_feiertag(manuell_datum)
-                            arbeitsstunden_neu = berechne_arbeitsstunden(
-                                manuell_start, manuell_ende, manuell_pause
-                            )
+                            
+                            if manuell_abwesenheit == 'arbeit':
+                                arbeitsstunden_neu = berechne_arbeitsstunden(
+                                    manuell_start, manuell_ende, manuell_pause
+                                )
+                                start_str = manuell_start.strftime('%H:%M:%S')
+                                ende_str = manuell_ende.strftime('%H:%M:%S')
+                                pause_val = manuell_pause
+                                ist_krank_val = False
+                            else:
+                                # Krank oder Urlaub: LFZ-Stunden aus Stammdaten berechnen
+                                supabase_tmp = get_supabase_client()
+                                betrieb_tmp = st.session_state.get('betrieb_id')
+                                ma_resp = supabase_tmp.table('mitarbeiter').select('monatliche_soll_stunden').eq('id', selected_ma_id_neu).execute()
+                                soll_h = float((ma_resp.data[0].get('monatliche_soll_stunden') or 160.0) if ma_resp.data else 160.0)
+                                import calendar
+                                arbeitstage = sum(1 for d in range(1, calendar.monthrange(manuell_datum.year, manuell_datum.month)[1]+1)
+                                                  if date(manuell_datum.year, manuell_datum.month, d).weekday() < 5)
+                                arbeitsstunden_neu = round(soll_h / arbeitstage, 2) if arbeitstage > 0 else 0.0
+                                start_str = '00:00:00'
+                                ende_str = '00:00:00'
+                                pause_val = 0
+                                ist_krank_val = (manuell_abwesenheit == 'krank')
                             
                             supabase_neu = get_supabase_client()
                             betrieb_id_neu = st.session_state.get('betrieb_id')
@@ -1201,16 +1229,18 @@ def show_zeiterfassung_admin():
                                 'mitarbeiter_id': selected_ma_id_neu,
                                 'betrieb_id': betrieb_id_neu,
                                 'datum': manuell_datum.isoformat(),
-                                'start_zeit': manuell_start.strftime('%H:%M:%S'),
-                                'ende_zeit': manuell_ende.strftime('%H:%M:%S'),
-                                'pause_minuten': manuell_pause,
+                                'start_zeit': start_str,
+                                'ende_zeit': ende_str,
+                                'pause_minuten': pause_val,
                                 'arbeitsstunden': arbeitsstunden_neu,
                                 'ist_sonntag': ist_so,
                                 'ist_feiertag': ist_ft,
-                                'quelle': 'manuell_admin',
+                                'ist_krank': ist_krank_val,
+                                'abwesenheitstyp': manuell_abwesenheit if manuell_abwesenheit != 'arbeit' else None,
+                                'quelle': f'manuell_admin_{manuell_abwesenheit}',
                                 'manuell_kommentar': manuell_grund.strip(),
                                 'korrigiert_von_admin': True,
-                                'korrektur_grund': f'Manuell angelegt: {manuell_grund.strip()}',
+                                'korrektur_grund': f'Manuell angelegt ({manuell_abwesenheit}): {manuell_grund.strip()}',
                                 'korrektur_datum': datetime.now().isoformat()
                             }
                             
