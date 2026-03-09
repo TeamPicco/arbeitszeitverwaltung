@@ -341,10 +341,59 @@ def letzter_eintrag(betrieb_id: int, mitarbeiter_id: int):
     return None
 
 
-def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: str = None):
+def ist_eingestempelt(mitarbeiter_id: int) -> dict | None:
+    """
+    Prüft ob Mitarbeiter aktuell eingestempelt ist.
+    Gibt den offenen Eintrag zurück oder None.
+    """
+    try:
+        supabase = get_supabase()
+        heute = get_jetzt_berlin().date().isoformat()
+        offene = supabase.table("zeiterfassung").select(
+            "id, start_zeit, datum"
+        ).eq("mitarbeiter_id", mitarbeiter_id).eq(
+            "datum", heute
+        ).is_("ende_zeit", "null").order(
+            "created_at", desc=True
+        ).limit(1).execute()
+        if offene.data:
+            return offene.data[0]
+    except Exception:
+        pass
+    return None
+
+
+def _berechne_pause_und_stunden(start_str: str, ende_str: str) -> tuple[int, float]:
+    """
+    Berechnet gesetzliche Pause und Netto-Arbeitsstunden.
+    Gesetzliche Pausenregelung (§ 4 ArbZG):
+    - < 6h: 0 Min Pause
+    - 6-9h: 30 Min Pause
+    - > 9h: 45 Min Pause
+    """
+    from datetime import datetime as dt
+    fmt = "%H:%M:%S"
+    start = dt.strptime(start_str[:8], fmt)
+    ende = dt.strptime(ende_str[:8], fmt)
+    brutto_min = (ende - start).total_seconds() / 60
+    if brutto_min < 0:
+        brutto_min += 24 * 60  # Nachtschicht
+    brutto_h = brutto_min / 60
+    if brutto_h >= 9:
+        pause_min = 45
+    elif brutto_h >= 6:
+        pause_min = 30
+    else:
+        pause_min = 0
+    netto_h = round((brutto_min - pause_min) / 60, 4)
+    return pause_min, max(0.0, netto_h)
+
+
+def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: str = "Kiosk"):
     """
     Kommen/Gehen in zeiterfassung buchen.
     Schema: datum, start_zeit, ende_zeit (kein betrieb_id in zeiterfassung)
+    Doppel-Buchungs-Schutz: Kommen nur wenn nicht eingestempelt, Gehen nur wenn eingestempelt.
     """
     jetzt = get_jetzt_berlin()
     heute = jetzt.date().isoformat()
@@ -352,32 +401,36 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
 
     try:
         supabase = get_supabase()
+        offener_eintrag = ist_eingestempelt(mitarbeiter_id)
 
         if typ == "kommen":
+            # Doppel-Buchungs-Schutz: Bereits eingestempelt?
+            if offener_eintrag:
+                return "bereits_eingestempelt", jetzt
+            
             eintrag = {
                 "mitarbeiter_id": mitarbeiter_id,
                 "datum": heute,
                 "start_zeit": uhrzeit,
+                "quelle": "stempeluhr",
+                "manuell_kommentar": f"Stempeluhr: {geraet_id}",
             }
             supabase.table("zeiterfassung").insert(eintrag).execute()
-        else:  # gehen
-            offene = supabase.table("zeiterfassung").select("id").eq(
-                "mitarbeiter_id", mitarbeiter_id
-            ).eq("datum", heute).is_("ende_zeit", "null").order(
-                "created_at", desc=True
-            ).limit(1).execute()
 
-            if offene.data:
+        else:  # gehen
+            if offener_eintrag:
+                # Offenen Eintrag schließen + Pause + Stunden berechnen
+                start_str = offener_eintrag.get("start_zeit", "00:00:00")
+                pause_min, netto_h = _berechne_pause_und_stunden(start_str, uhrzeit)
                 supabase.table("zeiterfassung").update({
-                    "ende_zeit": uhrzeit
-                }).eq("id", offene.data[0]["id"]).execute()
-            else:
-                eintrag = {
-                    "mitarbeiter_id": mitarbeiter_id,
-                    "datum": heute,
                     "ende_zeit": uhrzeit,
-                }
-                supabase.table("zeiterfassung").insert(eintrag).execute()
+                    "pause_minuten": pause_min,
+                    "arbeitsstunden": netto_h,
+                    "quelle": "stempeluhr",
+                }).eq("id", offener_eintrag["id"]).execute()
+            else:
+                # Kein offener Eintrag – Doppel-Buchungs-Schutz
+                return "nicht_eingestempelt", jetzt
 
         st.session_state["kiosk_offline"] = False
         return True, jetzt
@@ -677,24 +730,26 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     name = f"{ma['vorname']} {ma['nachname']}"
     st.markdown(f'<div class="mitarbeiter-name">👤 {name}</div>', unsafe_allow_html=True)
 
+    # Eingestempelt-Status prüfen
+    offener_eintrag = ist_eingestempelt(ma["id"])
+    ist_aktuell_eingestempelt = offener_eintrag is not None
+
     # Letzten Eintrag anzeigen (nur Typ + Uhrzeit, kein Lohn)
     letzter = letzter_eintrag(betrieb_id, ma["id"])
-    if letzter:
+    if ist_aktuell_eingestempelt and offener_eintrag:
+        start_uhr = str(offener_eintrag.get("start_zeit", ""))[:5]
+        st.markdown(
+            f'<div class="letzter-eintrag">🟢 Eingestempelt seit <b>{start_uhr} Uhr</b></div>',
+            unsafe_allow_html=True
+        )
+    elif letzter:
         try:
             start = letzter.get("start_zeit")
             ende = letzter.get("ende_zeit")
             if ende:
-                letzter_typ = "Gehen"
                 letzter_uhr = str(ende)[:5]
-            elif start:
-                letzter_typ = "Kommen"
-                letzter_uhr = str(start)[:5]
-            else:
-                letzter_typ = None
-            if letzter_typ:
                 st.markdown(
-                    f'<div class="letzter-eintrag">Letzter Eintrag heute: '
-                    f'<b>{letzter_typ}</b> um <b>{letzter_uhr} Uhr</b></div>',
+                    f'<div class="letzter-eintrag">🔴 Ausgestempelt um <b>{letzter_uhr} Uhr</b></div>',
                     unsafe_allow_html=True
                 )
         except Exception:
@@ -705,14 +760,30 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     col_k, col_g = st.columns(2)
     with col_k:
         st.markdown('<div class="btn-kommen">', unsafe_allow_html=True)
-        if st.button("✅  KOMMEN", key="btn_kommen", use_container_width=True):
+        # Kommen deaktivieren wenn bereits eingestempelt
+        if st.button(
+            "✅  KOMMEN",
+            key="btn_kommen",
+            use_container_width=True,
+            disabled=ist_aktuell_eingestempelt
+        ):
             _buchung_ausfuehren(betrieb_id, ma, "kommen", geraet_name)
+        if ist_aktuell_eingestempelt:
+            st.caption("bereits eingestempelt")
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col_g:
         st.markdown('<div class="btn-gehen">', unsafe_allow_html=True)
-        if st.button("🚪  GEHEN", key="btn_gehen", use_container_width=True):
+        # Gehen deaktivieren wenn nicht eingestempelt
+        if st.button(
+            "🚪  GEHEN",
+            key="btn_gehen",
+            use_container_width=True,
+            disabled=not ist_aktuell_eingestempelt
+        ):
             _buchung_ausfuehren(betrieb_id, ma, "gehen", geraet_name)
+        if not ist_aktuell_eingestempelt:
+            st.caption("nicht eingestempelt")
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -726,10 +797,21 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
 
 def _buchung_ausfuehren(betrieb_id: int, ma: dict, typ: str, geraet_name: str):
     """Buchung durchführen und zur Bestätigungs-Phase wechseln."""
-    erfolg, buchungszeit = stempel_buchen(betrieb_id, ma["id"], typ, geraet_name)
+    ergebnis, buchungszeit = stempel_buchen(betrieb_id, ma["id"], typ, geraet_name)
+    
+    # Doppel-Buchungs-Schutz: Fehlermeldung anzeigen
+    if ergebnis == "bereits_eingestempelt":
+        st.session_state["kiosk_fehler"] = "Sie sind bereits eingestempelt!"
+        st.rerun()
+        return
+    if ergebnis == "nicht_eingestempelt":
+        st.session_state["kiosk_fehler"] = "Sie sind nicht eingestempelt!"
+        st.rerun()
+        return
+    
     st.session_state["kiosk_buchung_typ"] = typ
     st.session_state["kiosk_buchung_zeit"] = buchungszeit
-    st.session_state["kiosk_buchung_erfolg"] = erfolg
+    st.session_state["kiosk_buchung_erfolg"] = ergebnis  # True oder False (Offline)
     st.session_state["kiosk_phase"] = "bestaetigung"
     st.session_state["kiosk_rueckkehr_zeit"] = time.time()
     st.rerun()
