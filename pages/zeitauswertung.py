@@ -322,10 +322,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     monat_ergebnis = berechne_monat(zeiterfassungen, aktiver_ma, auto_pause=True)
 
     # ── Soll-Stunden ─────────────────────────────────────────────────────────
-    soll_aus_dienstplan = _berechne_soll_stunden(dienstplaene)
-    soll_stunden = soll_aus_dienstplan if soll_aus_dienstplan > 0 else (
-        aktiver_ma.get('monatliche_soll_stunden', 0) or 0
-    )
+    # Soll-Stunden immer aus Stammdaten (Vertrag), nicht aus Dienstplan
+    soll_stunden = float(aktiver_ma.get('monatliche_soll_stunden', 0) or 0)
 
     ist_stunden = monat_ergebnis["gesamt_stunden"]
     differenz = ist_stunden - soll_stunden
