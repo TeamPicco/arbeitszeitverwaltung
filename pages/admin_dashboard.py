@@ -1505,14 +1505,15 @@ def show_zeiterfassung_admin():
                                     new_check_in = new_check_in.time()
                                 if isinstance(new_check_out, datetime):
                                     new_check_out = new_check_out.time()
-                                
-                                check_in_dt = datetime.combine(date.today(), new_check_in)
-                                check_out_dt = datetime.combine(date.today(), new_check_out)
-                                
+
+                                # Nachtschicht erkennen: Ende liegt vor Start
+                                naechster_tag = new_check_out <= new_check_in
+
                                 arbeitsstunden = berechne_arbeitsstunden(
-                                    check_in_dt,
-                                    check_out_dt,
-                                    new_pause
+                                    new_check_in,
+                                    new_check_out,
+                                    new_pause,
+                                    naechster_tag=naechster_tag
                                 )
                                 
                                 # Prüfe Sonntag/Feiertag für das Datum
