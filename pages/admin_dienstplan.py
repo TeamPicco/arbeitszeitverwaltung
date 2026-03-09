@@ -590,6 +590,7 @@ def show_monatsplan(supabase):
         ma_dienste = ma_dienste_flat
         arbeit_tage = sum(1 for d in ma_dienste if d.get('schichttyp', 'arbeit') == 'arbeit')
         urlaub_tage = sum(1 for d in ma_dienste if d.get('schichttyp') == 'urlaub')
+        krank_tage  = sum(1 for d in ma_dienste if d.get('schichttyp') == 'krank')
         frei_tage   = sum(1 for d in ma_dienste if d.get('schichttyp') == 'frei')
 
         # Ausstehende Urlaube für diesen MA im Monat
@@ -601,10 +602,11 @@ def show_monatsplan(supabase):
         if nicht_eingetragen > 0:
             badge = f" 🟡 {nicht_eingetragen} Urlaub(e) fehlen im Plan"
 
+        krank_badge = f"  🤒 {krank_tage} Krank" if krank_tage > 0 else ""
         with st.expander(
             f"👤 {mitarbeiter['vorname']} {mitarbeiter['nachname']} "
             f"| 🔵 {arbeit_tage} Arbeit  🟡 {urlaub_tage} Urlaub  ⚪ {frei_tage} Frei"
-            + badge
+            + krank_badge + badge
         ):
             if nicht_eingetragen > 0:
                 st.warning(
@@ -658,6 +660,9 @@ def show_monatsplan(supabase):
                             st.write(f"⏰ {dienst['start_zeit'][:5]} – {dienst['ende_zeit'][:5]}")
                         elif typ == 'urlaub':
                             st.write("🏖️ Urlaub")
+                        elif typ == 'krank':
+                            lfz_h = dienst.get('urlaub_stunden') or 0
+                            st.write(f"🤒 Krank (LFZ: {lfz_h:.1f}h)")
                         else:
                             st.write("⚪ Frei")
 
