@@ -319,7 +319,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     dienstplaene = _lade_dienstplaene(aktiver_ma['id'], monat, jahr)
 
     # ── Lohnberechnung mit neuem Modul ───────────────────────────────────────
-    monat_ergebnis = berechne_monat(zeiterfassungen, aktiver_ma, auto_pause=True)
+    monat_ergebnis = berechne_monat(zeiterfassungen, aktiver_ma, auto_pause=False)
 
     # ── Soll-Stunden ─────────────────────────────────────────────────────────
     # Soll-Stunden immer aus Stammdaten (Vertrag), nicht aus Dienstplan

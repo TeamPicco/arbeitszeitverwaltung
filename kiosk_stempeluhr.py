@@ -363,13 +363,10 @@ def ist_eingestempelt(mitarbeiter_id: int) -> dict | None:
     return None
 
 
-def _berechne_pause_und_stunden(start_str: str, ende_str: str) -> tuple[int, float]:
+def _berechne_stunden(start_str: str, ende_str: str) -> float:
     """
-    Berechnet gesetzliche Pause und Netto-Arbeitsstunden.
-    Gesetzliche Pausenregelung (§ 4 ArbZG):
-    - < 6h: 0 Min Pause
-    - 6-9h: 30 Min Pause
-    - > 9h: 45 Min Pause
+    Berechnet Brutto-Arbeitsstunden ohne automatische Pause.
+    Pausen werden ausschließlich manuell eingetragen.
     """
     from datetime import datetime as dt
     fmt = "%H:%M:%S"
@@ -378,15 +375,7 @@ def _berechne_pause_und_stunden(start_str: str, ende_str: str) -> tuple[int, flo
     brutto_min = (ende - start).total_seconds() / 60
     if brutto_min < 0:
         brutto_min += 24 * 60  # Nachtschicht
-    brutto_h = brutto_min / 60
-    if brutto_h >= 9:
-        pause_min = 45
-    elif brutto_h >= 6:
-        pause_min = 30
-    else:
-        pause_min = 0
-    netto_h = round((brutto_min - pause_min) / 60, 4)
-    return pause_min, max(0.0, netto_h)
+    return round(max(0.0, brutto_min / 60), 4)
 
 
 def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: str = "Kiosk"):
@@ -419,12 +408,12 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
 
         else:  # gehen
             if offener_eintrag:
-                # Offenen Eintrag schließen + Pause + Stunden berechnen
+                # Offenen Eintrag schließen – Pause wird manuell eingetragen, nicht automatisch berechnet
                 start_str = offener_eintrag.get("start_zeit", "00:00:00")
-                pause_min, netto_h = _berechne_pause_und_stunden(start_str, uhrzeit)
+                netto_h = _berechne_stunden(start_str, uhrzeit)
                 supabase.table("zeiterfassung").update({
                     "ende_zeit": uhrzeit,
-                    "pause_minuten": pause_min,
+                    "pause_minuten": 0,
                     "arbeitsstunden": netto_h,
                     "quelle": "stempeluhr",
                 }).eq("id", offener_eintrag["id"]).execute()

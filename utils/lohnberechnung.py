@@ -196,7 +196,7 @@ def berechne_netto_stunden(
     ende_zeit: str,
     pause_minuten: Optional[int],
     datum: date,
-    auto_pause: bool = True
+    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
 ) -> Tuple[float, int, List[str]]:
     """
     Berechnet die Netto-Arbeitsstunden für einen Eintrag.
@@ -416,7 +416,7 @@ def _berechne_splitting_punkte(
 def berechne_eintrag(
     eintrag: Dict[str, Any],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = True
+    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
 ) -> Dict[str, Any]:
     """
     Berechnet Stunden und Lohn für einen einzelnen Zeiterfassungs-Eintrag.
@@ -614,7 +614,7 @@ def berechne_eintrag(
 def berechne_monat(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = True
+    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
 ) -> Dict[str, Any]:
     """
     Berechnet alle Stunden und Lohnsummen für einen Monat.

@@ -13,7 +13,6 @@ import os
 from utils.database import get_supabase_client, get_all_mitarbeiter
 from utils.calculations import (
     parse_zeit,
-    berechne_arbeitsstunden_mit_pause
 )
 
 # Deutsche Monatsnamen
@@ -483,9 +482,9 @@ def show_monatsplan(supabase):
                 else:
                     start_z = st.time_input("Startzeit", value=datetime.strptime("08:00", "%H:%M").time())
                     ende_z = st.time_input("Endzeit", value=datetime.strptime("16:00", "%H:%M").time())
-                    _, vorgeschlagene_pause = berechne_arbeitsstunden_mit_pause(start_z, ende_z)
                     pause_m = st.number_input("Pause (Min)", min_value=0, max_value=240,
-                                              value=vorgeschlagene_pause, step=15)
+                                              value=0, step=5,
+                                              help="Pause wird manuell eingetragen")
                     vorlage_id = None
         elif schichttyp == 'urlaub':
             # Urlaubsstunden aus Mitarbeiterprofil berechnen
@@ -1115,10 +1114,9 @@ def show_schichtvorlagen(supabase):
                                               value=datetime.strptime("16:00", "%H:%M").time(),
                                               key="neue_vorlage_ende")
                     if start_zeit and ende_zeit:
-                        brutto_stunden, vorgeschlagene_pause = berechne_arbeitsstunden_mit_pause(start_zeit, ende_zeit)
-                        st.info(f"⚙️ Gesetzliche Pause: {vorgeschlagene_pause} Min (bei {brutto_stunden:.1f}h)")
                         pause_minuten = st.number_input("Pause (Minuten)", min_value=0, max_value=240,
-                                                        value=vorgeschlagene_pause, step=15)
+                                                        value=0, step=5,
+                                                        help="Pause wird manuell eingetragen")
                     else:
                         pause_minuten = 0
                 else:
