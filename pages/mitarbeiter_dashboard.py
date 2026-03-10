@@ -82,7 +82,7 @@ def show():
     # Stempeluhr entfernt, Urlaubskalender (Gesamtübersicht) entfernt
     tabs = st.tabs([
         f"{get_icon('dienstplan')} Mein Dienstplan",
-        f"{get_icon('dokument')} Lohn & Dokumente",
+        f"⏱️ Mein Zeitkonto",
         f"{get_icon('urlaub')} Urlaub",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
         f"{get_icon('einstellungen')} Einstellungen"
@@ -94,7 +94,7 @@ def show():
         show_mitarbeiter_dienstplan(mitarbeiter)
     
     with tabs[1]:
-        show_lohn_und_dokumente(mitarbeiter)
+        show_azk_und_dokumente(mitarbeiter)
     
     with tabs[2]:
         show_urlaub(mitarbeiter)
@@ -605,22 +605,17 @@ def show_urlaub(mitarbeiter: dict):
         st.error(f"Fehler beim Laden der Urlaubsdaten: {str(e)}")
 
 
-def show_lohn_und_dokumente(mitarbeiter: dict):
-    """Zeigt Lohn & Dokumente an: Zeitauswertung, Lohnabrechnungen, Arbeitsvertrag"""
+def show_azk_und_dokumente(mitarbeiter: dict):
+    """Zeigt AZK-Zeitkonto und Dokumente an (ohne Lohnberechnung)"""
     
-    st.subheader("💰 Lohn & Dokumente")
+    st.subheader("⏱️ Mein Arbeitszeitkonto")
     
-    # Zeitauswertung einbinden
-    lohn_tabs = st.tabs(["📊 Zeitauswertung", "📄 Lohnabrechnungen", "📄 Arbeitsvertrag"])
+    azk_tabs = st.tabs(["📊 AZK-Übersicht", "📄 Arbeitsvertrag"])
     
-    with lohn_tabs[0]:
-        from pages.zeitauswertung import show_zeitauswertung
-        show_zeitauswertung(mitarbeiter, admin_modus=False)
+    with azk_tabs[0]:
+        _show_azk_mitarbeiter(mitarbeiter)
     
-    with lohn_tabs[1]:
-        _show_lohnabrechnungen(mitarbeiter)
-    
-    with lohn_tabs[2]:
+    with azk_tabs[1]:
         _show_arbeitsvertrag(mitarbeiter)
 
 
@@ -678,64 +673,83 @@ def _show_arbeitsvertrag(mitarbeiter: dict):
         st.info("Noch kein Arbeitsvertrag hinterlegt. Bitte wenden Sie sich an Ihren Administrator.")
     
 
-def _show_lohnabrechnungen(mitarbeiter: dict):
-    """Zeigt Lohnabrechnungen an"""
-    st.markdown("**Lohnabrechnungen**")
+def _show_azk_mitarbeiter(mitarbeiter: dict):
+    """Zeigt AZK-Monatsübersicht für Mitarbeiter an"""
+    from utils.azk import berechne_azk_monat, berechne_azk_kumuliert, berechne_urlaubskonto, h_zu_hhmm
+    from datetime import date
+    import pandas as pd
     
-    try:
-        supabase = get_supabase_client()
+    monatsnamen = {
+        1: 'Januar', 2: 'Februar', 3: 'März', 4: 'April',
+        5: 'Mai', 6: 'Juni', 7: 'Juli', 8: 'August',
+        9: 'September', 10: 'Oktober', 11: 'November', 12: 'Dezember'
+    }
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        jahr = st.number_input("Jahr", min_value=2020, max_value=2030, value=date.today().year, key="ma_azk_jahr")
+    with col2:
+        monat = st.selectbox("Monat", options=list(range(1, 13)),
+                             format_func=lambda x: monatsnamen[x],
+                             index=date.today().month - 1, key="ma_azk_monat")
+    
+    ergebnis = berechne_azk_monat(mitarbeiter['id'], monat, jahr)
+    saldo_kumuliert = berechne_azk_kumuliert(mitarbeiter['id'], monat, jahr)
+    urlaub = berechne_urlaubskonto(mitarbeiter['id'], jahr)
+    
+    if ergebnis['ok']:
+        st.markdown(f"### {monatsnamen[monat]} {jahr}")
         
-        # Lade Lohnabrechnungen für diesen Mitarbeiter
-        lohnabrechnungen = supabase.table('lohnabrechnungen').select(
-            '*'
-        ).eq('mitarbeiter_id', mitarbeiter['id']).order('jahr', desc=True).order('monat', desc=True).execute()
+        # Kennzahlen
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a:
+            st.metric("Ist-Stunden", h_zu_hhmm(ergebnis['ist_stunden']))
+        with col_b:
+            st.metric("Soll-Stunden", h_zu_hhmm(ergebnis['soll_stunden']))
+        with col_c:
+            diff = ergebnis['differenz']
+            st.metric("Monatssaldo", h_zu_hhmm(diff), delta=f"{diff:+.2f} h")
+        with col_d:
+            st.metric("Kumulierter Saldo", h_zu_hhmm(saldo_kumuliert), delta=f"{saldo_kumuliert:+.2f} h")
         
-        if lohnabrechnungen.data and len(lohnabrechnungen.data) > 0:
-            # Zeige jede Lohnabrechnung in einem Expander
-            for abrechnung in lohnabrechnungen.data:
-                monat_name = {
-                    1: 'Januar', 2: 'Februar', 3: 'März', 4: 'April',
-                    5: 'Mai', 6: 'Juni', 7: 'Juli', 8: 'August',
-                    9: 'September', 10: 'Oktober', 11: 'November', 12: 'Dezember'
-                }.get(abrechnung['monat'], str(abrechnung['monat']))
-                
-                with st.expander(f"📄 {monat_name} {abrechnung['jahr']}"):
-                    col1, col2 = st.columns([2, 1])
-                    
-                    with col1:
-                        st.write(f"**Bruttolohn:** {abrechnung.get('gesamtbrutto', abrechnung.get('bruttolohn', 0) or 0):.2f} €")
-                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0) or 0:.2f} h")
-                        
-                        if (abrechnung.get('sonntagsstunden') or 0) > 0:
-                            st.write(f"**Sonntagsstunden:** {abrechnung['sonntagsstunden']:.2f} h")
-                        if (abrechnung.get('feiertagsstunden') or 0) > 0:
-                            st.write(f"**Feiertagsstunden:** {abrechnung['feiertagsstunden']:.2f} h")
-                    
-                    with col2:
-                        # PDF Download
-                        if abrechnung.get('pdf_path'):
-                            try:
-                                pdf_data = download_file_from_storage('lohnabrechnungen', abrechnung['pdf_path'])
-                                if pdf_data:
-                                    st.download_button(
-                                        label="📥 PDF herunterladen",
-                                        data=pdf_data,
-                                        file_name=f"Lohnabrechnung_{abrechnung['jahr']}_{abrechnung['monat']:02d}.pdf",
-                                        mime="application/pdf",
-                                        key=f"download_lohn_ma_{abrechnung['id']}",
-                                        use_container_width=True
-                                    )
-                                else:
-                                    st.warning("PDF nicht verfügbar")
-                            except Exception as e:
-                                st.error(f"Fehler beim Laden: {str(e)}")
-                        else:
-                            st.info("PDF wird erstellt...")
+        # Abwesenheiten
+        if ergebnis['krank_stunden'] > 0:
+            st.info(f"🤒 Krankheit: {h_zu_hhmm(ergebnis['krank_stunden'])} (EFZG § 4 – Saldo neutralisiert)")
+        if ergebnis['urlaub_stunden'] > 0:
+            st.info(f"🏖️ Urlaub: {h_zu_hhmm(ergebnis['urlaub_stunden'])} ({ergebnis['urlaub_genommen']} Tage)")
+        
+        # Urlaubskonto
+        st.markdown("---")
+        st.markdown("**Urlaubskonto**")
+        ucol1, ucol2, ucol3 = st.columns(3)
+        with ucol1:
+            st.metric("Gesamt-Anspruch", f"{urlaub['gesamt_anspruch']} Tage")
+        with ucol2:
+            st.metric("Genommen", f"{urlaub['genommen']} Tage")
+        with ucol3:
+            st.metric("Offen", f"{urlaub['offen']} Tage")
+        
+        # Tagesdetails
+        if ergebnis['tage']:
+            st.markdown("---")
+            st.markdown("**Tagesdetails**")
+            df_tage = pd.DataFrame([{
+                'Datum': t['datum_fmt'],
+                'WT': t['wochentag'],
+                'Typ': t['typ'],
+                'Start': t['start'],
+                'Ende': t['ende'],
+                'Pause': f"{t['pause_min']} min" if t['pause_min'] > 0 else '–',
+                'Ist': t['ist_hhmm'],
+                'Soll': t['soll_hhmm'],
+                'Diff': t['diff_hhmm'],
+                'Kum. Saldo': t['kum_saldo_hhmm'],
+            } for t in ergebnis['tage']])
+            st.dataframe(df_tage, use_container_width=True, hide_index=True)
         else:
-            st.info("Noch keine Lohnabrechnungen vorhanden.")
-            
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Lohnabrechnungen: {str(e)}")
+            st.info("Keine Zeiterfassungs-Einträge für diesen Monat.")
+    else:
+        st.error(ergebnis.get('fehler', 'Fehler beim Laden der AZK-Daten.'))
 
 
 

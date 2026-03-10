@@ -74,7 +74,7 @@ def show():
         f"{get_icon('urlaub')} Urlaubsgenehmigung",
         f"{get_icon('dienstplan')} Urlaubskalender",
         f"{get_icon('chat')} Plauderecke{chat_badge}",
-        f"⏱️ Lohn & Zeiten",
+        f"⏱️ Zeiten & AZK",
         f"📥 Datenimport",
         f"{get_icon('mastergeraete')} Mastergärate",
         f"{get_icon('einstellungen')} Einstellungen"
@@ -114,9 +114,9 @@ def show():
 
 
 def show_lohn_und_zeiten_konsolidiert():
-    """Konsolidierter Tab: Zeiterfassung + Zeitauswertung + Lohnabrechnung in einem"""
+    """Konsolidierter Tab: Zeiterfassung + Zeitauswertung + AZK in einem (ohne Lohnberechnung)"""
     
-    st.markdown('<div class="section-header">⏱️ Lohn & Zeiten</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">⏱️ Zeiten & Arbeitszeitkonto</div>', unsafe_allow_html=True)
     
     # Sub-Navigation mit Selectbox
     sub_bereich = st.selectbox(
@@ -124,8 +124,8 @@ def show_lohn_und_zeiten_konsolidiert():
         [
             "📅 Zeiterfassung – Tagesbuchungen & Korrekturen",
             "🤒 Krankheitserfassung (EFZG)",
-            "📊 Zeitauswertung & Zuschlagsberechnung",
-            "💰 Lohnabrechnung & Steuerberater-Export",
+            "📊 Zeitauswertung & AZK-Saldo",
+            "⚖️ Arbeitszeitkonto – Manuelle Ausbuchung",
             "📜 Audit-Log – Änderungsprotokoll"
         ],
         key="lohn_zeiten_sub"
@@ -140,12 +140,10 @@ def show_lohn_und_zeiten_konsolidiert():
         show_krankheitserfassung_admin()
     
     elif sub_bereich.startswith("📊"):
-        from pages.zeitauswertung import show_zeitauswertung
-        admin_ma = st.session_state.get('mitarbeiter_data', {})
-        show_zeitauswertung(admin_ma, admin_modus=True)
+        show_azk_auswertung()
     
-    elif sub_bereich.startswith("💰"):
-        show_lohnabrechnung()
+    elif sub_bereich.startswith("⚖️"):
+        show_azk_ausbuchung()
     
     elif sub_bereich.startswith("📜"):
         show_audit_log_admin()
@@ -417,7 +415,7 @@ def show_mitarbeiterverwaltung():
             'Nachname': m['nachname'],
             'E-Mail': m['email'],
             'Soll-Std.': m['monatliche_soll_stunden'],
-            'Stundenlohn': f"{m['stundenlohn_brutto']:.2f} €",
+            'Soll-Std./Woche': m.get('wochensoll_stunden') or '',
             'Urlaubstage': m['jahres_urlaubstage']
         })
     
@@ -539,7 +537,7 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.markdown("**Lohnparameter**")
+            st.markdown("**Arbeitszeitparameter**")
             monatliche_soll_stunden = st.number_input(
                 "Monatliche Soll-Stunden*",
                 min_value=0.0,
@@ -547,43 +545,40 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 value=float(mitarbeiter_data.get('monatliche_soll_stunden') or 160.0) if is_edit else 160.0,
                 step=0.5
             )
-            stundenlohn_brutto = st.number_input(
-                "Stundenlohn (brutto)*",
+            wochensoll_stunden = st.number_input(
+                "Vertragliche Wochenarbeitszeit (h)",
                 min_value=0.0,
-                max_value=100.0,
-                value=float(mitarbeiter_data.get('stundenlohn_brutto') or 15.0) if is_edit else 15.0,
-                step=0.10,
-                format="%.2f"
+                max_value=60.0,
+                value=float(mitarbeiter_data.get('wochensoll_stunden') or 0.0) if is_edit else 0.0,
+                step=0.5,
+                help="Vertragliche Wochenarbeitszeit gemäß Arbeitsvertrag"
             )
-            
-            # Minijob-Grenze (nur sichtbar wenn Minijob gewählt)
-            # Wir lesen beschaeftigungsart aus dem aktuellen Formularwert
-            # Da Streamlit-Widgets sequenziell sind, nutzen wir den gespeicherten Wert
-            _ist_minijob = (mitarbeiter_data.get('beschaeftigungsart') == 'minijob') if is_edit else False
-            minijob_monatsgrenze = st.number_input(
-                "💼 Minijob-Monatsgrenze (€)",
-                min_value=0.0,
-                max_value=1000.0,
-                value=float(mitarbeiter_data.get('minijob_monatsgrenze') or 556.0) if is_edit else 556.0,
-                step=1.0,
+            azk_startsaldo = st.number_input(
+                "AZK-Startsaldo (Stunden)",
+                min_value=-500.0,
+                max_value=500.0,
+                value=float(mitarbeiter_data.get('azk_startsaldo') or 0.0) if is_edit else 0.0,
+                step=0.25,
                 format="%.2f",
-                help="Aktuelle Minijob-Grenze: 556,00 €/Monat (2025). \nBei Überschreitung wird eine Warnung in der Lohnabrechnung angezeigt."
+                help="Initialer Stand des Arbeitszeitkontos (z.B. Übertrag aus Vorsystem). Positiv = Guthaben, Negativ = Schulden."
             )
         
         with col2:
             st.markdown("**Urlaub**")
             jahres_urlaubstage = st.number_input(
-                "Jährliche Urlaubstage*",
+                "Jährlicher Urlaubsanspruch (Tage)*",
                 min_value=20,
                 max_value=50,
-                value=int(mitarbeiter_data.get('jahres_urlaubstage') or 28) if is_edit else 28
+                value=int(mitarbeiter_data.get('urlaubsanspruch_jahrestage') or mitarbeiter_data.get('jahres_urlaubstage') or 28) if is_edit else 28,
+                help="Gesetzlicher + vertraglicher Urlaubsanspruch für das aktuelle Jahr"
             )
             resturlaub_vorjahr = st.number_input(
-                "Resturlaub Vorjahr",
+                "Resturlaub Vorjahr (Übertrag)",
                 min_value=0.0,
                 max_value=50.0,
                 value=float(mitarbeiter_data.get('resturlaub_vorjahr') or 0.0) if is_edit else 0.0,
-                step=0.5
+                step=0.5,
+                help="Nicht genommene Urlaubstage aus dem Vorjahr (Resturlaub-Übertrag)"
             )
         
         with col3:
@@ -654,14 +649,15 @@ def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
                 'personalnummer': personalnummer,
                 'eintrittsdatum': eintrittsdatum.isoformat(),
                 'monatliche_soll_stunden': monatliche_soll_stunden,
-                'stundenlohn_brutto': stundenlohn_brutto,
+                'wochensoll_stunden': wochensoll_stunden,
+                'azk_startsaldo': azk_startsaldo,
                 'jahres_urlaubstage': jahres_urlaubstage,
+                'urlaubsanspruch_jahrestage': jahres_urlaubstage,
                 'resturlaub_vorjahr': resturlaub_vorjahr,
                 'sonntagszuschlag_aktiv': sonntagszuschlag_aktiv,
                 'feiertagszuschlag_aktiv': feiertagszuschlag_aktiv,
                 'mobile_zeiterfassung': mobile_zeiterfassung,
                 'beschaeftigungsart': beschaeftigungsart,
-                'minijob_monatsgrenze': minijob_monatsgrenze if beschaeftigungsart == 'minijob' else None,
             }
             
             if is_edit:
@@ -717,7 +713,8 @@ def show_mitarbeiter_details(mitarbeiter: dict):
         eintrittsdatum_formatted = datetime.fromisoformat(mitarbeiter['eintrittsdatum']).strftime('%d.%m.%Y') if mitarbeiter.get('eintrittsdatum') else 'Nicht angegeben'
         st.write(f"**Eintrittsdatum:** {eintrittsdatum_formatted}")
         st.write(f"**Soll-Stunden/Monat:** {mitarbeiter['monatliche_soll_stunden']}")
-        st.write(f"**Stundenlohn:** {format_waehrung(mitarbeiter['stundenlohn_brutto'])}")
+        azk_start = mitarbeiter.get('azk_startsaldo') or 0
+        st.write(f"**AZK-Startsaldo:** {azk_start:+.2f} h")
         st.write(f"**Urlaubstage/Jahr:** {mitarbeiter['jahres_urlaubstage']}")
         
         # Beschäftigungsart
@@ -731,9 +728,7 @@ def show_mitarbeiter_details(mitarbeiter: dict):
         art = mitarbeiter.get('beschaeftigungsart', 'vollzeit') or 'vollzeit'
         st.write(f"**Beschäftigungsart:** {BESCHAEFTIGUNGSARTEN_LABEL.get(art, art.capitalize())}")
         
-        if art == 'minijob':
-            grenze = mitarbeiter.get('minijob_monatsgrenze') or 556.0
-            st.write(f"**Minijob-Monatsgrenze:** {grenze:.2f} €")
+
         
         st.markdown("**Zuschäge**")
         st.write(f"Sonntagszuschlag: {'✅ Aktiv' if mitarbeiter['sonntagszuschlag_aktiv'] else '❌ Inaktiv'}")
@@ -1297,10 +1292,9 @@ def show_zeiterfassung_admin():
                     ma_name_offen = f"{ma_offen.get('vorname', '')} {ma_offen.get('nachname', '')}".strip()
                     datum_offen = ze_offen.get('datum', '')
                     start_offen = (ze_offen.get('start_zeit') or '00:00')[:5]
-                    stundenlohn_offen = float(ma_offen.get('stundenlohn_brutto') or 0)
                     
                     with st.form(key=f"offen_close_{ze_offen['id']}"):
-                        st.markdown(f"**{ma_name_offen}** – {datum_offen} – Check-In: {start_offen} | Stundenlohn: {stundenlohn_offen:.2f} €")
+                        st.markdown(f"**{ma_name_offen}** – {datum_offen} – Check-In: {start_offen}")
                         oc1, oc2 = st.columns(2)
                         with oc1:
                             close_time = st.time_input(
@@ -1641,14 +1635,11 @@ def show_zeiterfassung_admin():
         st.error(f"Fehler beim Laden der Zeiterfassungen: {str(e)}")
 
 
-def show_lohnabrechnung():
-    """Zeigt die Lohnabrechnung an"""
+def show_azk_auswertung():
+    """Zeigt die AZK-Auswertung (Zeitwirtschaft ohne Lohn) an"""
     
-    st.subheader("💰 Lohnabrechnung")
-    
-    from utils.lohnkern import speichereMonatslohn
-    from utils.lohnabrechnung import generiere_lohnabrechnung_pdf
-    from utils.datev_export import erstelle_datev_lohnexport, erstelle_lohnuebersicht_csv
+    st.subheader("📊 Arbeitszeitkonto (AZK) – Monatsauswertung")
+    st.info("⏱️ Reine Zeitwirtschaft: Saldo = Ist-Stunden − Soll-Stunden. Krankheit und Urlaub neutralisieren den Saldo (EFZG/EntgFG).")
     
     # Auswahl Mitarbeiter und Zeitraum
     col1, col2, col3 = st.columns(3)
@@ -1663,7 +1654,7 @@ def show_lohnabrechnung():
             "Mitarbeiter",
             options=mitarbeiter_list,
             format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})",
-            key="lohnabrechnung_mitarbeiter_select"
+            key="azk_mitarbeiter_select"
         )
     
     with col2:
@@ -1675,7 +1666,6 @@ def show_lohnabrechnung():
         )
     
     with col3:
-        # Monatsnamen-Dictionary
         monatsnamen = {
             1: 'Januar', 2: 'Februar', 3: 'März', 4: 'April',
             5: 'Mai', 6: 'Juni', 7: 'Juli', 8: 'August',
@@ -1687,284 +1677,211 @@ def show_lohnabrechnung():
             options=list(range(1, 13)),
             format_func=lambda x: monatsnamen[x],
             index=aktueller_monat - 1,
-            key="lohnabrechnung_monat_select"
+            key="azk_monat_select"
         )
     
-    col_btn1, col_btn2 = st.columns([2, 1])
-    
-    with col_btn1:
-        if st.button("💰 Lohnabrechnung erstellen", use_container_width=True, type="primary"):
-            with st.spinner("Berechne Lohn – lese Zeiterfassung aus Datenbank..."):
-                ergebnis = speichereMonatslohn(
-                    selected_mitarbeiter['id'],
-                    monat,
-                    jahr
-                )
+    if st.button("📊 AZK berechnen", use_container_width=True, type="primary", key="azk_berechnen_btn"):
+        with st.spinner("Berechne Arbeitszeitkonto..."):
+            from utils.azk import berechne_azk_monat, berechne_azk_kumuliert, berechne_urlaubskonto, h_zu_hhmm
+            
+            ergebnis = berechne_azk_monat(selected_mitarbeiter['id'], monat, jahr)
+            
+            if ergebnis['ok']:
+                # Kumulierter Saldo
+                saldo_kumuliert = berechne_azk_kumuliert(selected_mitarbeiter['id'], monat, jahr)
                 
-                if ergebnis['ok'] and ergebnis.get('gespeichert'):
-                    st.success(
-                        f"✅ Lohnabrechnung erstellt! "
-                        f"{ergebnis['gesamt_stunden']:.2f} h × {ergebnis['stundenlohn']:.2f} € = "
-                        f"**{ergebnis['gesamtbrutto']:.2f} € Brutto** "
-                        f"({ergebnis['anzahl_eintraege']} Zeiterfassungs-Einträge aus DB gelesen)"
-                    )
-                    st.rerun()
-                elif ergebnis.get('fehler'):
-                    st.error(ergebnis['fehler'])
+                # Urlaubskonto
+                urlaub = berechne_urlaubskonto(selected_mitarbeiter['id'], jahr)
+                
+                st.markdown("---")
+                
+                # Zusammenfassung
+                st.markdown(f"### {monatsnamen[monat]} {jahr} – {selected_mitarbeiter['vorname']} {selected_mitarbeiter['nachname']}")
+                
+                col_a, col_b, col_c, col_d = st.columns(4)
+                with col_a:
+                    st.metric("Ist-Stunden", h_zu_hhmm(ergebnis['ist_stunden']), help="Tatsächlich gearbeitete Stunden")
+                with col_b:
+                    st.metric("Soll-Stunden", h_zu_hhmm(ergebnis['soll_stunden']))
+                with col_c:
+                    diff = ergebnis['differenz']
+                    st.metric("Monatssaldo", h_zu_hhmm(diff), delta=f"{diff:+.2f} h")
+                with col_d:
+                    st.metric("Kumulierter AZK-Saldo", h_zu_hhmm(saldo_kumuliert), delta=f"{saldo_kumuliert:+.2f} h")
+                
+                # Abwesenheiten
+                col_e, col_f = st.columns(2)
+                with col_e:
+                    if ergebnis['krank_stunden'] > 0:
+                        st.info(f"🤒 Krankheit (LFZ): {h_zu_hhmm(ergebnis['krank_stunden'])} – Saldo neutralisiert (EFZG § 4)")
+                with col_f:
+                    if ergebnis['urlaub_stunden'] > 0:
+                        st.info(f"🏖️ Urlaub: {h_zu_hhmm(ergebnis['urlaub_stunden'])} ({ergebnis['urlaub_genommen']} Tage) – Saldo neutralisiert")
+                
+                # Urlaubskonto
+                st.markdown("**Urlaubskonto**")
+                ucol1, ucol2, ucol3 = st.columns(3)
+                with ucol1:
+                    st.metric("Gesamt-Anspruch", f"{urlaub['gesamt_anspruch']} Tage",
+                              help=f"Jahresanspruch {urlaub['jahresanspruch']} + Resturlaub {urlaub['resturlaub_vorjahr']}")
+                with ucol2:
+                    st.metric("Genommen", f"{urlaub['genommen']} Tage")
+                with ucol3:
+                    st.metric("Offen", f"{urlaub['offen']} Tage")
+                
+                st.markdown("---")
+                
+                # Tagesliste
+                st.markdown("**Tagesdetails**")
+                if ergebnis['tage']:
+                    import pandas as pd
+                    df_tage = pd.DataFrame([{
+                        'Datum': t['datum_fmt'],
+                        'WT': t['wochentag'],
+                        'Typ': t['typ'],
+                        'Start': t['start'],
+                        'Ende': t['ende'],
+                        'Pause': f"{t['pause_min']} min" if t['pause_min'] > 0 else '–',
+                        'Ist': t['ist_hhmm'],
+                        'Soll': t['soll_hhmm'],
+                        'Diff': t['diff_hhmm'],
+                    } for t in ergebnis['tage']])
+                    st.dataframe(df_tage, use_container_width=True, hide_index=True)
                 else:
-                    st.error("Fehler beim Speichern der Lohnabrechnung.")
+                    st.info("Keine Zeiterfassungs-Einträge für diesen Monat.")
+                
+                # CSV-Export
+                if ergebnis['tage']:
+                    import pandas as pd
+                    import io
+                    df_export = pd.DataFrame([{
+                        'Datum': t['datum_fmt'],
+                        'Wochentag': t['wochentag'],
+                        'Typ': t['typ'],
+                        'Start': t['start'],
+                        'Ende': t['ende'],
+                        'Pause_Min': t['pause_min'],
+                        'Ist_h': t['ist_h'],
+                        'Soll_h': t['soll_h'],
+                        'Diff_h': t['diff_h'],
+                    } for t in ergebnis['tage']])
+                    csv_buf = io.StringIO()
+                    df_export.to_csv(csv_buf, index=False, sep=';', decimal=',')
+                    st.download_button(
+                        label="💾 AZK-Auswertung als CSV herunterladen (MiLoG-Dokumentation)",
+                        data=csv_buf.getvalue().encode('utf-8-sig'),
+                        file_name=f"AZK_{selected_mitarbeiter['nachname']}_{jahr}_{monat:02d}.csv",
+                        mime="text/csv"
+                    )
+            elif ergebnis.get('fehler'):
+                st.error(ergebnis['fehler'])
     
-    st.markdown("---")
+    # Ende show_azk_auswertung
+
+
+def show_azk_ausbuchung():
+    """Manuelle AZK-Ausbuchung: Überstunden abbuchen oder Korrekturen vornehmen"""
     
-    # DATEV-Export für alle Mitarbeiter
-    st.subheader("📄 DATEV-Export für Steuerberater")
+    st.subheader("⚖️ Arbeitszeitkonto – Manuelle Ausbuchung")
+    st.warning("⚠️ **Manuelle Ausbuchung:** Überstunden werden nur auf expliziten Trigger abgebucht (Freizeitausgleich oder Auszahlung). Niemals automatisch.")
     
-    st.info("""
-    **DATEV-Export** erstellt eine CSV-Datei im DATEV Lohn & Gehalt-Format,
-    die direkt von Ihrem Steuerberater importiert werden kann.
-    """)
+    mitarbeiter_list = get_all_mitarbeiter()
+    if not mitarbeiter_list:
+        st.info("Keine Mitarbeiter vorhanden.")
+        return
     
-    col_export1, col_export2, col_export3 = st.columns(3)
+    selected_ma = st.selectbox(
+        "Mitarbeiter",
+        options=mitarbeiter_list,
+        format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})",
+        key="azk_ausbuchung_ma_select"
+    )
     
-    with col_export1:
-        export_jahr = st.number_input("Jahr (Export)", min_value=2020, max_value=2030, value=date.today().year, key="export_jahr")
-    
-    with col_export2:
-        export_monat = st.selectbox(
-            "Monat (Export)",
-            options=list(range(1, 13)),
-            format_func=lambda x: monatsnamen[x],
-            index=date.today().month - 1,
-            key="export_monat"
-        )
-    
-    with col_export3:
-        st.write("")
-        st.write("")
-    
-    col_dl1, col_dl2 = st.columns(2)
-    
-    with col_dl1:
-        if st.button("📊 DATEV-CSV exportieren", use_container_width=True):
-            with st.spinner("Erstelle DATEV-Export..."):
-                try:
-                    supabase_exp = get_supabase_client()
-                    
-                    # Lade alle Lohnabrechnungen für den Monat
-                    alle_abrechnungen = supabase_exp.table('lohnabrechnungen').select(
-                        '*, arbeitszeitkonto(ist_stunden, soll_stunden, sonntagsstunden, feiertagsstunden, urlaubstage_genommen)'
-                    ).eq('monat', export_monat).eq('jahr', export_jahr).execute()
-                    
-                    if alle_abrechnungen.data:
-                        # Lade alle Mitarbeiter
-                        alle_ma = get_all_mitarbeiter()
-                        
-                        # Merge Arbeitszeitkonto-Daten in Abrechnungen
-                        abrechnungen_mit_stunden = []
-                        for abr in alle_abrechnungen.data:
-                            abr_copy = dict(abr)
-                            if abr.get('arbeitszeitkonto'):
-                                azk = abr['arbeitszeitkonto']
-                                abr_copy['ist_stunden'] = azk.get('ist_stunden', 0)
-                                abr_copy['soll_stunden'] = azk.get('soll_stunden', 0)
-                                abr_copy['sonntagsstunden'] = azk.get('sonntagsstunden', 0)
-                                abr_copy['feiertagsstunden'] = azk.get('feiertagsstunden', 0)
-                                abr_copy['urlaubstage_genommen'] = azk.get('urlaubstage_genommen', 0)
-                            abrechnungen_mit_stunden.append(abr_copy)
-                        
-                        datev_bytes = erstelle_datev_lohnexport(
-                            alle_ma, abrechnungen_mit_stunden, export_monat, export_jahr
-                        )
-                        
-                        st.download_button(
-                            label=f"💾 DATEV-CSV herunterladen ({monatsnamen[export_monat]} {export_jahr})",
-                            data=datev_bytes,
-                            file_name=f"DATEV_Lohn_{export_jahr}_{export_monat:02d}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning(f"Keine Lohnabrechnungen für {monatsnamen[export_monat]} {export_jahr} vorhanden. Bitte zuerst Lohnabrechnungen erstellen.")
-                except Exception as e:
-                    st.error(f"Fehler beim DATEV-Export: {str(e)}")
-    
-    with col_dl2:
-        if st.button("📊 Lohnübersicht CSV (intern)", use_container_width=True):
-            with st.spinner("Erstelle Lohnübersicht..."):
-                try:
-                    supabase_exp = get_supabase_client()
-                    
-                    alle_abrechnungen = supabase_exp.table('lohnabrechnungen').select(
-                        '*, arbeitszeitkonto(ist_stunden, soll_stunden, sonntagsstunden, feiertagsstunden, urlaubstage_genommen)'
-                    ).eq('monat', export_monat).eq('jahr', export_jahr).execute()
-                    
-                    if alle_abrechnungen.data:
-                        alle_ma = get_all_mitarbeiter()
-                        
-                        abrechnungen_mit_stunden = []
-                        for abr in alle_abrechnungen.data:
-                            abr_copy = dict(abr)
-                            if abr.get('arbeitszeitkonto'):
-                                azk = abr['arbeitszeitkonto']
-                                abr_copy['ist_stunden'] = azk.get('ist_stunden', 0)
-                                abr_copy['soll_stunden'] = azk.get('soll_stunden', 0)
-                                abr_copy['sonntagsstunden'] = azk.get('sonntagsstunden', 0)
-                                abr_copy['feiertagsstunden'] = azk.get('feiertagsstunden', 0)
-                                abr_copy['urlaubstage_genommen'] = azk.get('urlaubstage_genommen', 0)
-                            abrechnungen_mit_stunden.append(abr_copy)
-                        
-                        uebersicht_bytes = erstelle_lohnuebersicht_csv(
-                            alle_ma, abrechnungen_mit_stunden, export_monat, export_jahr
-                        )
-                        
-                        st.download_button(
-                            label=f"💾 Lohnübersicht herunterladen ({monatsnamen[export_monat]} {export_jahr})",
-                            data=uebersicht_bytes,
-                            file_name=f"Lohnuebersicht_{export_jahr}_{export_monat:02d}.csv",
-                            mime="text/csv",
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning(f"Keine Lohnabrechnungen für {monatsnamen[export_monat]} {export_jahr} vorhanden.")
-                except Exception as e:
-                    st.error(f"Fehler beim Export: {str(e)}")
-    
-    st.markdown("---")
-    
-    # Zeige vorhandene Lohnabrechnungen
-    st.subheader("Vorhandene Lohnabrechnungen")
-    
-    supabase = get_supabase_client()
-    
-    try:
-        lohnabrechnungen = supabase.table('lohnabrechnungen').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer, beschaeftigungsart, minijob_monatsgrenze, stundenlohn_brutto)'
-        ).order('jahr', desc=True).order('monat', desc=True).execute()
+    if selected_ma:
+        from utils.azk import berechne_azk_kumuliert, h_zu_hhmm
         
-        if lohnabrechnungen.data:
-            for abrechnung in lohnabrechnungen.data:
-                mitarbeiter = abrechnung['mitarbeiter']
-                ist_minijob = (mitarbeiter or {}).get('beschaeftigungsart') == 'minijob'
-                minijob_grenze = float((mitarbeiter or {}).get('minijob_monatsgrenze') or 556.0)
-                # DB-Spalte heißt gesamtbrutto, gesamtbetrag als Fallback für ältere Einträge
-                gesamtbrutto = float(abrechnung.get('gesamtbrutto') or abrechnung.get('gesamtbetrag') or 0)
-                
-                # Warnung im Expander-Titel wenn Minijob-Grenze überschritten
-                grenze_ueberschritten = ist_minijob and gesamtbrutto > minijob_grenze
-                # Stunden-Vollständigkeit: Ist + LFZ >= Soll (30h)
-                arbeitsstunden_db = float(abrechnung.get('arbeitsstunden') or 0)
-                # Krank-LFZ aus DB-Spalte (falls vorhanden)
-                krank_lfz_db = float(abrechnung.get('krank_lfz_stunden') or 0)
-                urlaub_db = float(abrechnung.get('urlaub_stunden') or 0)
-                soll_db = float(abrechnung.get('soll_stunden') or 30.0)
-                stunden_inkl_fehlzeiten = round(arbeitsstunden_db + krank_lfz_db + urlaub_db, 2)
-                monat_vollstaendig = ist_minijob and soll_db > 0 and stunden_inkl_fehlzeiten >= soll_db
-                # Mindestlohn-Check (§ 1 MiLoG 2026: 12,82 EUR/h)
-                MINDESTLOHN = 12.82
-                stundenlohn_db = float((mitarbeiter or {}).get('stundenlohn_brutto') or 0)
-                mindestlohn_ok = stundenlohn_db >= MINDESTLOHN
-                expander_titel = (
-                    f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
-                    f"{get_monatsnamen(abrechnung['monat'])} {abrechnung['jahr']} - "
-                    f"{format_waehrung(gesamtbrutto)}"
-                    + (" ⚠️ MINIJOB-GRENZE ÜBERSCHRITTEN" if grenze_ueberschritten else "")
-                    + (" ✅ Vollständig" if monat_vollstaendig and not grenze_ueberschritten else "")
-                    + (" 💼 Minijob" if ist_minijob and not grenze_ueberschritten and not monat_vollstaendig else "")
+        saldo = berechne_azk_kumuliert(selected_ma['id'])
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Aktueller AZK-Saldo", h_zu_hhmm(saldo), delta=f"{saldo:+.2f} h")
+        with col2:
+            if saldo > 0:
+                st.success(f"✅ {saldo:.2f} h Zeitguthaben verfügbar")
+            elif saldo < 0:
+                st.error(f"🚨 {abs(saldo):.2f} h Minusstunden")
+            else:
+                st.info("AZK ausgeglichen")
+        
+        st.markdown("---")
+        st.markdown("**Neue Ausbuchung**")
+        
+        with st.form("azk_ausbuchung_form"):
+            col_f1, col_f2 = st.columns(2)
+            with col_f1:
+                ausbuchung_stunden = st.number_input(
+                    "Stunden abbuchen",
+                    min_value=0.0,
+                    max_value=abs(saldo) if saldo > 0 else 0.0,
+                    value=0.0,
+                    step=0.25,
+                    format="%.2f",
+                    help="Positive Zahl = Guthaben abbuchen (Freizeitausgleich/Auszahlung)"
                 )
-                
-                with st.expander(expander_titel):
-                    # Minijob-Warnungen und Status-Anzeige
-                    if ist_minijob:
-                        # 1. Mindestlohn-Check (§ 1 MiLoG)
-                        if not mindestlohn_ok:
-                            st.error(
-                                f"🚨 **MINDESTLOHN-VERSTOSS (§ 1 MiLoG):** "
-                                f"Stundenlohn {stundenlohn_db:.2f} EUR/h liegt unter dem "
-                                f"gesetzlichen Mindestlohn von {MINDESTLOHN:.2f} EUR/h (2026). "
-                                f"Sofort korrigieren – Bußgeld bis 500.000 EUR!"
-                            )
-                        # 2. Minijob-Entgeltgrenze (§ 8 SGB IV)
-                        if grenze_ueberschritten:
-                            st.error(
-                                f"⚠️ **Minijob-Grenze überschritten (§ 8 SGB IV)!** "
-                                f"Gesamtbrutto {format_waehrung(gesamtbrutto)} übersteigt die "
-                                f"Minijob-Grenze von {format_waehrung(minijob_grenze)}. "
-                                f"Sozialversicherungspflicht droht – Stunden reduzieren!"
-                            )
-                        # 3. Stunden-Vollständigkeit (EntgFG-Deckelung 30h)
-                        elif monat_vollstaendig:
-                            st.success(
-                                f"✅ **Monat vollständig (EntgFG-Deckelung):** "
-                                f"Ist {arbeitsstunden_db:.2f} h + LFZ {krank_lfz_db:.2f} h + "
-                                f"Urlaub {urlaub_db:.2f} h = {stunden_inkl_fehlzeiten:.2f} h "
-                                f"≥ {soll_db:.0f} h Soll. Keine weiteren Stunden erforderlich."
-                            )
-                        else:
-                            verbleibend_h = round(soll_db - stunden_inkl_fehlzeiten, 2)
-                            verbleibend_eur = minijob_grenze - gesamtbrutto
-                            st.info(
-                                f"💼 **Minijob** – {stunden_inkl_fehlzeiten:.2f} h von {soll_db:.0f} h "
-                                f"(noch {verbleibend_h:.2f} h offen) | "
-                                f"{format_waehrung(gesamtbrutto)} von {format_waehrung(minijob_grenze)} "
-                                f"(noch {format_waehrung(verbleibend_eur)} Spielraum)"
-                            )
-                        # 4. EntgFG-Referenz-Info
-                        if krank_lfz_db > 0:
-                            st.caption(
-                                f"📋 **EntgFG § 4:** {krank_lfz_db:.2f} h Krankheits-LFZ "
-                                f"(Referenz: {soll_db/15:.2f} h/Tag bei 30h/15 Arbeitstagen). "
-                                f"LFZ zählt zur 30h-Deckelung."
-                            )
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write(f"**Grundlohn:** {format_waehrung(abrechnung['grundlohn'])}")
-                        if (abrechnung.get('sonntagszuschlag') or 0) > 0:
-                            st.write(f"**Sonntagszuschlag:** {format_waehrung(abrechnung['sonntagszuschlag'])}")
-                        if (abrechnung.get('feiertagszuschlag') or 0) > 0:
-                            st.write(f"**Feiertagszuschlag:** {format_waehrung(abrechnung['feiertagszuschlag'])}")
-                        st.write(f"**Arbeitsstunden:** {abrechnung.get('arbeitsstunden', 0):.2f} h")
-                    
-                    with col2:
-                        st.write(f"**Gesamtbrutto:** {format_waehrung(gesamtbrutto)}")
-                        st.write(f"**Erstellt am:** {abrechnung.get('erstellt_am', '–')}")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("📥 PDF herunterladen", key=f"download_lohn_{abrechnung['id']}"):
-                            pdf_bytes = generiere_lohnabrechnung_pdf(abrechnung['id'])
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="Download starten",
-                                    data=pdf_bytes,
-                                    file_name=f"Lohnabrechnung_{mitarbeiter['personalnummer']}_{abrechnung['jahr']}_{abrechnung['monat']:02d}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_{abrechnung['id']}"
-                                )
-                    
-                    with col2:
-                        if st.button("🔄 Neu berechnen", key=f"recalc_{abrechnung['id']}"):
-                            from utils.lohnkern import speichereMonatslohn
-                            ergebnis = speichereMonatslohn(
-                                abrechnung['mitarbeiter_id'],
-                                abrechnung['monat'],
-                                abrechnung['jahr']
-                            )
-                            if ergebnis['ok'] and ergebnis.get('gespeichert'):
-                                st.success(
-                                    f"✅ Neu berechnet: {ergebnis['gesamt_stunden']:.2f} h × "
-                                    f"{ergebnis['stundenlohn']:.2f} € = {ergebnis['gesamtbrutto']:.2f} € Brutto"
-                                )
-                                st.rerun()
-                            elif ergebnis.get('fehler'):
-                                st.error(ergebnis['fehler'])
-        else:
-            st.info("Noch keine Lohnabrechnungen erstellt.")
-    
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Lohnabrechnungen: {str(e)}")
+            with col_f2:
+                ausbuchung_art = st.selectbox(
+                    "Art der Ausbuchung",
+                    options=["Freizeitausgleich", "Auszahlung (extern)", "Korrektur", "Sonstiges"],
+                    key="azk_ausbuchung_art"
+                )
+            ausbuchung_datum = st.date_input("Datum der Ausbuchung", value=date.today())
+            ausbuchung_notiz = st.text_area("Notiz / Begründung", placeholder="z.B. Freizeitausgleich nach Absprache mit Arbeitgeber am 01.03.2026")
+            
+            submit_ausbuchung = st.form_submit_button("➖ Ausbuchung durchführen", type="primary")
+            
+            if submit_ausbuchung:
+                if ausbuchung_stunden <= 0:
+                    st.error("Bitte Stundenzahl eingeben.")
+                elif not ausbuchung_notiz.strip():
+                    st.error("Bitte Begründung angeben (Dokumentationspflicht).")
+                else:
+                    try:
+                        supabase = get_supabase_client()
+                        supabase.table('azk_korrekturen').insert({
+                            'mitarbeiter_id': selected_ma['id'],
+                            'betrieb_id': st.session_state.betrieb_id,
+                            'datum': ausbuchung_datum.isoformat(),
+                            'stunden_delta': -ausbuchung_stunden,
+                            'art': ausbuchung_art,
+                            'notiz': ausbuchung_notiz.strip(),
+                            'erstellt_von': st.session_state.user_id,
+                        }).execute()
+                        st.success(f"✅ {ausbuchung_stunden:.2f} h wurden vom AZK abgebucht ({ausbuchung_art}).")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Fehler beim Speichern: {str(e)}")
+        
+        st.markdown("---")
+        st.markdown("**Bisherige Ausbuchungen**")
+        try:
+            supabase = get_supabase_client()
+            korrekturen = supabase.table('azk_korrekturen').select('*').eq(
+                'mitarbeiter_id', selected_ma['id']
+            ).order('datum', desc=True).execute()
+            
+            if korrekturen.data:
+                import pandas as pd
+                df_k = pd.DataFrame([{
+                    'Datum': k['datum'],
+                    'Art': k['art'],
+                    'Stunden': f"{k['stunden_delta']:+.2f} h",
+                    'Notiz': k.get('notiz', ''),
+                } for k in korrekturen.data])
+                st.dataframe(df_k, use_container_width=True, hide_index=True)
+            else:
+                st.info("Noch keine Ausbuchungen vorhanden.")
+        except Exception as e:
+            st.error(f"Fehler beim Laden: {str(e)}")
 
 
 def show_einstellungen():
