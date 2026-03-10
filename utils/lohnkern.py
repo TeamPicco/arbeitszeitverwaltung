@@ -183,7 +183,8 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
         ma_resp = supabase.table('mitarbeiter').select(
             'id, vorname, nachname, stundenlohn_brutto, '
             'monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, '
-            'sonntagszuschlag_aktiv, feiertagszuschlag_aktiv'
+            'sonntagszuschlag_aktiv, feiertagszuschlag_aktiv, '
+            'beschaeftigungsart, minijob_monatsgrenze, eintrittsdatum'
         ).eq('id', mitarbeiter_id).execute()
 
         if not ma_resp.data:
@@ -247,6 +248,46 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
 
         gesamtbrutto = round(grundlohn + sonntagszuschlag + feiertagszuschlag, 2)
 
+        # ── Minijob-spezifische Prüfungen (§ 8 SGB IV, EntgFG, MiLoG) ──────────────────────
+        ist_minijob = (ma.get('beschaeftigungsart') or '') == 'minijob'
+        minijob_grenze = float(ma.get('minijob_monatsgrenze') or 556.0)
+        # Gesetzlicher Mindestlohn 2026: 12,82 EUR/h (§ 1 MiLoG)
+        MINDESTLOHN_2026 = 12.82
+        minijob_warnungen = []
+        minijob_status = None  # None | 'vollstaendig' | 'ueberschritten'
+        referenz_stunden_tag = 0.0
+
+        if ist_minijob:
+            # 1. Mindestlohn-Check (§ 1 MiLoG)
+            if stundenlohn < MINDESTLOHN_2026:
+                minijob_warnungen.append(
+                    f"MINDESTLOHN-VERSTOSS: {stundenlohn:.2f} EUR/h < {MINDESTLOHN_2026:.2f} EUR/h "
+                    f"(gesetzlicher Mindestlohn 2026 gemäß § 1 MiLoG). Sofort korrigieren!"
+                )
+
+            # 2. EntgFG-Deckelung: Ist + LFZ (Krank + Urlaub) darf Soll (30h) nicht überschreiten
+            # § 4 EntgFG: Krankheits-LFZ zählt als gearbeitete Zeit für Stundendeckelung
+            stunden_gesamt_inkl_fehlzeiten = round(ist_h + krank_lfz_h + urlaub_h, 2)
+            if soll_stunden > 0 and stunden_gesamt_inkl_fehlzeiten >= soll_stunden:
+                minijob_status = 'vollstaendig'
+
+            # 3. Minijob-Entgeltgrenze-Check (§ 8 SGB IV)
+            if gesamtbrutto > minijob_grenze:
+                minijob_status = 'ueberschritten'
+                minijob_warnungen.append(
+                    f"MINIJOB-GRENZE ÜBERSCHRITTEN: {gesamtbrutto:.2f} EUR > "
+                    f"{minijob_grenze:.2f} EUR (§ 8 SGB IV). "
+                    f"Sozialversicherungspflicht droht! Stunden reduzieren."
+                )
+
+            # 4. EntgFG-Referenzprinzip: Durchschnittliche Tagesstunden für LFZ-Berechnung
+            # § 4 Abs. 1 EntgFG: Referenz = Durchschnitt der letzten 13 Wochen
+            # Vereinfacht für Minijob 30h/Monat: Soll / Arbeitstage (ohne Mo/Di Ruhetage)
+            # Betrieb: Mo/Di Ruhetage -> ca. 15 Arbeitstage/Monat (Mi-So x 3 Wochen + Reste)
+            if soll_stunden > 0:
+                arbeitstage_monat_naeherung = 15  # Mi/Do/Fr/Sa/So = 5 Tage x ~3 Wochen
+                referenz_stunden_tag = round(soll_stunden / arbeitstage_monat_naeherung, 2)
+
         return {
             'ok': True,
             'fehler': None,
@@ -266,6 +307,13 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
             'feiertagszuschlag': feiertagszuschlag,
             'gesamtbrutto': gesamtbrutto,
             'anzahl_eintraege': stunden_data['anzahl_eintraege'],
+            # Minijob-spezifische Felder
+            'ist_minijob': ist_minijob,
+            'minijob_grenze': minijob_grenze if ist_minijob else None,
+            'minijob_status': minijob_status,        # None | 'vollstaendig' | 'ueberschritten'
+            'minijob_warnungen': minijob_warnungen,  # Liste mit Warnmeldungen
+            'referenz_stunden_tag': referenz_stunden_tag,  # EntgFG-Referenz-Tagesstunden
+            'stunden_inkl_fehlzeiten': round(ist_h + krank_lfz_h + urlaub_h, 2) if ist_minijob else None,
         }
 
     except Exception as e:

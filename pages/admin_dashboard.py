@@ -1838,7 +1838,7 @@ def show_lohnabrechnung():
     
     try:
         lohnabrechnungen = supabase.table('lohnabrechnungen').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer, beschaeftigungsart, minijob_monatsgrenze)'
+            '*, mitarbeiter(vorname, nachname, personalnummer, beschaeftigungsart, minijob_monatsgrenze, stundenlohn_brutto)'
         ).order('jahr', desc=True).order('monat', desc=True).execute()
         
         if lohnabrechnungen.data:
@@ -1851,30 +1851,69 @@ def show_lohnabrechnung():
                 
                 # Warnung im Expander-Titel wenn Minijob-Grenze überschritten
                 grenze_ueberschritten = ist_minijob and gesamtbrutto > minijob_grenze
+                # Stunden-Vollständigkeit: Ist + LFZ >= Soll (30h)
+                arbeitsstunden_db = float(abrechnung.get('arbeitsstunden') or 0)
+                # Krank-LFZ aus DB-Spalte (falls vorhanden)
+                krank_lfz_db = float(abrechnung.get('krank_lfz_stunden') or 0)
+                urlaub_db = float(abrechnung.get('urlaub_stunden') or 0)
+                soll_db = float(abrechnung.get('soll_stunden') or 30.0)
+                stunden_inkl_fehlzeiten = round(arbeitsstunden_db + krank_lfz_db + urlaub_db, 2)
+                monat_vollstaendig = ist_minijob and soll_db > 0 and stunden_inkl_fehlzeiten >= soll_db
+                # Mindestlohn-Check (§ 1 MiLoG 2026: 12,82 EUR/h)
+                MINDESTLOHN = 12.82
+                stundenlohn_db = float((mitarbeiter or {}).get('stundenlohn_brutto') or 0)
+                mindestlohn_ok = stundenlohn_db >= MINDESTLOHN
                 expander_titel = (
                     f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
                     f"{get_monatsnamen(abrechnung['monat'])} {abrechnung['jahr']} - "
                     f"{format_waehrung(gesamtbrutto)}"
                     + (" ⚠️ MINIJOB-GRENZE ÜBERSCHRITTEN" if grenze_ueberschritten else "")
-                    + (" 💼 Minijob" if ist_minijob and not grenze_ueberschritten else "")
+                    + (" ✅ Vollständig" if monat_vollstaendig and not grenze_ueberschritten else "")
+                    + (" 💼 Minijob" if ist_minijob and not grenze_ueberschritten and not monat_vollstaendig else "")
                 )
                 
                 with st.expander(expander_titel):
-                    # Minijob-Warnung
+                    # Minijob-Warnungen und Status-Anzeige
                     if ist_minijob:
+                        # 1. Mindestlohn-Check (§ 1 MiLoG)
+                        if not mindestlohn_ok:
+                            st.error(
+                                f"🚨 **MINDESTLOHN-VERSTOSS (§ 1 MiLoG):** "
+                                f"Stundenlohn {stundenlohn_db:.2f} EUR/h liegt unter dem "
+                                f"gesetzlichen Mindestlohn von {MINDESTLOHN:.2f} EUR/h (2026). "
+                                f"Sofort korrigieren – Bußgeld bis 500.000 EUR!"
+                            )
+                        # 2. Minijob-Entgeltgrenze (§ 8 SGB IV)
                         if grenze_ueberschritten:
                             st.error(
-                                f"⚠️ **Minijob-Grenze überschritten!** "
+                                f"⚠️ **Minijob-Grenze überschritten (§ 8 SGB IV)!** "
                                 f"Gesamtbrutto {format_waehrung(gesamtbrutto)} übersteigt die "
                                 f"Minijob-Grenze von {format_waehrung(minijob_grenze)}. "
-                                f"Bitte prüfen Sie den Arbeitsvertrag."
+                                f"Sozialversicherungspflicht droht – Stunden reduzieren!"
+                            )
+                        # 3. Stunden-Vollständigkeit (EntgFG-Deckelung 30h)
+                        elif monat_vollstaendig:
+                            st.success(
+                                f"✅ **Monat vollständig (EntgFG-Deckelung):** "
+                                f"Ist {arbeitsstunden_db:.2f} h + LFZ {krank_lfz_db:.2f} h + "
+                                f"Urlaub {urlaub_db:.2f} h = {stunden_inkl_fehlzeiten:.2f} h "
+                                f"≥ {soll_db:.0f} h Soll. Keine weiteren Stunden erforderlich."
                             )
                         else:
-                            verbleibend = minijob_grenze - gesamtbrutto
+                            verbleibend_h = round(soll_db - stunden_inkl_fehlzeiten, 2)
+                            verbleibend_eur = minijob_grenze - gesamtbrutto
                             st.info(
-                                f"💼 **Minijob** – Gesamtbrutto {format_waehrung(gesamtbrutto)} "
-                                f"von {format_waehrung(minijob_grenze)} Grenze "
-                                f"(noch {format_waehrung(verbleibend)} Spielraum)"
+                                f"💼 **Minijob** – {stunden_inkl_fehlzeiten:.2f} h von {soll_db:.0f} h "
+                                f"(noch {verbleibend_h:.2f} h offen) | "
+                                f"{format_waehrung(gesamtbrutto)} von {format_waehrung(minijob_grenze)} "
+                                f"(noch {format_waehrung(verbleibend_eur)} Spielraum)"
+                            )
+                        # 4. EntgFG-Referenz-Info
+                        if krank_lfz_db > 0:
+                            st.caption(
+                                f"📋 **EntgFG § 4:** {krank_lfz_db:.2f} h Krankheits-LFZ "
+                                f"(Referenz: {soll_db/15:.2f} h/Tag bei 30h/15 Arbeitstagen). "
+                                f"LFZ zählt zur 30h-Deckelung."
                             )
                     
                     col1, col2 = st.columns(2)
