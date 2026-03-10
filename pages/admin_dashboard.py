@@ -1233,9 +1233,7 @@ def show_zeiterfassung_admin():
                                 'abwesenheitstyp': manuell_abwesenheit if manuell_abwesenheit != 'arbeit' else None,
                                 'quelle': f'manuell_admin_{manuell_abwesenheit}',
                                 'manuell_kommentar': manuell_grund.strip(),
-                                'korrigiert_von_admin': True,
-                                'korrektur_grund': f'Manuell angelegt ({manuell_abwesenheit}): {manuell_grund.strip()}',
-                                'korrektur_datum': datetime.now().isoformat()
+                                'korrigiert_von_admin': True
                             }
                             
                             result_neu = supabase_neu.table('zeiterfassung').insert(neuer_eintrag).execute()
@@ -1325,8 +1323,7 @@ def show_zeiterfassung_admin():
                                     'ist_sonntag': is_sonntag(datum_obj_offen),
                                     'ist_feiertag': is_feiertag(datum_obj_offen),
                                     'korrigiert_von_admin': True,
-                                    'korrektur_grund': close_grund,
-                                    'korrektur_datum': datetime.now().isoformat()
+                                    'manuell_kommentar': close_grund
                                 }).eq('id', ze_offen['id']).execute()
                                 st.success(f"✅ Buchung für {ma_name_offen} geschlossen! ({arbeitsstunden_offen:.2f} h)")
                                 st.rerun()
