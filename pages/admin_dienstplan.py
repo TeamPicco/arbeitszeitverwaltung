@@ -1210,7 +1210,7 @@ def show_schichtvorlagen(supabase):
                             unsafe_allow_html=True
                         )
                     with col3:
-                        if st.button("✏️", key=f"edit_btn_{vorlage['id']}", help="Bearbeiten"):
+                        if st.button("✏️", key=f"sv_edit_btn_{vorlage['id']}", help="Bearbeiten"):
                             st.session_state[f"edit_vorlage_{vorlage['id']}"] = True
                             st.rerun()
                         if st.button("🗑️", key=f"del_vorlage_{vorlage['id']}", help="Löschen"):
