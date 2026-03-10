@@ -1800,29 +1800,60 @@ def show_azk_auswertung():
                 else:
                     st.info("Keine Zeiterfassungs-Einträge für diesen Monat.")
                 
-                # CSV-Export
+                # Export-Buttons
                 if ergebnis['tage']:
                     import pandas as pd
                     import io
-                    df_export = pd.DataFrame([{
-                        'Datum': t['datum_fmt'],
-                        'Wochentag': t['wochentag'],
-                        'Typ': t['typ'],
-                        'Start': t['start'],
-                        'Ende': t['ende'],
-                        'Pause_Min': t['pause_min'],
-                        'Ist_h': t['ist_h'],
-                        'Soll_h': t['soll_h'],
-                        'Diff_h': t['diff_h'],
-                    } for t in ergebnis['tage']])
-                    csv_buf = io.StringIO()
-                    df_export.to_csv(csv_buf, index=False, sep=';', decimal=',')
-                    st.download_button(
-                        label="💾 AZK-Auswertung als CSV herunterladen (MiLoG-Dokumentation)",
-                        data=csv_buf.getvalue().encode('utf-8-sig'),
-                        file_name=f"AZK_{selected_mitarbeiter['nachname']}_{jahr}_{monat:02d}.csv",
-                        mime="text/csv"
-                    )
+                    from utils.zeitauswertung_pdf import erstelle_azk_pdf
+
+                    export_col1, export_col2 = st.columns(2)
+
+                    # PDF-Download
+                    with export_col1:
+                        try:
+                            pdf_bytes = erstelle_azk_pdf(
+                                mitarbeiter=selected_mitarbeiter,
+                                monat=monat,
+                                jahr=jahr,
+                                ergebnis=ergebnis,
+                                saldo_kumuliert=saldo_kumuliert,
+                                urlaub=urlaub,
+                            )
+                            st.download_button(
+                                label="📄 AZK-Auswertung als PDF herunterladen",
+                                data=pdf_bytes,
+                                file_name=f"AZK_{selected_mitarbeiter['nachname']}_{jahr}_{monat:02d}.pdf",
+                                mime="application/pdf",
+                                use_container_width=True,
+                                type="primary",
+                                key="azk_pdf_download_admin"
+                            )
+                        except Exception as e:
+                            st.error(f"PDF-Fehler: {e}")
+
+                    # CSV-Download
+                    with export_col2:
+                        df_export = pd.DataFrame([{
+                            'Datum': t['datum_fmt'],
+                            'Wochentag': t['wochentag'],
+                            'Typ': t['typ'],
+                            'Start': t['start'],
+                            'Ende': t['ende'],
+                            'Pause_Min': t['pause_min'],
+                            'Ist_h': t['ist_h'],
+                            'Soll_h': t['soll_h'],
+                            'Diff_h': t['diff_h'],
+                        } for t in ergebnis['tage']])
+                        csv_buf = io.StringIO()
+                        df_export.to_csv(csv_buf, index=False, sep=';', decimal=',')
+                        st.download_button(
+                            label="💾 AZK-Auswertung als CSV (MiLoG)",
+                            data=csv_buf.getvalue().encode('utf-8-sig'),
+                            file_name=f"AZK_{selected_mitarbeiter['nachname']}_{jahr}_{monat:02d}.csv",
+                            mime="text/csv",
+                            use_container_width=True,
+                            key="azk_csv_download_admin"
+                        )
             elif ergebnis.get('fehler'):
                 st.error(ergebnis['fehler'])
     

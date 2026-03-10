@@ -746,6 +746,30 @@ def _show_azk_mitarbeiter(mitarbeiter: dict):
                 'Kum. Saldo': t['kum_saldo_hhmm'],
             } for t in ergebnis['tage']])
             st.dataframe(df_tage, use_container_width=True, hide_index=True)
+
+            # PDF-Download
+            st.markdown("---")
+            from utils.zeitauswertung_pdf import erstelle_azk_pdf
+            try:
+                pdf_bytes = erstelle_azk_pdf(
+                    mitarbeiter=mitarbeiter,
+                    monat=monat,
+                    jahr=jahr,
+                    ergebnis=ergebnis,
+                    saldo_kumuliert=saldo_kumuliert,
+                    urlaub=urlaub,
+                )
+                st.download_button(
+                    label="📄 Meine Zeitauswertung als PDF herunterladen",
+                    data=pdf_bytes,
+                    file_name=f"Zeitauswertung_{mitarbeiter.get('nachname', 'MA')}_{jahr}_{monat:02d}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
+                    type="primary",
+                    key="azk_pdf_download_ma"
+                )
+            except Exception as e:
+                st.error(f"PDF konnte nicht erstellt werden: {e}")
         else:
             st.info("Keine Zeiterfassungs-Einträge für diesen Monat.")
     else:
