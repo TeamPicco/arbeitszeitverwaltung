@@ -14,6 +14,7 @@ Regeln:
 
 from datetime import date, timedelta
 from typing import Optional
+import calendar
 
 
 def berechne_efzg_status(
@@ -59,15 +60,37 @@ def berechne_lohnfortzahlung(
     return round(soll_stunden_tag * stundenlohn, 2)
 
 
+def berechne_arbeitstage_im_monat(monat: int, jahr: int) -> int:
+    """
+    Zählt die tatsächlichen Arbeitstage (Mi–So) im angegebenen Monat.
+    Montag (0) und Dienstag (1) sind Ruhetage und werden nicht gezählt.
+    """
+    _, tage_im_monat = calendar.monthrange(jahr, monat)
+    anzahl = 0
+    for tag in range(1, tage_im_monat + 1):
+        wochentag = date(jahr, monat, tag).weekday()
+        if wochentag not in (0, 1):  # nicht Mo, nicht Di
+            anzahl += 1
+    return anzahl
+
+
 def berechne_soll_stunden_tag(
     monatliche_soll_stunden: float,
-    arbeitstage_pro_monat: int = 23,  # Durchschnitt für 5-Tage-Woche
+    arbeitstage_pro_monat: int = None,
+    monat: int = None,
+    jahr: int = None,
 ) -> float:
     """
     Berechnet die tägliche Soll-Arbeitszeit aus den monatlichen Soll-Stunden.
-    Für diesen Betrieb: Mi–So = 5 Arbeitstage/Woche, Mo/Di = Ruhetage
-    → ca. 21–23 Arbeitstage/Monat
+    Für diesen Betrieb: Mi–So = 5 Arbeitstage/Woche, Mo/Di = Ruhetage.
+
+    Wenn monat und jahr angegeben, wird die echte Anzahl Arbeitstage berechnet.
+    Sonst wird arbeitstage_pro_monat verwendet (Fallback: 22).
     """
+    if monat and jahr:
+        arbeitstage_pro_monat = berechne_arbeitstage_im_monat(monat, jahr)
+    elif not arbeitstage_pro_monat:
+        arbeitstage_pro_monat = 22  # Realistischer Durchschnitt für Mi-So Betrieb
     if arbeitstage_pro_monat <= 0:
         return 0.0
     return round(monatliche_soll_stunden / arbeitstage_pro_monat, 4)
@@ -100,17 +123,31 @@ def erstelle_krankheitstag_eintrag(
     episode_id: Optional[int],
     monatliche_soll_stunden: float,
     stundenlohn: float,
-    arbeitstage_im_monat: int = 23,
+    arbeitstage_im_monat: int = None,  # Wird automatisch aus datum berechnet wenn None
     au_bescheinigung_nr: str = '',
     notiz: str = '',
     quelle: str = 'manuell',
 ) -> dict:
     """
     Erstellt einen vollständigen Krankheitstag-Eintrag mit EFZG-Berechnung.
+    Tagessatz = monatliche_soll_stunden / echte Arbeitstage (Mi-So) im Monat des Datums.
+    Mo/Di = Ruhetage, erhalten 0h LFZ.
     """
     episode_tag_nr = berechne_episode_tag_nr(datum, episode_beginn)
     efzg_status = berechne_efzg_status(datum, eintrittsdatum, episode_beginn, episode_tag_nr)
-    soll_stunden_tag = berechne_soll_stunden_tag(monatliche_soll_stunden, arbeitstage_im_monat)
+
+    # Mo/Di = Ruhetage: 0h LFZ
+    if datum.weekday() in (0, 1):
+        soll_stunden_tag = 0.0
+    else:
+        # Echte Arbeitstage im Monat des Krankheitstages berechnen
+        soll_stunden_tag = berechne_soll_stunden_tag(
+            monatliche_soll_stunden,
+            arbeitstage_pro_monat=arbeitstage_im_monat,
+            monat=datum.month,
+            jahr=datum.year,
+        )
+
     lohnfortzahlung_betrag = berechne_lohnfortzahlung(soll_stunden_tag, stundenlohn, efzg_status)
 
     # U1-Relevanz: Nur Lohnfortzahlungstage sind U1-relevant
