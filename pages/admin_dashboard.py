@@ -1151,6 +1151,31 @@ def show_zeiterfassung_admin():
                         key="manuell_ende"
                     )
                 
+                # Zweiter Zeitblock (für Sonntage mit Betriebspause 15-17 Uhr)
+                st.markdown("**2. Zeitblock (optional, z.B. Sonntag nach Betriebspause)**")
+                col_s1, col_s2, col_s3 = st.columns(3)
+                with col_s1:
+                    zweiter_block_aktiv = st.checkbox(
+                        "2. Dienst eintragen",
+                        value=False,
+                        key="manuell_zweiter_block",
+                        help="Für Sonntage mit Betriebspause (z.B. 15–17 Uhr): Zweiten Zeitblock aktivieren"
+                    )
+                with col_s2:
+                    manuell_start2 = st.time_input(
+                        "Startzeit 2. Dienst",
+                        value=datetime.strptime("17:00", "%H:%M").time(),
+                        key="manuell_start2",
+                        disabled=not zweiter_block_aktiv
+                    )
+                with col_s3:
+                    manuell_ende2 = st.time_input(
+                        "Endzeit 2. Dienst",
+                        value=datetime.strptime("21:00", "%H:%M").time(),
+                        key="manuell_ende2",
+                        disabled=not zweiter_block_aktiv
+                    )
+                
                 col_m3a, col_m3b, col_m4 = st.columns(3)
                 with col_m3a:
                     manuell_abwesenheit = st.selectbox(
@@ -1187,6 +1212,10 @@ def show_zeiterfassung_admin():
                         st.error("❌ Bitte einen Grund/Kommentar angeben!")
                     elif manuell_abwesenheit == 'arbeit' and manuell_ende <= manuell_start:
                         st.error("❌ Endzeit muss nach der Startzeit liegen!")
+                    elif zweiter_block_aktiv and manuell_abwesenheit == 'arbeit' and manuell_ende2 <= manuell_start2:
+                        st.error("❌ Endzeit des 2. Dienstes muss nach der Startzeit liegen!")
+                    elif zweiter_block_aktiv and manuell_abwesenheit == 'arbeit' and manuell_start2 < manuell_ende:
+                        st.error("❌ Der 2. Dienst muss nach dem Ende des 1. Dienstes beginnen!")
                     else:
                         try:
                             from utils.calculations import berechne_arbeitsstunden, is_sonntag, is_feiertag
@@ -1237,6 +1266,28 @@ def show_zeiterfassung_admin():
                             }
                             
                             result_neu = supabase_neu.table('zeiterfassung').insert(neuer_eintrag).execute()
+                            gesamt_h = arbeitsstunden_neu
+                            
+                            # Zweiten Zeitblock speichern (z.B. Sonntag nach Betriebspause)
+                            if zweiter_block_aktiv and manuell_abwesenheit == 'arbeit':
+                                arbeitsstunden_neu2 = berechne_arbeitsstunden(manuell_start2, manuell_ende2, 0)
+                                neuer_eintrag2 = {
+                                    'mitarbeiter_id': selected_ma_id_neu,
+                                    'datum': manuell_datum.isoformat(),
+                                    'start_zeit': manuell_start2.strftime('%H:%M:%S'),
+                                    'ende_zeit': manuell_ende2.strftime('%H:%M:%S'),
+                                    'pause_minuten': 0,
+                                    'arbeitsstunden': arbeitsstunden_neu2,
+                                    'ist_sonntag': ist_so,
+                                    'ist_feiertag': ist_ft,
+                                    'ist_krank': False,
+                                    'abwesenheitstyp': None,
+                                    'quelle': 'manuell_admin_arbeit_block2',
+                                    'manuell_kommentar': f"{manuell_grund.strip()} (2. Dienst)",
+                                    'korrigiert_von_admin': True
+                                }
+                                supabase_neu.table('zeiterfassung').insert(neuer_eintrag2).execute()
+                                gesamt_h += arbeitsstunden_neu2
                             
                             # Audit-Log
                             try:
@@ -1251,13 +1302,16 @@ def show_zeiterfassung_admin():
                                     zeiterfassung_id=result_neu.data[0]['id'] if result_neu.data else None,
                                     alter_wert={},
                                     neuer_wert=neuer_eintrag,
-                                    begruendung=f'Manuell angelegt: {manuell_grund.strip()}',
+                                    begruendung=f'Manuell angelegt{" (2 Dienste)" if zweiter_block_aktiv else ""}: {manuell_grund.strip()}',
                                     betrieb_id=betrieb_id_neu
                                 )
                             except Exception:
                                 pass
                             
-                            st.success(f"✅ Zeiteintrag für {selected_ma_name_neu} am {manuell_datum.strftime('%d.%m.%Y')} erfolgreich angelegt! ({arbeitsstunden_neu:.2f} h, {'Sonntag' if ist_so else 'Feiertag' if ist_ft else 'Werktag'})")
+                            if zweiter_block_aktiv and manuell_abwesenheit == 'arbeit':
+                                st.success(f"✅ 2 Dienste für {selected_ma_name_neu} am {manuell_datum.strftime('%d.%m.%Y')} gespeichert! (1. Dienst: {manuell_start.strftime('%H:%M')}–{manuell_ende.strftime('%H:%M')}, 2. Dienst: {manuell_start2.strftime('%H:%M')}–{manuell_ende2.strftime('%H:%M')}, Gesamt: {gesamt_h:.2f} h)")
+                            else:
+                                st.success(f"✅ Zeiteintrag für {selected_ma_name_neu} am {manuell_datum.strftime('%d.%m.%Y')} erfolgreich angelegt! ({arbeitsstunden_neu:.2f} h, {'Sonntag' if ist_so else 'Feiertag' if ist_ft else 'Werktag'})")
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Fehler beim Speichern: {str(e)}")
@@ -1409,8 +1463,9 @@ def show_zeiterfassung_admin():
         # Zeige Zeiterfassungen mit Bearbeitungs-Option
         for ze in zeiterfassungen:
             # Kennzeichnung manueller Einträge
-            ist_manuell = ze.get('quelle') == 'manuell_admin'
-            manuell_badge = " 🖊️ [Manuell]" if ist_manuell else ""
+            ist_manuell = ze.get('korrigiert_von_admin') or (ze.get('quelle', '').startswith('manuell_admin'))
+            ist_block2 = ze.get('quelle') == 'manuell_admin_arbeit_block2'
+            manuell_badge = " 🖊️ [2. Dienst]" if ist_block2 else (" 🖊️ [Manuell]" if ist_manuell else "")
             
             with st.expander(
                 f"👤 {ze['mitarbeiter']['vorname']} {ze['mitarbeiter']['nachname']} - "
