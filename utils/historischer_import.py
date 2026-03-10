@@ -381,8 +381,7 @@ def importiere_in_crewbase(
             'quelle': 'historischer_import',
             'manuell_kommentar': kommentar,
             'korrigiert_von_admin': True,
-            'korrektur_grund': 'Historischer Import aus Altsystem',
-            'korrektur_datum': datetime.now().isoformat(),
+
         }
 
         try:
@@ -524,8 +523,7 @@ def importiere_in_crewbase(
                     'quelle': 'historischer_saldo',
                     'manuell_kommentar': f'Startsaldo-Übertrag aus Altsystem: {startsaldo:+.4f} h (Std. Konto per {letzter_tag.strftime("%d.%m.%Y")})',
                     'korrigiert_von_admin': True,
-                    'korrektur_grund': f'Historischer Saldo-Übertrag: {startsaldo:+.4f} h',
-                    'korrektur_datum': datetime.now().isoformat(),
+
                 }
                 # Nur einfügen wenn noch kein Saldo-Eintrag vorhanden
                 existing_saldo = supabase_client.table('zeiterfassung').select('id').eq(

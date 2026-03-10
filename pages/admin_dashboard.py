@@ -1575,8 +1575,7 @@ def show_zeiterfassung_admin():
                                     'ist_sonntag': ist_sonntag_tag,
                                     'ist_feiertag': ist_feiertag_tag,
                                     'korrigiert_von_admin': True,
-                                    'korrektur_grund': korrektur_grund,
-                                    'korrektur_datum': datetime.now().isoformat()
+                                    'manuell_kommentar': korrektur_grund
                                 }
                                 
                                 # Alten Wert für Audit-Log sichern
