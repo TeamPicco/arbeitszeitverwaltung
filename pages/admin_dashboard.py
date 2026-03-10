@@ -1222,7 +1222,6 @@ def show_zeiterfassung_admin():
                             
                             neuer_eintrag = {
                                 'mitarbeiter_id': selected_ma_id_neu,
-                                'betrieb_id': betrieb_id_neu,
                                 'datum': manuell_datum.isoformat(),
                                 'start_zeit': start_str,
                                 'ende_zeit': ende_str,
