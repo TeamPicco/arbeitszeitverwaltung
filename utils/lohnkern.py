@@ -60,7 +60,7 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
         # Hinweis: zeiterfassung hat KEINE schichttyp-Spalte, stattdessen abwesenheitstyp + ist_krank
         response = supabase.table('zeiterfassung').select(
             'arbeitsstunden, start_zeit, ende_zeit, pause_minuten, '
-            'ist_sonntag, ist_feiertag, quelle, abwesenheitstyp, ist_krank'
+            'ist_sonntag, ist_feiertag, quelle, abwesenheitstyp, ist_krank, datum'
         ).eq('mitarbeiter_id', mitarbeiter_id).gte('datum', von).lt('datum', bis).execute()
 
         if not response.data:
@@ -79,16 +79,21 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
             if abwesenheitstyp in ('urlaub', 'vacation', 'u'):
                 urlaub_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['urlaub_stunden'] += urlaub_h
-                continue
-
-            # ── Krankheitsstunden (LFZ) ───────────────────────────────────
+                contin            # ── Krankheitsstunden (LFZ) ─────────────────────────────────────────────
             # Erkannt durch abwesenheitstyp='krank' ODER ist_krank=True
             if abwesenheitstyp in ('krank', 'k', 'krank_lfz') or ist_krank_flag:
+                # Montag (0) und Dienstag (1) sind Ruhetage → kein LFZ (wie beim Urlaub)
+                datum_str = eintrag.get('datum', '')
+                if datum_str:
+                    try:
+                        tag_wochentag = date.fromisoformat(datum_str).weekday()
+                        if tag_wochentag in (0, 1):  # Mo=0, Di=1
+                            continue  # Ruhetag – kein LFZ
+                    except Exception:
+                        pass
                 krank_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['krank_lfz_stunden'] += krank_h
-                continue
-
-            # ── Reguläre Arbeitsstunden ───────────────────────────────────
+                continue        # ── Reguläre Arbeitsstunden ───────────────────────────────────
             try:
                 # Gespeicherte Arbeitsstunden bevorzugen
                 if eintrag.get('arbeitsstunden') is not None:
@@ -121,6 +126,9 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
                 continue
 
         # Vergütete Stunden = gearbeitet + Urlaub + Krank-LFZ
+        # WICHTIG: Vergütete Stunden dürfen die vertraglich vereinbarten Soll-Stunden NICHT
+        # überschreiten (EntgFG § 4: LFZ = Lohnfortzahlung, nicht Lohnerhöhung).
+        # Die Deckelung wird in berechneMonatslohn() angewendet, da dort die Soll-Stunden bekannt sind.
         result['verguetete_stunden'] = round(
             result['gesamt_stunden'] + result['urlaub_stunden'] + result['krank_lfz_stunden'], 2
         )
