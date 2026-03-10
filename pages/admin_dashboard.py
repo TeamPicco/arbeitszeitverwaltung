@@ -1476,8 +1476,8 @@ def show_zeiterfassung_admin():
                 
                 with col1:
                     st.write(f"**Datum:** {datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')}")
-                    st.write(f"**Check-In:** {ze['start_zeit']}")
-                    st.write(f"**Check-Out:** {ze['ende_zeit'] if ze['ende_zeit'] else '❌ Noch nicht ausgestempelt'}")
+                    st.write(f"**Check-In:** {ze['start_zeit'][:5] if ze.get('start_zeit') else '–'}")
+                    st.write(f"**Check-Out:** {ze['ende_zeit'][:5] if ze.get('ende_zeit') else '❌ Noch nicht ausgestempelt'}")
                     
                     if ze.get('arbeitsstunden'):
                         st.write(f"**Arbeitsstunden:** {ze['arbeitsstunden']:.2f} h")

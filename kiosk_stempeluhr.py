@@ -300,7 +300,7 @@ def get_jetzt_berlin():
 
 
 def format_uhrzeit(dt):
-    return dt.strftime("%H:%M:%S")
+    return dt.strftime("%H:%M")  # Minutengenau (keine Sekunden)
 
 
 def format_datum(dt):
@@ -386,7 +386,7 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
     """
     jetzt = get_jetzt_berlin()
     heute = jetzt.date().isoformat()
-    uhrzeit = jetzt.strftime("%H:%M:%S")
+    uhrzeit = jetzt.strftime("%H:%M") + ":00"  # Minutengenau (Sekunden immer :00)
 
     try:
         supabase = get_supabase()
@@ -460,7 +460,7 @@ def offline_puffer_synchronisieren(betrieb_id: int):
             from datetime import datetime as dt
             ts = dt.fromisoformat(eintrag["zeitstempel"])
             heute = ts.date().isoformat()
-            uhrzeit = ts.strftime("%H:%M:%S")
+            uhrzeit = ts.strftime("%H:%M") + ":00"  # Minutengenau
             typ = eintrag["typ"]
 
             if typ == "kommen":
