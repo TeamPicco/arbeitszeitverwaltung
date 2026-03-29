@@ -3152,3 +3152,55 @@ def show_krankheitserfassung_admin():
 
             except Exception as e:
                 st.warning(f"Fehler beim Erstellen der Auswertung: {e}")
+                import streamlit as st
+from utils.database import get_supabase_client # Nutzt deine vorhandene DB-Verbindung
+
+def render_document_upload():
+    st.header("📤 Dokumenten-Management")
+    st.subheader("Lohnscheine & Verträge für Mitarbeiter freigeben")
+
+    supabase = get_supabase_client()
+
+    # 1. Mitarbeiter auswählen (Lädt alle aus deiner DB)
+    mitarbeiter_data = supabase.table("mitarbeiter").select("id, vorname, nachname").execute()
+    ma_options = {f"{m['vorname']} {m['nachname']}": m['id'] for m in mitarbeiter_data.data}
+    
+    selected_ma_name = st.selectbox("Mitarbeiter wählen", options=list(ma_options.keys()))
+    selected_ma_id = ma_options[selected_ma_name]
+
+    # 2. Kategorie & Bucket wählen
+    doc_category = st.radio("Kategorie", ["Lohnschein", "Arbeitsvertrag"], horizontal=True)
+    target_bucket = "lohnscheine" if doc_category == "Lohnschein" else "arbeitesvertraege"
+
+    # 3. Datei-Upload
+    uploaded_file = st.file_uploader(f"{doc_category} auswählen (PDF)", type=["pdf"])
+
+    if st.button(f"{doc_category} jetzt freigeben"):
+        if uploaded_file is not None:
+            with st.spinner("Wird hochgeladen..."):
+                # Datei-Pfad im Storage (Mitarbeiter-ID/Zeitstempel_Name)
+                file_path = f"{selected_ma_id}/{uploaded_file.name}"
+                
+                # Upload in den Supabase Storage
+                res = supabase.storage.from_(target_bucket).upload(file_path, uploaded_file.getvalue())
+                
+                if res:
+                    # Öffentliche URL abrufen
+                    url_res = supabase.storage.from_(target_bucket).get_public_url(file_path)
+                    
+                    # Eintrag in die Datenbank (damit Silke es in ihrem Dashboard sieht)
+                    db_entry = {
+                        "mitarbeiter_id": selected_ma_id,
+                        "name": uploaded_file.name,
+                        "typ": doc_category,
+                        "bucket": target_bucket,
+                        "file_url": url_res
+                    }
+                    supabase.table("mitarbeiter_dokumente").insert(db_entry).execute()
+                    
+                    st.success(f"✅ {doc_category} für {selected_ma_name} erfolgreich hochgeladen!")
+        else:
+            st.warning("Bitte wähle zuerst eine Datei aus.")
+
+# Aufruf der Funktion im Dashboard
+render_document_upload()
