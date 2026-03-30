@@ -138,3 +138,38 @@ def show_admin_dashboard():
 # App-Start
 if __name__ == "__main__":
     show_admin_dashboard()
+    import streamlit as st
+from datetime import datetime
+from utils.database import get_supabase_client
+from utils.calculations import erstelle_zeitraum_auswertung, berechne_azk_kumuliert
+
+def show_admin_dashboard():
+    supabase = get_supabase_client()
+    heute = datetime.now()
+    
+    st.title("Arbeitszeitauswertung")
+    
+    col1, col2, col3 = st.columns(3)
+    start = col1.date_input("Von", value=datetime.now().replace(day=1))
+    ende = col2.date_input("Bis")
+    
+    ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname").execute()
+    ma_map = {f"{m['vorname']} {m['nachname']}": m['id'] for m in ma_res.data}
+    sel_ma = col3.selectbox("Mitarbeiter", options=list(ma_map.keys()))
+    
+    if st.button("Auswertung anzeigen"):
+        ma_id = ma_map[sel_ma]
+        df = erstelle_zeitraum_auswertung(ma_id, start, ende, supabase)
+        
+        # FIX: TypeError behoben durch Übergabe von Monat und Jahr
+        gesamt_azk = berechne_azk_kumuliert(ma_id, bis_monat=heute.month, bis_jahr=heute.year, supabase_client=supabase)
+        
+        st.subheader(f"Ergebnisse für {sel_ma}")
+        st.dataframe(df, hide_index=True)
+        
+        st.metric("auflaufendes Arbeitszeitkonto (bis heute)", f"{gesamt_azk} Std.")
+
+# --- WICHTIG: Korrektur für Silke im Mitarbeiter Dashboard ---
+# In pages/mitarbeiter_dashboard.py muss die Zeile 1146 eingerückt werden:
+# def render_my_documents():
+#     st.header("📄 Meine Dokumente")  # <--- HIER 4 LEERZEICHEN DAVOR!
