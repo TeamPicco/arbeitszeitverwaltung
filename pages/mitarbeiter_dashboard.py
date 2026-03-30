@@ -1142,8 +1142,9 @@ def show_urlaubskalender():
         
     except Exception as e:
         st.error(f"Fehler beim Laden der Urlaube: {str(e)}")
-        def render_my_documents():
-    st.header("Meine Dokumente")
+    def render_my_documents():
+    st.header("📄 Meine Dokumente")
+    # Hier folgt der restliche Code, den ich dir gegeben habe...
     supabase = get_supabase_client()
     
     # ID des aktuell eingeloggten Mitarbeiters (aus der Session)
