@@ -3150,3 +3150,36 @@ def render_document_upload():
 
 # Aufruf der Funktion im Dashboard
 render_document_upload()
+def show_zeitraum_auswertung():
+    st.header("📊 Zeitraum-Auswertung")
+    
+    # Filter-Bereich
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        start = st.date_input("Startdatum", value=date.today().replace(day=1))
+    with col2:
+        ende = st.date_input("Enddatum")
+    with col3:
+        ma_list = supabase.table("mitarbeiter").select("id, vorname, nachname").execute()
+        options = {f"{m['vorname']} {m['nachname']}": m['id'] for m in ma_list.data}
+        sel_ma = st.selectbox("Mitarbeiter", options=list(options.keys()))
+
+    if st.button("Auswertung generieren"):
+        df = erstelle_arbeitszeitauswertung(options[sel_ma], start, ende, supabase)
+        
+        # Anzeige der Ergebnisse
+        st.subheader(f"Ergebnisse für {sel_ma}")
+        
+        # Tabelle anzeigen mit deinen gewünschten Überschriften
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+        # Zusammenfassung (Die "großen Zahlen")
+        st.divider()
+        c1, c2, c3 = st.columns(3)
+        
+        # Auflaufendes Arbeitszeitkonto (Beispielberechnung bis Filter-Ende)
+        gesamt_azk = berechne_azk_kumuliert(options[sel_ma], ende.month, ende.year, supabase)
+        
+        c1.metric("Laufender Saldo (Zeitraum)", f"{df['Saldo'].sum():.2f} Std.")
+        c2.metric("Auflaufendes AZK (Gesamt)", f"{gesamt_azk:.2f} Std.")
+        c3.metric("Ist-Stunden Gesamt", f"{df['Ist'].sum():.2f} Std.")
