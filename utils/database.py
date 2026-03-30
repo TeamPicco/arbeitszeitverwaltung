@@ -585,3 +585,44 @@ def get_public_url(bucket_name: str, file_path: str) -> Optional[str]:
         
     except Exception as e:
         return None
+def check_and_save_monats_abschluss(mitarbeiter_id, monat, jahr):
+    """
+    Berechnet den Monats-Saldo und schreibt ihn in die AZK-Historie.
+    """
+    supabase = get_supabase_client()
+
+    # 1. Ist-Stunden aus Zeiterfassung summieren
+    ist_res = supabase.table("zeiterfassung") \
+        .select("stunden") \
+        .eq("mitarbeiter_id", mitarbeiter_id) \
+        .eq("monat", monat) \
+        .eq("jahr", jahr) \
+        .execute()
+    
+    gesamt_ist = sum(item['stunden'] for item in ist_res.data) if ist_res.data else 0.0
+
+    # 2. Soll-Stunden vom Mitarbeiter holen
+    ma_res = supabase.table("mitarbeiter") \
+        .select("soll_stunden_monat") \
+        .eq("id", mitarbeiter_id) \
+        .single() \
+        .execute()
+    
+    soll_stunden = ma_res.data.get('soll_stunden_monat', 160.0)
+
+    # 3. Differenz berechnen (hier entstehen die Minusstunden!)
+    differenz = round(gesamt_ist - soll_stunden, 2)
+
+    # 4. In Historie speichern oder aktualisieren (upsert)
+    historie_data = {
+        "mitarbeiter_id": mitarbeiter_id,
+        "monat": monat,
+        "jahr": jahr,
+        "ist_stunden": gesamt_ist,
+        "soll_stunden": soll_stunden,
+        "differenz": differenz
+    }
+
+    supabase.table("azk_historie").upsert(historie_data, on_conflict="mitarbeiter_id, monat, jahr").execute()
+    
+    return differenz
