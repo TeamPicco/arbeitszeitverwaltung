@@ -157,3 +157,61 @@ def get_monatsnamen(monat: int) -> str:
 def get_wochentag(datum: date) -> str:
     wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
     return wochentage[datum.weekday()]
+    def erstelle_arbeitszeitauswertung(mitarbeiter_id, start_datum, end_datum, supabase):
+    """
+    Erstellt eine detaillierte Auswertung für einen frei wählbaren Zeitraum.
+    """
+    import pandas as pd
+    from datetime import timedelta
+
+    # 1. Stammdaten (Soll-Stunden) holen
+    ma_res = supabase.table("mitarbeiter").select("soll_stunden_monat").eq("id", mitarbeiter_id).single().execute()
+    # Wir rechnen das Monats-Soll auf einen Tag herunter (Annahme: 30 Tage Monat)
+    soll_pro_tag = ma_res.data.get('soll_stunden_monat', 160) / 30
+
+    # 2. Daten aus allen Tabellen für den Zeitraum laden
+    # IST-Stunden
+    ist_res = supabase.table("zeiterfassung").select("datum, stunden").eq("mitarbeiter_id", mitarbeiter_id).gte("datum", start_datum).lte("datum", end_datum).execute()
+    # PLAN-Stunden (Dienstplan)
+    plan_res = supabase.table("dienstplan").select("datum, stunden").eq("mitarbeiter_id", mitarbeiter_id).gte("datum", start_datum).lte("datum", end_datum).execute()
+    # ABWEICHUNGEN (Urlaub, Krankheit - bezahlt)
+    abw_res = supabase.table("abwesenheiten").select("datum, stunden, typ").eq("mitarbeiter_id", mitarbeiter_id).eq("bezahlt", True).gte("datum", start_datum).lte("datum", end_datum).execute()
+
+    # 3. Hilfstabellen (Dictionaries) erstellen für schnellen Zugriff
+    ist_dict = {r['datum']: r['stunden'] for r in ist_res.data}
+    plan_dict = {r['datum']: r['stunden'] for r in plan_res.data}
+    abw_dict = {r['datum']: r['stunden'] for r in abw_res.data}
+
+    # 4. Berechnungsschleife Tag für Tag
+    auswertung = []
+    laufender_saldo_kumuliert = 0.0
+    
+    # Für das "auflaufende Arbeitszeitkonto" (Jahresanfang bis Enddatum)
+    jahres_start = date(end_datum.year, 1, 1)
+    # (Hier müsste normalerweise eine separate Abfrage für den Vorjahres-Übertrag erfolgen)
+
+    aktuell = start_datum
+    while aktuell <= end_datum:
+        datum_str = aktuell.isoformat()
+        
+        soll = soll_pro_tag
+        plan = plan_dict.get(datum_str, 0.0)
+        ist = ist_dict.get(datum_str, 0.0)
+        abweichung = abw_dict.get(datum_str, 0.0)
+        
+        # Saldo: tägliche Differenz aus Ist - Soll + Abweichungen
+        tages_saldo = ist - soll + abweichung
+        laufender_saldo_kumuliert += tages_saldo
+        
+        auswertung.append({
+            "Datum": aktuell.strftime("%d.%m.%Y"),
+            "Soll Stunden": round(soll, 2),
+            "Plan": round(plan, 2),
+            "Ist": round(ist, 2),
+            "Abweichung": round(abweichung, 2),
+            "Saldo": round(tages_saldo, 2),
+            "Laufender Saldo": round(laufender_saldo_kumuliert, 2)
+        })
+        aktuell += timedelta(days=1)
+
+    return pd.DataFrame(auswertung)
