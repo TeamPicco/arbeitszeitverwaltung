@@ -1142,7 +1142,7 @@ def show_urlaubskalender():
         
     except Exception as e:
         st.error(f"Fehler beim Laden der Urlaube: {str(e)}")
-   def render_my_documents():
+def render_my_documents():
     """Zeigt dem Mitarbeiter seine freigegebenen Dokumente an."""
     st.header("📄 Meine Dokumente")
     
