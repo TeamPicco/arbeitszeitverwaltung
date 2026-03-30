@@ -398,3 +398,40 @@ def berechne_arbeitsstunden_mit_pause(start_zeit: time, ende_zeit: time) -> tupl
     pause_minuten = berechne_gesetzliche_pause(brutto_stunden)
     
     return round(brutto_stunden, 2), pause_minuten
+    def berechne_monats_differenz(ist_stunden: float, soll_stunden: float) -> float:
+    """
+    Berechnet die Differenz zwischen Ist und Soll. 
+    Ergebnis kann positiv (Überstunden) oder negativ (Minusstunden) sein.
+    """
+    return round(ist_stunden - soll_stunden, 2)
+    def berechne_azk_gesamtstand(mitarbeiter_id, bis_datum: date, supabase_client):
+    """
+    Berechnet den Gesamtstand des AZK bis zu einem bestimmten Datum.
+    Beachtet Überträge und Minusstunden.
+    """
+    # 1. Alle Zeiterfassungen bis zu diesem Datum holen
+    res = supabase_client.table("zeiterfassung")\
+        .select("stunden, monat, jahr")\
+        .eq("mitarbeiter_id", mitarbeiter_id)\
+        .lte("datum", bis_datum.isoformat())\
+        .execute()
+    
+    # 2. Soll-Stunden des Mitarbeiters holen (z.B. 160h/Monat)
+    # Tipp: Speichere die Soll-Stunden in der Tabelle 'mitarbeiter'
+    ma_res = supabase_client.table("mitarbeiter")\
+        .select("soll_stunden_monat")\
+        .eq("id", mitarbeiter_id)\
+        .single().execute()
+    soll_stunden = ma_res.data['soll_stunden_monat']
+
+    # 3. Berechnung
+    total_saldo = 0.0
+    # Gruppiere Stunden nach Monaten und ziehe jeweils das Soll ab
+    # (Dies ist eine vereinfachte Logik zur Veranschaulichung)
+    monate_erfasst = set((item['monat'], item['jahr']) for item in res.data)
+    
+    for m, j in monate_erfasst:
+        ist_monat = sum(item['stunden'] for item in res.data if item['monat'] == m and item['jahr'] == j)
+        total_saldo += (ist_monat - soll_stunden)
+        
+    return round(total_saldo, 2)
