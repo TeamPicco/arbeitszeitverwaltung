@@ -1861,108 +1861,54 @@ def show_azk_auswertung():
 
 
 def show_azk_ausbuchung():
-    """Manuelle AZK-Ausbuchung: Überstunden abbuchen oder Korrekturen vornehmen"""
+    st.subheader("Stunden aus dem AZK ausbuchen (z.B. Auszahlung)")
     
-    st.subheader("⚖️ Arbeitszeitkonto – Manuelle Ausbuchung")
-    st.warning("⚠️ **Manuelle Ausbuchung:** Überstunden werden nur auf expliziten Trigger abgebucht (Freizeitausgleich oder Auszahlung). Niemals automatisch.")
-    
-    mitarbeiter_list = get_all_mitarbeiter()
-    if not mitarbeiter_list:
-        st.info("Keine Mitarbeiter vorhanden.")
+    # 1. Mitarbeiter-Auswahl
+    mitarbeiter_data = supabase.table("mitarbeiter").select("id, vorname, nachname").execute()
+    ma_options = {f"{m['vorname']} {m['nachname']}": m['id'] for m in mitarbeiter_data.data}
+    selected_ma_name = st.selectbox("Mitarbeiter wählen", options=list(ma_options.keys()), key="sb_ausbuchung_ma")
+    selected_ma_id = ma_options[selected_ma_name]
+
+    # 2. Aktuelles Datum für die Berechnung bestimmen
+    from datetime import datetime
+    heute = datetime.now()
+
+    # 3. Den aktuellen Saldo berechnen (HIER war der Fehler - Monat & Jahr ergänzt)
+    try:
+        # Wir übergeben den aktuellen Monat und das Jahr an die Funktion
+        saldo = berechne_azk_kumuliert(
+            selected_ma_id, 
+            bis_monat=heute.month, 
+            bis_jahr=heute.year
+        )
+        st.info(f"Aktueller Stand Arbeitszeitkonto: **{saldo:.2f} Stunden**")
+    except TypeError as e:
+        st.error(f"Fehler bei der Berechnung: {e}")
         return
-    
-    selected_ma = st.selectbox(
-        "Mitarbeiter",
-        options=mitarbeiter_list,
-        format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})",
-        key="azk_ausbuchung_ma_select"
-    )
-    
-    if selected_ma:
-        from utils.azk import berechne_azk_kumuliert, h_zu_hhmm
-        
-        saldo = berechne_azk_kumuliert(selected_ma['id'])
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Aktueller AZK-Saldo", h_zu_hhmm(saldo), delta=f"{saldo:+.2f} h")
-        with col2:
-            if saldo > 0:
-                st.success(f"✅ {saldo:.2f} h Zeitguthaben verfügbar")
-            elif saldo < 0:
-                st.error(f"🚨 {abs(saldo):.2f} h Minusstunden")
-            else:
-                st.info("AZK ausgeglichen")
-        
-        st.markdown("---")
-        st.markdown("**Neue Ausbuchung**")
-        
-        with st.form("azk_ausbuchung_form"):
-            col_f1, col_f2 = st.columns(2)
-            with col_f1:
-                ausbuchung_stunden = st.number_input(
-                    "Stunden abbuchen",
-                    min_value=0.0,
-                    max_value=abs(saldo) if saldo > 0 else 0.0,
-                    value=0.0,
-                    step=0.25,
-                    format="%.2f",
-                    help="Positive Zahl = Guthaben abbuchen (Freizeitausgleich/Auszahlung)"
-                )
-            with col_f2:
-                ausbuchung_art = st.selectbox(
-                    "Art der Ausbuchung",
-                    options=["Freizeitausgleich", "Auszahlung (extern)", "Korrektur", "Sonstiges"],
-                    key="azk_ausbuchung_art"
-                )
-            ausbuchung_datum = st.date_input("Datum der Ausbuchung", value=date.today())
-            ausbuchung_notiz = st.text_area("Notiz / Begründung", placeholder="z.B. Freizeitausgleich nach Absprache mit Arbeitgeber am 01.03.2026")
-            
-            submit_ausbuchung = st.form_submit_button("➖ Ausbuchung durchführen", type="primary")
-            
-            if submit_ausbuchung:
-                if ausbuchung_stunden <= 0:
-                    st.error("Bitte Stundenzahl eingeben.")
-                elif not ausbuchung_notiz.strip():
-                    st.error("Bitte Begründung angeben (Dokumentationspflicht).")
-                else:
-                    try:
-                        supabase = get_supabase_client()
-                        supabase.table('azk_korrekturen').insert({
-                            'mitarbeiter_id': selected_ma['id'],
-                            'betrieb_id': st.session_state.betrieb_id,
-                            'datum': ausbuchung_datum.isoformat(),
-                            'stunden_delta': -ausbuchung_stunden,
-                            'art': ausbuchung_art,
-                            'notiz': ausbuchung_notiz.strip(),
-                            'erstellt_von': st.session_state.user_id,
-                        }).execute()
-                        st.success(f"✅ {ausbuchung_stunden:.2f} h wurden vom AZK abgebucht ({ausbuchung_art}).")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Fehler beim Speichern: {str(e)}")
-        
-        st.markdown("---")
-        st.markdown("**Bisherige Ausbuchungen**")
-        try:
-            supabase = get_supabase_client()
-            korrekturen = supabase.table('azk_korrekturen').select('*').eq(
-                'mitarbeiter_id', selected_ma['id']
-            ).order('datum', desc=True).execute()
-            
-            if korrekturen.data:
-                import pandas as pd
-                df_k = pd.DataFrame([{
-                    'Datum': k['datum'],
-                    'Art': k['art'],
-                    'Stunden': f"{k['stunden_delta']:+.2f} h",
-                    'Notiz': k.get('notiz', ''),
-                } for k in korrekturen.data])
-                st.dataframe(df_k, use_container_width=True, hide_index=True)
-            else:
-                st.info("Noch keine Ausbuchungen vorhanden.")
-        except Exception as e:
-            st.error(f"Fehler beim Laden: {str(e)}")
+
+    # 4. Eingabe für die Ausbuchung
+    st.write("---")
+    st.write("Neue Ausbuchung erfassen:")
+    menge = st.number_input("Stunden (positiver Wert für Abzug, z.B. 20.0)", min_value=0.0, step=0.5)
+    kommentar = st.text_input("Grund (z.B. Auszahlung März 2026)")
+    datum = st.date_input("Datum der Buchung", value=heute)
+
+    if st.button("Ausbuchung jetzt speichern"):
+        if menge > 0 and kommentar:
+            # Eintrag in der Datenbank erstellen
+            # (Stellen Sie sicher, dass die Tabelle 'azk_ausbuchungen' existiert)
+            data = {
+                "mitarbeiter_id": selected_ma_id,
+                "stunden": -abs(menge), # Wird als negativer Wert gespeichert
+                "grund": kommentar,
+                "datum": str(datum)
+            }
+            supabase.table("azk_ausbuchungen").insert(data).execute()
+            st.success(f"Erfolgreich gebucht! {menge} Stunden wurden vom Konto abgezogen.")
+            st.rerun()
+        else:
+            st.warning("Bitte geben Sie Stunden und einen Grund an.")
+
 
 
 def show_einstellungen():
