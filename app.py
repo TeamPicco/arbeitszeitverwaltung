@@ -7,8 +7,8 @@ from pages import admin_dashboard, mitarbeiter_dashboard
 
 # --- 1. SEITEN-KONFIGURATION ---
 st.set_page_config(
-    page_title="CrewBase Piccolo - Terminal",
-    page_icon="⏰",
+    page_title="🥩 CrewBase Piccolo - Terminal",
+    page_icon="🥩",
     layout="centered"
 )
 
@@ -29,20 +29,21 @@ def berechne_pause_minuten(start_iso, ende_iso):
 
 # --- 3. HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-   (" 🥩Crew Piccolo")
+    st.title("🥩 CrewBase Piccolo")
     
+    # Tabs für die Trennung von Stempeluhr und Admin-Bereich
     tab_stempel, tab_login = st.tabs(["🕒 Schnell-Stempeln (PIN)", "🔐 Management Login"])
     
     with tab_stempel:
         st.subheader("Mitarbeiter-Terminal")
         
-        # FIX: Wir prüfen, ob wir einen Reset brauchen
+        # Reset-Logik falls eine Aktion ausgeführt wurde
         if st.session_state.get("trigger_reset"):
             st.session_state["terminal_pin_entry"] = ""
             st.session_state["trigger_reset"] = False
             st.rerun()
 
-        # PIN-Eingabe
+        # PIN-Eingabe Widget
         pin_input = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
         
         if len(pin_input) == 4:
@@ -115,7 +116,7 @@ if not st.session_state.get('logged_in'):
                 st.error("❌ PIN ungültig.")
 
     with tab_login:
-        st.subheader("Büro-Anmeldung")
+        st.subheader("Management Login")
         with st.form("admin_login_form"):
             b_nr = st.text_input("Betriebsnummer", value="20262204")
             u_name = st.text_input("Benutzername")
@@ -132,8 +133,13 @@ if not st.session_state.get('logged_in'):
                 else:
                     st.error("❌ Login fehlgeschlagen.")
 
+# --- 4. ROUTING NACH LOGIN ---
 else:
     if st.session_state.is_admin:
         admin_dashboard.show_admin_dashboard()
     else:
         mitarbeiter_dashboard.show_mitarbeiter_dashboard()
+    
+    if st.sidebar.button("Abmelden"):
+        st.session_state.clear()
+        st.rerun()
