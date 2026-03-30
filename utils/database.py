@@ -33,6 +33,7 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
             user = u_res.data[0]
             if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
                 user['betrieb_name'] = betrieb['name']
+                user['betrieb_id'] = betrieb['id']
                 return user
         return None
     except Exception as e:
