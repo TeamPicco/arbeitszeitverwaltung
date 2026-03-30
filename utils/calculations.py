@@ -435,3 +435,31 @@ def berechne_arbeitsstunden_mit_pause(start_zeit: time, ende_zeit: time) -> tupl
         total_saldo += (ist_monat - soll_stunden)
         
     return round(total_saldo, 2)
+    def berechne_azk_monat(ist_stunden: float, soll_stunden: float) -> float:
+    """
+    Berechnet den Saldo für einen Monat. 
+    Wichtig: Hier kein max(0, ...) verwenden, damit negative Werte erlaubt sind!
+    """
+    return round(ist_stunden - soll_stunden, 2)
+
+def berechne_kumulierten_status(mitarbeiter_id, bis_datum, supabase):
+    """
+    Holt alle Monate bis heute und verrechnet Ist mit Soll.
+    """
+    # 1. Alle Einträge aus Zeiterfassung holen
+    records = supabase.table("zeiterfassung").select("stunden, monat, jahr").eq("mitarbeiter_id", mitarbeiter_id).execute()
+    
+    # 2. Soll-Stunden aus der Mitarbeiter-Tabelle holen
+    ma_data = supabase.table("mitarbeiter").select("soll_stunden").eq("id", mitarbeiter_id).single().execute()
+    monatliches_soll = ma_data.data.get('soll_stunden', 160) # Standard 160 falls leer
+
+    # 3. Verrechnung
+    # Wir zählen, wie viele Monate bereits erfasst wurden
+    monate_ids = set((r['monat'], r['jahr']) for r in records.data)
+    anzahl_monate = len(monate_ids)
+    
+    gesamt_ist = sum(r['stunden'] for r in records.data)
+    gesamt_soll = anzahl_monate * monatliches_soll
+    
+    # Hier entstehen die Minusstunden!
+    return gesamt_ist - gesamt_soll
