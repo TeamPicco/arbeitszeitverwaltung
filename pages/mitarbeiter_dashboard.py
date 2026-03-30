@@ -1142,28 +1142,42 @@ def show_urlaubskalender():
         
     except Exception as e:
         st.error(f"Fehler beim Laden der Urlaube: {str(e)}")
-    def render_my_documents():
+  def render_my_documents():
+    """Zeigt dem Mitarbeiter seine freigegebenen Dokumente an."""
     st.header("📄 Meine Dokumente")
-    # Hier folgt der restliche Code, den ich dir gegeben habe...
+    
+    # 1. Verbindung zu Supabase herstellen
+    from utils.database import get_supabase_client
     supabase = get_supabase_client()
     
-    # ID des aktuell eingeloggten Mitarbeiters (aus der Session)
+    # 2. Aktuelle Mitarbeiter-ID aus der Session abrufen
+    # (Stelle sicher, dass 'user_id' beim Login in den session_state geladen wird)
     current_ma_id = st.session_state.get('user_id') 
 
-    # Dokumente aus der DB laden
-    docs = supabase.table("mitarbeiter_dokumente").select("*").eq("mitarbeiter_id", current_ma_id).execute()
+    if not current_ma_id:
+        st.warning("Mitarbeiter-ID nicht gefunden. Bitte neu einloggen.")
+        return
 
-    if not docs.data:
-        st.info("Noch keine Dokumente hinterlegt.")
-    else:
-        for doc in docs.data:
-            with st.container():
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.write(f"**{doc['name']}**")
-                    st.caption(f"Typ: {doc['typ']} | Erstellt am: {doc['erstellt_am'][:10]}")
-                with col2:
-                    st.link_button("⬇️ Download", doc['file_url'])
-                st.divider()
+    # 3. Dokumente aus der Datenbank abrufen
+    try:
+        docs = supabase.table("mitarbeiter_dokumente").select("*").eq("mitarbeiter_id", current_ma_id).execute()
 
+        if not docs.data:
+            st.info("Noch keine Dokumente für Sie hinterlegt.")
+        else:
+            st.write("Hier finden Sie Ihre Lohnabrechnungen und Verträge:")
+            for doc in docs.data:
+                with st.container():
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**{doc['name']}**")
+                        st.caption(f"Typ: {doc['typ']} | Erstellt am: {doc['erstellt_am'][:10]}")
+                    with col2:
+                        # Der Button führt direkt zum PDF im Supabase-Storage
+                        st.link_button("⬇️ Download", doc['file_url'])
+                    st.divider()
+    except Exception as e:
+        st.error(f"Fehler beim Laden der Dokumente: {e}")
+
+# Vergiss nicht, die Funktion am Ende auch aufzurufen:
 render_my_documents()
