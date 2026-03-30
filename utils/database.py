@@ -21,21 +21,8 @@ def get_supabase_client() -> Client:
     """Gibt den Client aus dem Session State zurück"""
     return init_supabase_client()
 
-def verify_credentials(username, password):
-    """Fallback-Funktion für app.py (ohne Betriebsnummer)"""
-    supabase = get_supabase_client()
-    try:
-        res = supabase.table('users').select('*').eq('username', username).eq('is_active', True).execute()
-        if res.data:
-            user = res.data[0]
-            if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                return user
-    except Exception as e:
-        st.error(f"Datenbankfehler: {e}")
-    return None
-
 def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password: str) -> Optional[Dict[str, Any]]:
-    """Haupt-Login-Funktion für app.py (mit Betriebsnummer)"""
+    """Login-Funktion mit Betriebsnummer (Mandantenfähigkeit)"""
     try:
         supabase = get_supabase_client()
         # 1. Betrieb prüfen
@@ -57,8 +44,18 @@ def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password
         st.error(f"Login-Fehler: {e}")
         return None
 
+def update_last_login(user_id: str):
+    """Aktualisiert den Zeitstempel des letzten Logins (Wird von app.py gesucht)"""
+    try:
+        supabase = get_supabase_client()
+        supabase.table('users').update({
+            'last_login': datetime.now().isoformat()
+        }).eq('id', user_id).execute()
+    except Exception:
+        pass
+
 def check_and_save_monats_abschluss(mitarbeiter_id, monat, jahr):
-    """Berechnet Differenz (Ist - Soll) und speichert sie fest in der DB."""
+    """Speichert den Saldo fest in der azk_historie Tabelle"""
     supabase = get_supabase_client()
     # Ist-Stunden
     res = supabase.table("zeiterfassung").select("stunden").eq("mitarbeiter_id", mitarbeiter_id).eq("monat", monat).eq("jahr", jahr).execute()
@@ -75,7 +72,7 @@ def check_and_save_monats_abschluss(mitarbeiter_id, monat, jahr):
     return diff
 
 def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes):
-    """Sicherer Upload via REST API (behebt SyntaxError)"""
+    """Sicherer Upload via REST API"""
     url = os.getenv("SUPABASE_URL")
     service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
     headers = {
