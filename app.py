@@ -81,3 +81,32 @@ else:
         admin_dashboard.show_admin_dashboard()
     else:
         mitarbeiter_dashboard.show_mitarbeiter_dashboard()
+
+# --- LOGIK FÜR DAS STEMPEL-TERMINAL ---
+if len(pin_input) == 4:
+    res = supabase.table("mitarbeiter").select("id, vorname").eq("pin", pin_input).execute()
+    if res.data:
+        ma = res.data[0]
+        heute = datetime.now().date().isoformat()
+        
+        # 1. Dienstplan für heute prüfen
+        plan_res = supabase.table("dienstplan").select("start_zeit").eq("mitarbeiter_id", ma['id']).eq("datum", heute).execute()
+        
+        col1, col2 = st.columns(2)
+        if col1.button("🟢 KOMMEN", key="kommen_btn", use_container_width=True):
+            echte_zeit = datetime.now()
+            start_zeit_erfassung = echte_zeit.strftime("%H:%M:%S")
+            
+            if plan_res.data:
+                geplanter_start = datetime.strptime(plan_res.data[0]['start_zeit'], "%H:%M:%S").time()
+                # Wenn zu früh eingeloggt: Nutze die Zeit aus dem Schichtplan
+                if echte_zeit.time() < geplanter_start:
+                    start_zeit_erfassung = plan_res.data[0]['start_zeit']
+                    st.info(f"Früheres Einloggen ignoriert. Startzeit auf Planzeit ({start_zeit_erfassung[:5]}) gesetzt.")
+
+            supabase.table("zeiterfassung").insert({
+                "mitarbeiter_id": ma['id'], "datum": heute,
+                "start_zeit": start_zeit_erfassung,
+                "monat": echte_zeit.month, "jahr": echte_zeit.year
+            }).execute()
+            st.toast(f"Eingestempelt als: {start_zeit_erfassung[:5]}")
