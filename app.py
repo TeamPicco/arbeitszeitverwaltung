@@ -27,22 +27,22 @@ def berechne_pause_minuten(start_iso, ende_iso):
     except Exception:
         return 0
 
-def reset_to_pin_mask():
-    """Löscht die PIN-Eingabe und kehrt zum Startzustand zurück."""
-    time.sleep(2) # Kurze Pause zum Lesen der Bestätigung
-    if "terminal_pin_entry" in st.session_state:
-        st.session_state["terminal_pin_entry"] = ""
-    st.rerun()
-
 # --- 3. HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    st.title("🥩 CrewBase Piccolo")
+   (" 🥩Crew Piccolo")
     
     tab_stempel, tab_login = st.tabs(["🕒 Schnell-Stempeln (PIN)", "🔐 Management Login"])
     
     with tab_stempel:
         st.subheader("Mitarbeiter-Terminal")
-        # PIN-Eingabe (leert sich nach Aktion automatisch)
+        
+        # FIX: Wir prüfen, ob wir einen Reset brauchen
+        if st.session_state.get("trigger_reset"):
+            st.session_state["terminal_pin_entry"] = ""
+            st.session_state["trigger_reset"] = False
+            st.rerun()
+
+        # PIN-Eingabe
         pin_input = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
         
         if len(pin_input) == 4:
@@ -66,7 +66,7 @@ if not st.session_state.get('logged_in'):
                     jetzt = datetime.now()
                     start_zeit_final = jetzt.strftime("%H:%M:%S")
                     
-                    # Dienstplan-Check (Schutz vor zu frühem Einloggen)
+                    # Dienstplan-Check
                     plan_res = supabase.table("dienstplan").select("start_zeit").eq("mitarbeiter_id", ma_id).eq("datum", heute_str).execute()
                     if plan_res.data:
                         plan_start = plan_res.data[0]['start_zeit']
@@ -78,16 +78,20 @@ if not st.session_state.get('logged_in'):
                         "mitarbeiter_id": ma_id, "datum": heute_str,
                         "start_zeit": start_zeit_final, "monat": jetzt.month, "jahr": jetzt.year
                     }).execute()
-                    st.success("✅ Einstempeln erfolgreich! System bereit für nächsten Mitarbeiter...")
-                    reset_to_pin_mask()
+                    st.success("✅ Erfasst! System setzt zurück...")
+                    st.session_state["trigger_reset"] = True
+                    time.sleep(1.5)
+                    st.rerun()
 
                 # --- GEHEN ---
                 if col2.button("🔴 GEHEN", key=f"btn_geh_{ma_id}", use_container_width=True):
                     supabase.table("zeiterfassung").update({
                         "ende_zeit": datetime.now().strftime("%H:%M:%S")
                     }).eq("mitarbeiter_id", ma_id).eq("datum", heute_str).execute()
-                    st.success("👋 Feierabend! System bereit für nächsten Mitarbeiter...")
-                    reset_to_pin_mask()
+                    st.success("👋 Feierabend! System setzt zurück...")
+                    st.session_state["trigger_reset"] = True
+                    time.sleep(1.5)
+                    st.rerun()
 
                 st.divider()
                 c3, c4 = st.columns(2)
@@ -95,18 +99,18 @@ if not st.session_state.get('logged_in'):
                 # --- PAUSE START ---
                 if c3.button("☕ PAUSE START", key=f"btn_ps_{ma_id}", use_container_width=True):
                     supabase.table("zeiterfassung").update({"pause_start": datetime.now().isoformat()}).eq("mitarbeiter_id", ma_id).eq("datum", heute_str).execute()
-                    st.warning("☕ Pause gestartet. Bis gleich!")
-                    reset_to_pin_mask()
+                    st.session_state["trigger_reset"] = True
+                    st.rerun()
 
                 # --- PAUSE ENDE ---
                 if c4.button("🔄 PAUSE ENDE", key=f"btn_pe_{ma_id}", use_container_width=True):
                     if aktuelle_daten.get('pause_start'):
                         minuten = berechne_pause_minuten(aktuelle_daten['pause_start'], datetime.now().isoformat())
                         supabase.table("zeiterfassung").update({"pause_ende": datetime.now().isoformat(), "pause_minuten": minuten}).eq("mitarbeiter_id", ma_id).eq("datum", heute_str).execute()
-                        st.success(f"✅ Pause beendet ({minuten} Min.). Weiter geht's!")
-                        reset_to_pin_mask()
-                    else:
-                        st.error("Keine laufende Pause gefunden.")
+                        st.success(f"✅ Pause beendet ({minuten} Min.)")
+                        st.session_state["trigger_reset"] = True
+                        time.sleep(1.5)
+                        st.rerun()
             else:
                 st.error("❌ PIN ungültig.")
 
@@ -121,8 +125,7 @@ if not st.session_state.get('logged_in'):
                 if user:
                     st.session_state.update({
                         "logged_in": True, "user_id": user['id'], "role": user['role'],
-                        "vorname": user.get('vorname', u_name), "is_admin": user['role'] == 'admin',
-                        "mitarbeiter_id": user.get('mitarbeiter_id')
+                        "vorname": user.get('vorname', u_name), "is_admin": user['role'] == 'admin'
                     })
                     update_last_login(user['id'])
                     st.rerun()
@@ -134,7 +137,3 @@ else:
         admin_dashboard.show_admin_dashboard()
     else:
         mitarbeiter_dashboard.show_mitarbeiter_dashboard()
-    
-    if st.sidebar.button("Abmelden"):
-        st.session_state.clear()
-        st.rerun()
