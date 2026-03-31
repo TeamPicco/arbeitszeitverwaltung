@@ -76,6 +76,33 @@ CREATE TABLE IF NOT EXISTS public.zeit_eintraege (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Legacy-Kompatibilität: bestehende zeit_eintraege-Tabelle erweitern
+ALTER TABLE IF EXISTS public.zeit_eintraege
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS aktion TEXT,
+    ADD COLUMN IF NOT EXISTS zeitpunkt_utc TIMESTAMPTZ DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS quelle TEXT DEFAULT 'stempeluhr',
+    ADD COLUMN IF NOT EXISTS geraet_id TEXT,
+    ADD COLUMN IF NOT EXISTS verifiziert BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS notiz TEXT,
+    ADD COLUMN IF NOT EXISTS meta JSONB DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Backfill aus möglichen Legacy-Spalten (zeitpunkt)
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='zeit_eintraege' AND column_name='zeitpunkt'
+    ) THEN
+        EXECUTE 'UPDATE public.zeit_eintraege
+                 SET zeitpunkt_utc = COALESCE(zeitpunkt_utc, zeitpunkt)
+                 WHERE zeitpunkt_utc IS NULL';
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_zeit_eintraege_mitarbeiter_zeitpunkt
     ON public.zeit_eintraege(mitarbeiter_id, zeitpunkt_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_zeit_eintraege_betrieb_zeitpunkt
