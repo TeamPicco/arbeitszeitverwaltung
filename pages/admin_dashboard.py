@@ -6,7 +6,11 @@ import streamlit as st
 from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
 from utils.absences import store_absence
 from utils.database import get_supabase_client, update_mitarbeiter, upload_file_to_storage
-from utils.historischer_import import importiere_in_crewbase, lese_excel_upload
+from utils.historischer_import import (
+    dry_run_import_summary,
+    importiere_in_crewbase,
+    lese_upload_datei,
+)
 from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month
 
@@ -166,6 +170,82 @@ def _show_absenzen_tab():
 def _show_mitarbeiter_stammdaten_tab():
     st.subheader("👥 Mitarbeiter-Stammdaten & Dokumente")
     supabase = get_supabase_client()
+    alle_ma = _load_admin_mitarbeiter()
+
+    with st.expander("➕ Mitarbeiter neu anlegen", expanded=False):
+        with st.form("neuer_mitarbeiter_form"):
+            n1, n2, n3 = st.columns(3)
+            with n1:
+                new_vorname = st.text_input("Vorname*", value="")
+            with n2:
+                new_nachname = st.text_input("Nachname*", value="")
+            with n3:
+                new_personalnummer = st.text_input("Personalnummer*", value="")
+
+            n4, n5, n6 = st.columns(3)
+            with n4:
+                new_email = st.text_input("E-Mail", value="")
+            with n5:
+                new_telefon = st.text_input("Telefon", value="")
+            with n6:
+                new_beschaeftigungsart = st.text_input("Beschäftigungsart", value="")
+
+            n7, n8, n9 = st.columns(3)
+            with n7:
+                new_strasse = st.text_input("Straße", value="")
+            with n8:
+                new_plz = st.text_input("PLZ", value="")
+            with n9:
+                new_ort = st.text_input("Ort", value="")
+
+            n10, n11, n12 = st.columns(3)
+            with n10:
+                new_eintritt = st.date_input("Eintrittsdatum", value=date.today(), format="DD.MM.YYYY")
+            with n11:
+                new_soll = st.number_input("Monatliche Sollstunden", min_value=0.0, value=160.0, step=0.5)
+            with n12:
+                new_lohn = st.number_input("Stundenlohn (brutto)", min_value=0.0, value=0.0, step=0.5)
+
+            n13, n14, n15 = st.columns(3)
+            with n13:
+                new_urlaub = st.number_input("Urlaubstage/Jahr", min_value=0.0, value=28.0, step=0.5)
+            with n14:
+                new_resturlaub = st.number_input("Resturlaub Vorjahr", min_value=0.0, value=0.0, step=0.5)
+            with n15:
+                new_geburtsdatum = st.date_input("Geburtsdatum", value=date(1990, 1, 1), format="DD.MM.YYYY")
+
+            create = st.form_submit_button("Mitarbeiter anlegen", type="primary", use_container_width=True)
+            if create:
+                if not new_vorname.strip() or not new_nachname.strip() or not new_personalnummer.strip():
+                    st.error("Bitte Vorname, Nachname und Personalnummer ausfüllen.")
+                else:
+                    payload = {
+                        "betrieb_id": st.session_state.get("betrieb_id"),
+                        "vorname": new_vorname.strip(),
+                        "nachname": new_nachname.strip(),
+                        "personalnummer": new_personalnummer.strip(),
+                        "email": new_email.strip() or None,
+                        "telefon": new_telefon.strip() or None,
+                        "beschaeftigungsart": new_beschaeftigungsart.strip() or None,
+                        "strasse": new_strasse.strip() or None,
+                        "plz": new_plz.strip() or None,
+                        "ort": new_ort.strip() or None,
+                        "eintrittsdatum": new_eintritt.isoformat(),
+                        "geburtsdatum": new_geburtsdatum.isoformat(),
+                        "monatliche_soll_stunden": float(new_soll),
+                        "stundenlohn_brutto": float(new_lohn),
+                        "jahres_urlaubstage": float(new_urlaub),
+                        "resturlaub_vorjahr": float(new_resturlaub),
+                        "sonntagszuschlag_aktiv": False,
+                        "feiertagszuschlag_aktiv": False,
+                    }
+                    try:
+                        supabase.table("mitarbeiter").insert(payload).execute()
+                        st.success("Mitarbeiter erfolgreich angelegt.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Anlage fehlgeschlagen: {e}")
+
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
         st.info("Keine Mitarbeiter vorhanden.")
@@ -423,7 +503,10 @@ def _show_mitarbeiter_stammdaten_tab():
     try:
         vertr_res = (
             supabase.table("vertraege")
-            .select("gueltig_ab, gueltig_bis, soll_stunden_monat, wochenstunden, urlaubstage_jahr, stundenlohn_brutto")
+            .select(
+                "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
+                "wochenstunden, urlaubstage_jahr, stundenlohn_brutto"
+            )
             .eq("mitarbeiter_id", ma["id"])
             .order("gueltig_ab", desc=True)
             .limit(20)
@@ -437,6 +520,7 @@ def _show_mitarbeiter_stammdaten_tab():
         st.dataframe(
             [
                 {
+                    "ID": v.get("id"),
                     "Gültig ab": v.get("gueltig_ab"),
                     "Gültig bis": v.get("gueltig_bis") or "unbefristet",
                     "Soll (Monat)": float(v.get("soll_stunden_monat") or 0.0),
@@ -449,6 +533,104 @@ def _show_mitarbeiter_stammdaten_tab():
             use_container_width=True,
             hide_index=True,
         )
+
+        st.markdown("#### Vertragsversionen bearbeiten")
+        for v in vertraege:
+            vid = v.get("id")
+            if vid is None:
+                continue
+            with st.expander(
+                f"Vertrag #{vid} | ab {v.get('gueltig_ab')} | Soll {float(v.get('soll_stunden_monat') or 0):.2f}h",
+                expanded=False,
+            ):
+                with st.form(f"vertrag_edit_{vid}"):
+                    e1, e2, e3 = st.columns(3)
+                    with e1:
+                        vg_ab = st.date_input(
+                            "Gültig ab",
+                            value=_safe_date(v.get("gueltig_ab")) or date.today(),
+                            format="DD.MM.YYYY",
+                            key=f"vg_ab_{vid}",
+                        )
+                    with e2:
+                        vg_befristet = st.checkbox(
+                            "Befristet",
+                            value=bool(v.get("gueltig_bis")),
+                            key=f"vg_bef_{vid}",
+                        )
+                    with e3:
+                        vg_bis = st.date_input(
+                            "Gültig bis",
+                            value=_safe_date(v.get("gueltig_bis")) or date.today(),
+                            format="DD.MM.YYYY",
+                            disabled=not vg_befristet,
+                            key=f"vg_bis_{vid}",
+                        )
+
+                    e4, e5, e6 = st.columns(3)
+                    with e4:
+                        vg_wochen = st.number_input(
+                            "Wochenstunden",
+                            min_value=0.0,
+                            value=float(v.get("wochenstunden") or 0.0),
+                            step=0.5,
+                            key=f"vg_wochen_{vid}",
+                        )
+                    with e5:
+                        vg_soll = st.number_input(
+                            "Sollstunden/Monat",
+                            min_value=0.0,
+                            value=float(v.get("soll_stunden_monat") or 0.0),
+                            step=0.5,
+                            key=f"vg_soll_{vid}",
+                        )
+                    with e6:
+                        vg_urlaub = st.number_input(
+                            "Urlaub/Jahr",
+                            min_value=0.0,
+                            value=float(v.get("urlaubstage_jahr") or 0.0),
+                            step=0.5,
+                            key=f"vg_urlaub_{vid}",
+                        )
+
+                    vg_lohn = st.number_input(
+                        "Stundenlohn",
+                        min_value=0.0,
+                        value=float(v.get("stundenlohn_brutto") or 0.0),
+                        step=0.5,
+                        key=f"vg_lohn_{vid}",
+                    )
+
+                    s_col, d_col = st.columns(2)
+                    with s_col:
+                        save_vertrag = st.form_submit_button("Vertrag speichern", type="primary", use_container_width=True)
+                    with d_col:
+                        delete_vertrag = st.form_submit_button("Vertrag löschen", use_container_width=True)
+
+                    if save_vertrag:
+                        try:
+                            supabase.table("vertraege").update(
+                                {
+                                    "gueltig_ab": vg_ab.isoformat(),
+                                    "gueltig_bis": vg_bis.isoformat() if vg_befristet else None,
+                                    "wochenstunden": float(vg_wochen),
+                                    "soll_stunden_monat": float(vg_soll),
+                                    "urlaubstage_jahr": float(vg_urlaub),
+                                    "stundenlohn_brutto": float(vg_lohn),
+                                }
+                            ).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            st.success("Vertrag aktualisiert.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Vertrag konnte nicht gespeichert werden: {e}")
+
+                    if delete_vertrag:
+                        try:
+                            supabase.table("vertraege").delete().eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            st.success("Vertrag gelöscht.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Vertrag konnte nicht gelöscht werden: {e}")
     else:
         st.info("Keine Verträge gespeichert.")
 
@@ -507,8 +689,8 @@ def _show_planovo_import_tab():
         help="Löscht bestehende Importdaten im Zielmonat und schreibt den Monat neu, damit keine Doppeleinträge entstehen.",
     )
     upload = st.file_uploader(
-        "Planovo Excel-Datei (.xlsx)",
-        type=["xlsx"],
+        "Planovo Datei (.xlsx oder .csv)",
+        type=["xlsx", "csv"],
         key="planovo_import_upload",
     )
 
@@ -516,7 +698,7 @@ def _show_planovo_import_tab():
         st.info("Bitte eine Planovo-Exportdatei hochladen.")
         return
 
-    parsed = lese_excel_upload(upload)
+    parsed = lese_upload_datei(upload)
     fehler = parsed.get("fehler") or []
     if fehler:
         st.error("Datei konnte nicht verarbeitet werden.")
@@ -546,6 +728,26 @@ def _show_planovo_import_tab():
             )
         st.markdown("#### Vorschau (erste 20 Zeilen)")
         st.dataframe(preview_rows, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Trockenlauf (vor Import)")
+    dryrun = dry_run_import_summary(
+        parsed,
+        mitarbeiter_id=ma["id"],
+        supabase_client=supabase,
+    )
+    if dryrun.get("ok"):
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Würde importieren", int(dryrun.get("would_import") or 0))
+        d2.metric("Würde überspringen", int(dryrun.get("would_skip") or 0))
+        d3.metric("Würde löschen (Zeit)", int(dryrun.get("would_delete_zeiterfassung") or 0))
+        d4.metric("Würde löschen (Krank)", int(dryrun.get("would_delete_krankheitstage") or 0))
+        st.caption(
+            f"Zeitraum: {dryrun.get('range_start')} bis {dryrun.get('range_end')} | "
+            f"Legacy-Konto-Löschung: {int(dryrun.get('would_delete_arbeitszeitkonto') or 0)}"
+        )
+    else:
+        for err in dryrun.get("fehler", []):
+            st.warning(err)
 
     if st.button("Planovo-Daten importieren", type="primary", use_container_width=True):
         with st.spinner("Import läuft..."):

@@ -1,6 +1,8 @@
 from datetime import date
+from pathlib import Path
+import tempfile
 
-from utils.historischer_import import importiere_in_crewbase
+from utils.historischer_import import dry_run_import_summary, importiere_in_crewbase, lese_csv_datei
 
 
 class FakeResponse:
@@ -253,3 +255,46 @@ def test_import_month_overwrite_removes_existing_entries():
     assert all(r.get("id") != 77 for r in jan_rows)
     # März-Eintrag bleibt unberührt.
     assert any(r.get("id") == 88 for r in mar_rows)
+
+
+def test_dry_run_counts_existing_rows():
+    supabase = FakeSupabase()
+    supabase.table("zeiterfassung").rows.append(
+        {"id": 1, "mitarbeiter_id": 1, "datum": "2026-01-05", "quelle": "historischer_import"}
+    )
+    daten = {
+        "zeitraum": {"von": date(2026, 1, 1), "bis": date(2026, 1, 31), "monat": 1, "jahr": 2026},
+        "tage": [
+            {"datum": date(2026, 1, 10), "ist": 8.0, "ist_korrekturzeile": False},
+            {"datum": date(2026, 1, 11), "ist": 0.0, "ist_korrekturzeile": False},
+        ],
+    }
+    res = dry_run_import_summary(daten, mitarbeiter_id=1, supabase_client=supabase)
+    assert res["ok"] is True
+    assert res["would_import"] == 1
+    assert res["would_skip"] == 1
+    assert res["would_delete_zeiterfassung"] >= 1
+
+
+def test_csv_reader_parses_minimal_planovo_format():
+    csv_content = (
+        "Arbeitszeitauswertung\n"
+        "01.01.2026 - 31.01.2026\n"
+        "\n"
+        "Silke Beispiel - 1001\n"
+        "Datum;Tag;Soll;Plan;Ist;Abwesend;Saldo;Korrektur;Korrektur Notiz;Lauf. Saldo;Std. Konto;Lohn\n"
+        "\n"
+        "15.01.2026;Do;8;8;8;0;0;0;;10;10;120\n"
+        "Summe;;;;;;;0;;;10;10;120\n"
+    )
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
+        tmp.write(csv_content.encode("utf-8"))
+        tmp_path = tmp.name
+    try:
+        parsed = lese_csv_datei(tmp_path)
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    assert not parsed.get("fehler")
+    assert parsed.get("zeitraum", {}).get("monat") == 1
+    assert len(parsed.get("tage", [])) >= 1
