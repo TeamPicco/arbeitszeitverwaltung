@@ -17,6 +17,20 @@ EVENT_BREAK_START = "break_start"
 EVENT_BREAK_END = "break_end"
 
 
+def _is_rls_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "42501" in msg or "row-level security" in msg or "violates row-level security policy" in msg
+
+
+def _service_role_client_or_none():
+    try:
+        from utils.database import get_service_role_client
+
+        return get_service_role_client()
+    except Exception:
+        return None
+
+
 def _normalize_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     parsed: List[Dict[str, Any]] = []
     for row in rows or []:
@@ -220,14 +234,29 @@ def register_time_event(
 
     # Historie laden (letzte 7 Tage reichen für Restzeitchecks).
     since = (event_time - timedelta(days=7)).isoformat()
-    ev_res = (
-        supabase.table("zeit_eintraege")
-        .select("*")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .gte("zeitpunkt_utc", since)
-        .order("zeitpunkt_utc")
-        .execute()
-    )
+    try:
+        ev_res = (
+            supabase.table("zeit_eintraege")
+            .select("*")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("zeitpunkt_utc", since)
+            .order("zeitpunkt_utc")
+            .execute()
+        )
+    except Exception as exc:
+        if not _is_rls_error(exc):
+            raise
+        svc = _service_role_client_or_none()
+        if svc is None:
+            return {"ok": False, "error": f"RLS-Fehler beim Lesen der Zeit-Events: {exc}"}
+        ev_res = (
+            svc.table("zeit_eintraege")
+            .select("*")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("zeitpunkt_utc", since)
+            .order("zeitpunkt_utc")
+            .execute()
+        )
     events = _normalize_event_rows(ev_res.data or [])
 
     ok, reason = validate_event_transition(events, action)
@@ -243,7 +272,17 @@ def register_time_event(
         "geraet_id": geraet_id,
         "created_by": created_by,
     }
-    supabase.table("zeit_eintraege").insert(insert_payload).execute()
+    write_client = supabase
+    try:
+        write_client.table("zeit_eintraege").insert(insert_payload).execute()
+    except Exception as exc:
+        if not _is_rls_error(exc):
+            raise
+        svc = _service_role_client_or_none()
+        if svc is None:
+            return {"ok": False, "error": f"RLS-Fehler beim Schreiben der Zeit-Events: {exc}"}
+        write_client = svc
+        write_client.table("zeit_eintraege").insert(insert_payload).execute()
 
     # Eventliste inkl. neuem Event.
     events.append({"aktion": action, "_ts": event_time, "zeitpunkt_utc": event_time})
@@ -270,7 +309,7 @@ def register_time_event(
                 break_minutes=break_minutes,
                 source=source,
             )
-            supabase.table("zeiterfassung").upsert(
+            write_client.table("zeiterfassung").upsert(
                 legacy,
                 on_conflict="mitarbeiter_id,datum,start_zeit",
             ).execute()
@@ -280,13 +319,13 @@ def register_time_event(
     if findings:
         # Optional auf Legacy-Tabelle spiegeln, wenn Spalte vorhanden.
         try:
-            supabase.table("zeiterfassung").update(
+            write_client.table("zeiterfassung").update(
                 {"compliance_warnungen": [f.__dict__ for f in findings]}
             ).eq("mitarbeiter_id", mitarbeiter_id).eq("datum", day.isoformat()).execute()
         except Exception:
             pass
         try:
-            supabase.table("audit_logs").insert(
+            write_client.table("audit_logs").insert(
                 {
                     "betrieb_id": betrieb_id,
                     "mitarbeiter_id": mitarbeiter_id,
