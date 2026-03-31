@@ -3,10 +3,17 @@ Mastergeräte-Verwaltung
 Geräte-Identifikation, Aktivierung und Zugriffskontrolle
 """
 
-import streamlit as st
 import hashlib
-import json
+from datetime import datetime, timezone
+
+import streamlit as st
+
 from utils.database import get_supabase_client
+from utils.device_authorization import (
+    MAX_AUTHORIZED_DEVICES,
+    issue_device_verification_code,
+    verify_and_authorize_device,
+)
 
 
 def get_device_id():
@@ -34,7 +41,7 @@ def get_device_id():
         st.session_state.device_id = device_hash
         
         return device_hash
-    except:
+    except Exception:
         # Fallback: Generiere zufällige ID
         import uuid
         device_id = str(uuid.uuid4())[:16]
@@ -59,7 +66,7 @@ def is_device_activated(betrieb_id: int):
         
         # Prüfe ob Gerät in aktivierten Geräten gespeichert ist
         result = supabase.table('mastergeraete').select('*').eq(
-            'geraete_id', device_id
+            'geraet_id', device_id
         ).eq('betrieb_id', betrieb_id).eq('aktiv', True).execute()
         
         if result.data and len(result.data) > 0:
@@ -101,8 +108,8 @@ def activate_device_with_code(code: str, betrieb_id: int):
         
         # Aktualisiere Gerät mit Device-ID
         supabase.table('mastergeraete').update({
-            'geraete_id': device_id,
-            'letzter_kontakt': 'now()'
+            'geraet_id': device_id,
+            'letzter_zugriff': datetime.now(timezone.utc).isoformat(),
         }).eq('id', mastergeraet['id']).execute()
         
         return True, mastergeraet['name']
@@ -135,6 +142,45 @@ def check_device_or_mobile_permission(mitarbeiter: dict, betrieb_id: int):
         return True, f"Mastergerät: {device_name}"
     
     return False, "Keine Berechtigung"
+
+
+def issue_personal_device_code(mitarbeiter_id: int, betrieb_id: int, created_by: int | None = None) -> str:
+    """
+    Erstellt einen 6-stelligen Verifizierungscode für ein persönliches Mitarbeitergerät.
+    """
+    supabase = get_supabase_client()
+    device_fingerprint = get_device_id()
+    return issue_device_verification_code(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        device_fingerprint=device_fingerprint,
+        created_by=created_by,
+    )
+
+
+def authorize_personal_device(
+    mitarbeiter_id: int,
+    betrieb_id: int,
+    code: str,
+    authorized_by: int | None = None,
+):
+    """
+    Autorisiert ein persönliches Gerät für die Zeiterfassung.
+    """
+    supabase = get_supabase_client()
+    device_fingerprint = get_device_id()
+    result = verify_and_authorize_device(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        device_fingerprint=device_fingerprint,
+        code=code,
+        authorized_by=authorized_by,
+    )
+    if not result.get("ok"):
+        return False, result.get("reason", "Autorisierung fehlgeschlagen")
+    return True, f"Gerät autorisiert (max. {MAX_AUTHORIZED_DEVICES} Geräte)."
 
 
 def show_device_activation_dialog(betrieb_id: int):

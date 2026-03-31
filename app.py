@@ -1,8 +1,8 @@
 import streamlit as st
-import os
 import time
-from datetime import datetime, date
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
+from utils.time_utils import format_datetime_de, now_berlin
+from utils.zeit_events import EVENT_CLOCK_IN, EVENT_CLOCK_OUT, register_time_event
 from pages import admin_dashboard
 
 st.set_page_config(page_title="🥩 CrewBase Piccolo", page_icon="🥩", layout="wide")
@@ -24,21 +24,39 @@ if not st.session_state.get('logged_in'):
             res = supabase.table("mitarbeiter").select("*").eq("pin", pin).execute()
             if res.data:
                 ma = res.data[0]
-                heute = date.today().isoformat()
-                st.info(f"Hallo {ma['vorname']}! Schicht: {heute}")
+                st.info(f"Hallo {ma['vorname']}! Schicht: {now_berlin().strftime('%d.%m.%Y')}")
                 
                 c1, c2 = st.columns(2)
                 if c1.button("🟢 KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
-                    plan = supabase.table("dienstplan").select("start_zeit").eq("mitarbeiter_id", ma['id']).eq("datum", heute).execute()
-                    start = plan.data[0]['start_zeit'] if plan.data else datetime.now().strftime("%H:%M:%S")
-                    supabase.table("zeiterfassung").upsert({"mitarbeiter_id": ma['id'], "datum": heute, "start_zeit": start, "monat": date.today().month, "jahr": date.today().year}).execute()
-                    st.success(f"Eingestempelt (Plan: {start[:5]})")
+                    result = register_time_event(
+                        supabase,
+                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        mitarbeiter_id=ma["id"],
+                        action=EVENT_CLOCK_IN,
+                        source="terminal",
+                        created_by=st.session_state.get("user_id"),
+                    )
+                    if not result.get("ok"):
+                        st.error(result.get("error", "Einstempeln fehlgeschlagen."))
+                    else:
+                        st.success(f"Eingestempelt um {format_datetime_de(now_berlin())}")
                     st.session_state["trigger_reset"] = True
                     time.sleep(1.5); st.rerun()
 
                 if c2.button("🔴 GEHEN", key=f"g_{ma['id']}", use_container_width=True):
-                    supabase.table("zeiterfassung").update({"ende_zeit": datetime.now().strftime("%H:%M:%S")}).eq("mitarbeiter_id", ma['id']).eq("datum", heute).execute()
-                    st.success("Schönen Feierabend!"); st.session_state["trigger_reset"] = True
+                    result = register_time_event(
+                        supabase,
+                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        mitarbeiter_id=ma["id"],
+                        action=EVENT_CLOCK_OUT,
+                        source="terminal",
+                        created_by=st.session_state.get("user_id"),
+                    )
+                    if not result.get("ok"):
+                        st.error(result.get("error", "Ausstempeln fehlgeschlagen."))
+                    else:
+                        st.success("Schönen Feierabend!")
+                    st.session_state["trigger_reset"] = True
                     time.sleep(1.5); st.rerun()
             else: st.error("PIN unbekannt.")
 
@@ -50,7 +68,16 @@ if not st.session_state.get('logged_in'):
             if st.form_submit_button("Login"):
                 user = verify_credentials_with_betrieb(bnr, usr, pwd)
                 if user and user['role'] == 'admin':
-                    st.session_state.update({"logged_in": True, "is_admin": True})
+                    st.session_state.update(
+                        {
+                            "logged_in": True,
+                            "is_admin": True,
+                            "user_id": user.get("id"),
+                            "betrieb_id": user.get("betrieb_id"),
+                            "betrieb_name": user.get("betrieb_name"),
+                        }
+                    )
+                    update_last_login(str(user.get("id")))
                     st.rerun()
 else:
     admin_dashboard.show_admin_dashboard()
