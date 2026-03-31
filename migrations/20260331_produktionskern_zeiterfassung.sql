@@ -271,6 +271,21 @@ CREATE TABLE IF NOT EXISTS public.mitarbeiter_dokumente (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Legacy-Kompatibilität: bestehende mitarbeiter_dokumente-Tabelle erweitern
+ALTER TABLE IF EXISTS public.mitarbeiter_dokumente
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS name TEXT,
+    ADD COLUMN IF NOT EXISTS typ TEXT,
+    ADD COLUMN IF NOT EXISTS file_path TEXT,
+    ADD COLUMN IF NOT EXISTS file_url TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'aktiv',
+    ADD COLUMN IF NOT EXISTS gueltig_bis DATE,
+    ADD COLUMN IF NOT EXISTS metadaten JSONB DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS erstellt_von BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_mitarbeiter_dokumente_mitarbeiter
     ON public.mitarbeiter_dokumente(mitarbeiter_id, status);
 
@@ -295,6 +310,64 @@ CREATE TABLE IF NOT EXISTS public.schichten (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CHECK (ende_zeit_utc > start_zeit_utc)
 );
+
+-- Legacy-Kompatibilität: bestehende schichten-Tabelle erweitern
+ALTER TABLE IF EXISTS public.schichten
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS datum DATE,
+    ADD COLUMN IF NOT EXISTS start_zeit_utc TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS ende_zeit_utc TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS pause_minuten INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'geplant',
+    ADD COLUMN IF NOT EXISTS erstellt_von BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS bemerkung TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Backfill aus möglichen Legacy-Spalten start_zeit/ende_zeit + datum
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'schichten' AND column_name = 'start_zeit'
+    ) THEN
+        EXECUTE 'UPDATE public.schichten
+                 SET start_zeit_utc = COALESCE(
+                        start_zeit_utc,
+                        CASE
+                            WHEN datum IS NOT NULL AND start_zeit IS NOT NULL
+                            THEN (datum::text || '' '' || start_zeit::text)::timestamptz
+                            ELSE NULL
+                        END
+                 )
+                 WHERE start_zeit_utc IS NULL';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'schichten' AND column_name = 'ende_zeit'
+    ) THEN
+        EXECUTE 'UPDATE public.schichten
+                 SET ende_zeit_utc = COALESCE(
+                        ende_zeit_utc,
+                        CASE
+                            WHEN datum IS NOT NULL AND ende_zeit IS NOT NULL
+                            THEN (datum::text || '' '' || ende_zeit::text)::timestamptz
+                            ELSE NULL
+                        END
+                 )
+                 WHERE ende_zeit_utc IS NULL';
+    END IF;
+END $$;
+
+-- Fallback, damit Constraints/Indizes nicht wegen NULL-Spalten scheitern
+UPDATE public.schichten
+SET
+    status = COALESCE(status, 'geplant'),
+    start_zeit_utc = COALESCE(start_zeit_utc, NOW()),
+    ende_zeit_utc = COALESCE(ende_zeit_utc, NOW() + INTERVAL '1 hour')
+WHERE status IS NULL OR start_zeit_utc IS NULL OR ende_zeit_utc IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_schichten_mitarbeiter_datum
     ON public.schichten(mitarbeiter_id, datum);
