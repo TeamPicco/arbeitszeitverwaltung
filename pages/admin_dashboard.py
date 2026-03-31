@@ -1,40 +1,112 @@
 import streamlit as st
 from datetime import datetime, date, timedelta
-import pandas as pd
+import calendar
 from utils.database import get_supabase_client
-from utils.calculations import erstelle_zeitraum_auswertung
 
 def show_admin_dashboard():
-    st.set_page_config(page_title="Admin - CrewBase Piccolo", layout="wide")
     supabase = get_supabase_client()
     
-    st.title("🛡️ Admin-Management - Piccolo")
+    # --- STYLING (Edle Optik) ---
+    st.markdown("""
+        <style>
+        .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+        .stTabs [data-baseweb="tab"] {
+            background-color: #1e1e1e; border-radius: 10px 10px 0 0;
+            padding: 10px 20px; color: white;
+        }
+        .stTabs [aria-selected="true"] { background-color: #8A2BE2 !important; }
+        .shift-cell {
+            border: 1px solid #333; padding: 5px; border-radius: 5px;
+            text-align: center; cursor: pointer; min-height: 45px;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-    # Tabs für die Übersicht
-    tab_planung, tab_auswertung, tab_einstellungen = st.tabs([
-        "📅 Dienstplan (Vorlagen)", 
-        "📊 Zeitauswertung", 
-        "⚙️ System"
-    ])
+    st.title("🛡️ Admin-Zentrale - Piccolo")
 
-    # --- TAB 1: INTERAKTIVE DIENSTPLAN-ERSTELLUNG ---
+    # TABS
+    tab_planung, tab_auswertung, tab_personal = st.tabs(["📅 Monats-Dienstplan", "📊 Auswertung", "👥 Team"])
+
     with tab_planung:
-        st.header("Schichtplan per Klick")
-        st.info("Wählen Sie einen Tag aus, um eine Vorlage (Service, Küche, Orga) zuzuweisen.")
-
-        # Vorlagen aus der Datenbank laden
-        vorlagen_res = supabase.table("schicht_vorlagen").select("*").execute()
-        v_dict = {v['anzeige_name']: v for v in vorlagen_res.data}
-
-        # Mitarbeiter laden
-        ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname, bereich").execute()
+        # Monats-Navigation
+        c1, c2 = st.columns([2, 4])
+        heute = datetime.now()
+        gew_monat = c1.selectbox("Monat wählen", range(1, 13), index=heute.month-1)
+        jahr = heute.year
         
-        # Aktueller Monat
-        heute = date.today()
-        tage_im_monat = 31 # Vereinfacht für die Ansicht
+        st.subheader(f"Dienstplan für {calendar.month_name[gew_monat]} {jahr}")
 
+        # Mitarbeiter und Vorlagen laden
+        ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname, bereich").execute()
+        vorlagen_res = supabase.table("schicht_vorlagen").select("*").execute()
+        vorlagen_namen = {v['anzeige_name']: v for v in vorlagen_res.data}
+
+        # --- DAS GROSSE MONATS-GRID ---
+        anzahl_tage = calendar.monthrange(jahr, gew_monat)[1]
+        
+        # Header-Zeile mit Tagen
+        t_cols = st.columns([2] + [1] * anzahl_tage)
+        t_cols[0].write("**Mitarbeiter**")
+        for d in range(1, anzahl_tage + 1):
+            t_cols[d].write(f"**{d}**")
+
+        st.divider()
+
+        # Zeilen pro Mitarbeiter
         for ma in ma_res.data:
-            with st.expander(f"📌 {ma['vorname']} {ma['nachname']} ({ma['bereich']})", expanded=False):
+            m_cols = st.columns([2] + [1] * anzahl_tage)
+            m_cols[0].write(f"**{ma['vorname']}**")
+            
+            for d in range(1, anzahl_tage + 1):
+                with m_cols[d]:
+                    # Button als interaktive Kalenderzelle
+                    if st.button("➕", key=f"cell_{ma['id']}_{d}", help=f"Schicht für {ma['vorname']} am {d}.{gew_monat}. setzen"):
+                        st.session_state['edit_mode'] = {
+                            "ma_id": ma['id'], 
+                            "ma_name": ma['vorname'], 
+                            "datum": date(jahr, gew_monat, d)
+                        }
+
+        # --- POPUP-FENSTER (SIDEBAR) ZUM EINTRAGEN ---
+        if 'edit_mode' in st.session_state:
+            edit = st.session_state['edit_mode']
+            with st.sidebar:
+                st.header(f"📝 Dienst setzen")
+                st.write(f"**Mitarbeiter:** {edit['ma_name']}")
+                st.write(f"**Datum:** {edit['datum'].strftime('%d.%m.%Y')}")
+                
+                # Wahl 1: Aus Vorlage
+                auswahl = st.selectbox("Vorlage wählen", ["-"] + list(vorlagen_namen.keys()))
+                
+                st.divider()
+                st.write("Oder manuell:")
+                m_start = st.time_input("Start", value=datetime.strptime("17:00", "%H:%M").time())
+                m_ende = st.time_input("Ende", value=datetime.strptime("22:00", "%H:%M").time())
+                
+                col_s, col_l = st.columns(2)
+                if col_s.button("✅ Speichern", use_container_width=True):
+                    final_start = vorlagen_namen[auswahl]['start_zeit'] if auswahl != "-" else m_start.strftime("%H:%M")
+                    final_ende = vorlagen_namen[auswahl]['ende_zeit'] if auswahl != "-" else m_ende.strftime("%H:%M")
+                    
+                    supabase.table("dienstplan").upsert({
+                        "mitarbeiter_id": edit['ma_id'],
+                        "datum": edit['datum'].isoformat(),
+                        "start_zeit": final_start,
+                        "ende_zeit": final_ende,
+                        "notiz": auswahl if auswahl != "-" else "Manuell"
+                    }).execute()
+                    st.success("Gespeichert!")
+                    del st.session_state['edit_mode']
+                    st.rerun()
+                
+                if col_l.button("🗑️ Löschen", use_container_width=True):
+                    supabase.table("dienstplan").delete().eq("mitarbeiter_id", edit['ma_id']).eq("datum", edit['datum'].isoformat()).execute()
+                    del st.session_state['edit_mode']
+                    st.rerun()
+
+    with tab_auswertung:
+        st.header("Arbeitszeit-Berichte")
+        # Hier kommt dein Zeitraum-Bericht rein (Soll, Plan, Ist, Saldo)            with st.expander(f"📌 {ma['vorname']} {ma['nachname']} ({ma['bereich']})", expanded=False):
                 # Erstelle ein Grid für die Tage
                 cols = st.columns(10) # Wir zeigen die nächsten 10 Tage
                 for i in range(10):
