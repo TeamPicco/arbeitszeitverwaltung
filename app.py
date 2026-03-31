@@ -2,7 +2,14 @@ import streamlit as st
 import time
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
-from utils.zeit_events import EVENT_CLOCK_IN, EVENT_CLOCK_OUT, register_time_event
+from utils.zeit_events import (
+    EVENT_BREAK_END,
+    EVENT_BREAK_START,
+    EVENT_CLOCK_IN,
+    EVENT_CLOCK_OUT,
+    get_event_state_for_day,
+    register_time_event,
+)
 from pages import admin_dashboard
 
 st.set_page_config(page_title="🥩 CrewBase Piccolo", page_icon="🥩", layout="wide")
@@ -25,8 +32,13 @@ if not st.session_state.get('logged_in'):
             if res.data:
                 ma = res.data[0]
                 st.info(f"Hallo {ma['vorname']}! Schicht: {now_berlin().strftime('%d.%m.%Y')}")
+                state = get_event_state_for_day(
+                    supabase,
+                    mitarbeiter_id=ma["id"],
+                    day=now_berlin().date(),
+                )
                 
-                c1, c2 = st.columns(2)
+                c1, c2, c3, c4 = st.columns(4)
                 if c1.button("🟢 KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
                     result = register_time_event(
                         supabase,
@@ -56,6 +68,48 @@ if not st.session_state.get('logged_in'):
                         st.error(result.get("error", "Ausstempeln fehlgeschlagen."))
                     else:
                         st.success("Schönen Feierabend!")
+                    st.session_state["trigger_reset"] = True
+                    time.sleep(1.5); st.rerun()
+
+                if c3.button(
+                    "⏸️ PAUSE START",
+                    key=f"bs_{ma['id']}",
+                    use_container_width=True,
+                    disabled=(not state["eingestempelt"] or state["pause_aktiv"]),
+                ):
+                    result = register_time_event(
+                        supabase,
+                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        mitarbeiter_id=ma["id"],
+                        action=EVENT_BREAK_START,
+                        source="terminal",
+                        created_by=st.session_state.get("user_id"),
+                    )
+                    if not result.get("ok"):
+                        st.error(result.get("error", "Pausenstart fehlgeschlagen."))
+                    else:
+                        st.success("Pause gestartet.")
+                    st.session_state["trigger_reset"] = True
+                    time.sleep(1.5); st.rerun()
+
+                if c4.button(
+                    "▶️ PAUSE ENDE",
+                    key=f"be_{ma['id']}",
+                    use_container_width=True,
+                    disabled=(not state["eingestempelt"] or not state["pause_aktiv"]),
+                ):
+                    result = register_time_event(
+                        supabase,
+                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        mitarbeiter_id=ma["id"],
+                        action=EVENT_BREAK_END,
+                        source="terminal",
+                        created_by=st.session_state.get("user_id"),
+                    )
+                    if not result.get("ok"):
+                        st.error(result.get("error", "Pausenende fehlgeschlagen."))
+                    else:
+                        st.success("Pause beendet.")
                     st.session_state["trigger_reset"] = True
                     time.sleep(1.5); st.rerun()
             else: st.error("PIN unbekannt.")

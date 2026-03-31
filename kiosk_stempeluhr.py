@@ -389,9 +389,22 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
 
     try:
         supabase = get_supabase()
-        from utils.zeit_events import EVENT_CLOCK_IN, EVENT_CLOCK_OUT, register_time_event
+        from utils.zeit_events import (
+            EVENT_BREAK_END,
+            EVENT_BREAK_START,
+            EVENT_CLOCK_IN,
+            EVENT_CLOCK_OUT,
+            register_time_event,
+        )
 
-        action = EVENT_CLOCK_IN if typ == "kommen" else EVENT_CLOCK_OUT
+        if typ == "kommen":
+            action = EVENT_CLOCK_IN
+        elif typ == "gehen":
+            action = EVENT_CLOCK_OUT
+        elif typ == "pause_start":
+            action = EVENT_BREAK_START
+        else:
+            action = EVENT_BREAK_END
         result = register_time_event(
             supabase,
             betrieb_id=betrieb_id,
@@ -407,6 +420,10 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
                 return "bereits_eingestempelt", jetzt
             if "Nicht eingestempelt" in reason:
                 return "nicht_eingestempelt", jetzt
+            if "Pause läuft bereits" in reason:
+                return "pause_laeuft", jetzt
+            if "Keine laufende Pause" in reason:
+                return "keine_pause", jetzt
             return False, jetzt
 
         st.session_state["kiosk_offline"] = False
@@ -707,9 +724,12 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     name = f"{ma['vorname']} {ma['nachname']}"
     st.markdown(f'<div class="mitarbeiter-name">👤 {name}</div>', unsafe_allow_html=True)
 
-    # Eingestempelt-Status prüfen
+    # Eingestempelt-/Pausen-Status prüfen
+    from utils.zeit_events import get_event_state_for_day
     offener_eintrag = ist_eingestempelt(ma["id"])
     ist_aktuell_eingestempelt = offener_eintrag is not None
+    state = get_event_state_for_day(get_supabase(), mitarbeiter_id=ma["id"], day=get_jetzt_berlin().date())
+    pause_aktiv = state.get("pause_aktiv", False)
 
     # Letzten Eintrag anzeigen (nur Typ + Uhrzeit, kein Lohn)
     letzter = letzter_eintrag(betrieb_id, ma["id"])
@@ -734,7 +754,7 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     else:
         st.markdown('<div class="letzter-eintrag">Noch kein Eintrag heute</div>', unsafe_allow_html=True)
 
-    col_k, col_g = st.columns(2)
+    col_k, col_g, col_ps, col_pe = st.columns(4)
     with col_k:
         st.markdown('<div class="btn-kommen">', unsafe_allow_html=True)
         # Kommen deaktivieren wenn bereits eingestempelt
@@ -763,6 +783,28 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
             st.caption("nicht eingestempelt")
         st.markdown('</div>', unsafe_allow_html=True)
 
+    with col_ps:
+        if st.button(
+            "⏸️ PAUSE START",
+            key="btn_pause_start",
+            use_container_width=True,
+            disabled=(not ist_aktuell_eingestempelt or pause_aktiv),
+        ):
+            _buchung_ausfuehren(betrieb_id, ma, "pause_start", geraet_name)
+        if pause_aktiv:
+            st.caption("Pause läuft")
+
+    with col_pe:
+        if st.button(
+            "▶️ PAUSE ENDE",
+            key="btn_pause_end",
+            use_container_width=True,
+            disabled=(not ist_aktuell_eingestempelt or not pause_aktiv),
+        ):
+            _buchung_ausfuehren(betrieb_id, ma, "pause_end", geraet_name)
+        if not pause_aktiv:
+            st.caption("keine Pause")
+
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="btn-zurueck">', unsafe_allow_html=True)
     if st.button("← Zurück zur PIN-Eingabe", key="btn_zurueck", use_container_width=False):
@@ -783,6 +825,14 @@ def _buchung_ausfuehren(betrieb_id: int, ma: dict, typ: str, geraet_name: str):
         return
     if ergebnis == "nicht_eingestempelt":
         st.session_state["kiosk_fehler"] = "Sie sind nicht eingestempelt!"
+        st.rerun()
+        return
+    if ergebnis == "pause_laeuft":
+        st.session_state["kiosk_fehler"] = "Pause läuft bereits!"
+        st.rerun()
+        return
+    if ergebnis == "keine_pause":
+        st.session_state["kiosk_fehler"] = "Keine laufende Pause!"
         st.rerun()
         return
     
@@ -808,10 +858,18 @@ def _zeige_bestaetigung(betrieb_id: int):
         emoji = "✅"
         aktion_text = "KOMMEN gebucht"
         gruss = "Schönen Arbeitstag!"
-    else:
+    elif typ == "gehen":
         emoji = "🚪"
         aktion_text = "GEHEN gebucht"
         gruss = "Schönen Feierabend!"
+    elif typ == "pause_start":
+        emoji = "⏸️"
+        aktion_text = "PAUSE START gebucht"
+        gruss = "Gute Pause!"
+    else:
+        emoji = "▶️"
+        aktion_text = "PAUSE ENDE gebucht"
+        gruss = "Weiter geht's!"
 
     if erfolg:
         box_class = "success-box"

@@ -12,6 +12,7 @@ from calendar import monthrange
 import io
 
 from utils.database import get_supabase_client
+from utils.planning_tables import resolve_planning_table
 from utils.lohnberechnung import (
     berechne_monat,
     berechne_eintrag,
@@ -54,9 +55,10 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
 def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     """Lädt alle Dienstplan-Einträge (Soll) für einen Mitarbeiter in einem Monat."""
     supabase = get_supabase_client()
+    planning_table = resolve_planning_table(supabase)
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table('dienstplaene').select('*').eq(
+    r = supabase.table(planning_table).select('*').eq(
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []

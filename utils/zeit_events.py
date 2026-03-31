@@ -132,6 +132,46 @@ def _collect_daily_events(events: List[Dict[str, Any]], day: date) -> List[Dict[
     return [ev for ev in events if _same_day(ev["_ts"], day)]
 
 
+def get_event_state_for_day(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    day: date,
+) -> Dict[str, bool]:
+    """
+    Liefert den aktuellen Schicht-/Pausenstatus für einen Tag.
+    """
+    start = datetime.combine(day, time(0, 0)).isoformat()
+    end = datetime.combine(day + timedelta(days=1), time(0, 0)).isoformat()
+    ev_res = (
+        supabase.table("zeit_eintraege")
+        .select("aktion, zeitpunkt_utc")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .gte("zeitpunkt_utc", start)
+        .lt("zeitpunkt_utc", end)
+        .order("zeitpunkt_utc")
+        .execute()
+    )
+    events = _normalize_event_rows(ev_res.data or [])
+
+    eingestempelt = False
+    pause_aktiv = False
+    for ev in events:
+        action = ev.get("aktion")
+        if action == EVENT_CLOCK_IN:
+            eingestempelt = True
+            pause_aktiv = False
+        elif action == EVENT_CLOCK_OUT:
+            eingestempelt = False
+            pause_aktiv = False
+        elif action == EVENT_BREAK_START and eingestempelt:
+            pause_aktiv = True
+        elif action == EVENT_BREAK_END and eingestempelt:
+            pause_aktiv = False
+
+    return {"eingestempelt": eingestempelt, "pause_aktiv": pause_aktiv}
+
+
 def evaluate_daily_compliance(
     all_events: List[Dict[str, Any]],
     day: date,

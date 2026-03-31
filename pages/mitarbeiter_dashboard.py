@@ -20,8 +20,23 @@ def show_mitarbeiter_dashboard():
     with t2:
         st.header("Arbeitszeitkonto")
         heute = datetime.now()
-        saldo = berechne_azk_kumuliert(m_id, heute.month, heute.year, supabase)
-        st.metric("Dein Kontostand", f"{saldo} Std.", delta=saldo)
+        konto = (
+            supabase.table("arbeitszeit_konten")
+            .select("*")
+            .eq("mitarbeiter_id", m_id)
+            .limit(1)
+            .execute()
+        )
+        if konto.data:
+            row = konto.data[0]
+            st.metric("Überstunden-Saldo", f"{float(row.get('ueberstunden_saldo') or 0):.2f} h")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Soll", f"{float(row.get('soll_stunden') or 0):.2f} h")
+            c2.metric("Ist", f"{float(row.get('ist_stunden') or 0):.2f} h")
+            c3.metric("Urlaub genommen", f"{float(row.get('urlaubstage_genommen') or 0):.1f} Tg")
+        else:
+            saldo = berechne_azk_kumuliert(m_id, heute.month, heute.year, supabase)
+            st.metric("Dein Kontostand", f"{saldo} Std.", delta=saldo)
 
     with t3:
         render_my_documents(m_id, supabase)
