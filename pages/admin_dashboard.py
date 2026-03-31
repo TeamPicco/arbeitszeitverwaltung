@@ -501,7 +501,11 @@ def _show_planovo_import_tab():
         help="Importierte Planovo-Daten werden diesem Mitarbeiter zugeordnet.",
     )
     ma = ma_options[selected_label]
-    ueberschreiben = st.checkbox("Vorhandene Historik-Einträge überschreiben", value=False)
+    ueberschreiben = st.checkbox(
+        "Import-Monat vollständig überschreiben (empfohlen)",
+        value=True,
+        help="Löscht bestehende Importdaten im Zielmonat und schreibt den Monat neu, damit keine Doppeleinträge entstehen.",
+    )
     upload = st.file_uploader(
         "Planovo Excel-Datei (.xlsx)",
         type=["xlsx"],

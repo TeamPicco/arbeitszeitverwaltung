@@ -183,3 +183,73 @@ def test_import_triggers_work_account_resync():
     assert result["ok"] is True
     assert result["importiert"] >= 1
     assert result.get("azk_sync_monate", 0) >= 1
+
+
+def test_import_month_overwrite_removes_existing_entries():
+    supabase = FakeSupabase()
+    # Vorhandener Eintrag im Import-Monat
+    supabase.table("zeiterfassung").rows.append(
+        {
+            "id": 77,
+            "mitarbeiter_id": 1,
+            "datum": "2026-01-10",
+            "quelle": "historischer_import",
+            "arbeitsstunden": 4.0,
+        }
+    )
+    # Vorhandener Eintrag außerhalb des Import-Monats (muss erhalten bleiben)
+    supabase.table("zeiterfassung").rows.append(
+        {
+            "id": 88,
+            "mitarbeiter_id": 1,
+            "datum": "2026-03-10",
+            "quelle": "historischer_import",
+            "arbeitsstunden": 5.0,
+        }
+    )
+
+    daten = {
+        "zeitraum": {
+            "von": date(2026, 1, 1),
+            "bis": date(2026, 1, 31),
+            "monat": 1,
+            "jahr": 2026,
+        },
+        "startsaldo": 0.0,
+        "tage": [
+            {
+                "datum": date(2026, 1, 15),
+                "wochentag": "Do",
+                "soll": 8.0,
+                "plan": 8.0,
+                "ist": 8.0,
+                "abwesend": 0.0,
+                "saldo": 0.0,
+                "korrektur": 0.0,
+                "korrektur_notiz": "",
+                "laufender_saldo": 0.0,
+                "std_konto": 0.0,
+                "lohn": 120.0,
+                "ist_ruhetag": False,
+                "ist_korrekturzeile": False,
+                "ist_krank": False,
+            }
+        ],
+    }
+
+    result = importiere_in_crewbase(
+        daten,
+        mitarbeiter_id=1,
+        betrieb_id=1,
+        supabase_client=supabase,
+        ueberschreiben=True,
+    )
+
+    assert result["ok"] is True
+    jan_rows = [r for r in supabase.table("zeiterfassung").rows if str(r.get("datum", "")).startswith("2026-01-")]
+    mar_rows = [r for r in supabase.table("zeiterfassung").rows if str(r.get("datum", "")).startswith("2026-03-")]
+    # Januar wurde überschrieben und neu aufgebaut (kein Alt-Duplikat).
+    assert len(jan_rows) >= 1
+    assert all(r.get("id") != 77 for r in jan_rows)
+    # März-Eintrag bleibt unberührt.
+    assert any(r.get("id") == 88 for r in mar_rows)

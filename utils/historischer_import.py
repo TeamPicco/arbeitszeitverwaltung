@@ -331,6 +331,40 @@ def importiere_in_crewbase(
         result['fehler'].append("Zeitraum konnte nicht ermittelt werden.")
         return result
 
+    # ── 0. Import-Zeitraum vorbereiten (Monat überschreiben) ────────────────
+    zeitraum = daten.get('zeitraum', {})
+    range_start = zeitraum.get('von')
+    range_end = zeitraum.get('bis')
+    if not isinstance(range_start, date):
+        range_start = date(int(jahr), int(monat), 1)
+    if not isinstance(range_end, date):
+        range_end = date(int(jahr), int(monat), 28)
+
+    if ueberschreiben:
+        try:
+            # Monat/Zeitraum vollständig ersetzen, damit keine Doppeleinträge entstehen.
+            supabase_client.table('zeiterfassung').delete().eq(
+                'mitarbeiter_id', mitarbeiter_id
+            ).gte('datum', range_start.isoformat()).lte('datum', range_end.isoformat()).execute()
+        except Exception as e:
+            result['fehler'].append(f"Fehler beim Monats-Reset (zeiterfassung): {str(e)}")
+
+        try:
+            # Optional vorhandene Krankheitstage im Zeitraum ebenfalls neu aufbauen.
+            supabase_client.table('krankheitstage').delete().eq(
+                'mitarbeiter_id', mitarbeiter_id
+            ).gte('datum', range_start.isoformat()).lte('datum', range_end.isoformat()).execute()
+        except Exception:
+            pass
+
+        try:
+            # Legacy-Monatskonto wird beim Import neu geschrieben.
+            supabase_client.table('arbeitszeitkonto').delete().eq(
+                'mitarbeiter_id', mitarbeiter_id
+            ).eq('monat', monat).eq('jahr', jahr).execute()
+        except Exception:
+            pass
+
     # ── 1. Zeiterfassung: Tagesbuchungen importieren ──────────
     for tag in daten['tage']:
         datum = tag['datum']
@@ -389,12 +423,6 @@ def importiere_in_crewbase(
         }
 
         try:
-            if ueberschreiben:
-                # Bestehenden Eintrag löschen
-                supabase_client.table('zeiterfassung').delete().eq(
-                    'mitarbeiter_id', mitarbeiter_id
-                ).eq('datum', datum.isoformat()).eq('quelle', 'historischer_import').execute()
-
             # Prüfen ob bereits vorhanden (nicht überschreiben)
             if not ueberschreiben:
                 existing = supabase_client.table('zeiterfassung').select('id').eq(
