@@ -109,6 +109,10 @@ class FakeTable:
     def delete(self):
         return FakeQuery(self).delete()
 
+    def upsert(self, payload, on_conflict=None):
+        # Für Tests reicht insert-ähnliches Verhalten.
+        return FakeQuery(self).insert(payload)
+
 
 class FakeSupabase:
     def __init__(self):
