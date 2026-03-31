@@ -49,7 +49,7 @@ Value: [IHR SUPABASE API KEY - siehe unten]
 **Variable 3:**
 ```
 Key: BUNDESLAND
-Value: NW
+Value: SN
 ```
 
 **Variable 4:**

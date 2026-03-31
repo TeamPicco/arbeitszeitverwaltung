@@ -162,7 +162,7 @@ KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ey... (sehr lang)
 **Variable 3:**
 1. **Klicken Sie nochmal auf "Add Environment Variable"**
 2. **Key:** Tippen Sie `BUNDESLAND`
-3. **Value:** Tippen Sie `NW` (oder Ihr Bundesland-Kürzel)
+3. **Value:** Tippen Sie `SN` (Sachsen)
 4. **Klicken Sie auf "Add"**
 
 **Variable 4:**
