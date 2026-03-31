@@ -135,8 +135,71 @@ CREATE TABLE IF NOT EXISTS public.abwesenheiten (
     CHECK (ende_datum >= start_datum)
 );
 
+-- WICHTIG: Wenn eine ältere abwesenheiten-Tabelle bereits existiert,
+-- ergänzt CREATE TABLE IF NOT EXISTS keine fehlenden Spalten.
+-- Daher explizit kompatibel nachziehen:
+ALTER TABLE IF EXISTS public.abwesenheiten
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS typ TEXT,
+    ADD COLUMN IF NOT EXISTS start_datum DATE,
+    ADD COLUMN IF NOT EXISTS ende_datum DATE,
+    ADD COLUMN IF NOT EXISTS ganztag BOOLEAN DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS bezahlte_zeit BOOLEAN DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS stunden_gutschrift NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS attest_pfad TEXT,
+    ADD COLUMN IF NOT EXISTS grund TEXT,
+    ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'genehmigt',
+    ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+-- Backfill von Altspalten (falls vorhanden):
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'abwesenheiten' AND column_name = 'von_datum'
+    ) THEN
+        EXECUTE 'UPDATE public.abwesenheiten
+                 SET start_datum = COALESCE(start_datum, von_datum)
+                 WHERE start_datum IS NULL';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'abwesenheiten' AND column_name = 'bis_datum'
+    ) THEN
+        EXECUTE 'UPDATE public.abwesenheiten
+                 SET ende_datum = COALESCE(ende_datum, bis_datum)
+                 WHERE ende_datum IS NULL';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'abwesenheiten' AND column_name = 'datum'
+    ) THEN
+        EXECUTE 'UPDATE public.abwesenheiten
+                 SET start_datum = COALESCE(start_datum, datum),
+                     ende_datum = COALESCE(ende_datum, datum)
+                 WHERE start_datum IS NULL OR ende_datum IS NULL';
+    END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_abwesenheiten_mitarbeiter_zeitraum
     ON public.abwesenheiten(mitarbeiter_id, start_datum, ende_datum);
+
+-- NOT NULL nur setzen, wenn Backfill erfolgreich war:
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.abwesenheiten
+        WHERE start_datum IS NULL OR ende_datum IS NULL
+    ) THEN
+        EXECUTE 'ALTER TABLE public.abwesenheiten
+                 ALTER COLUMN start_datum SET NOT NULL,
+                 ALTER COLUMN ende_datum SET NOT NULL';
+    END IF;
+END $$;
 
 -- ------------------------------------------------------------
 -- Mitarbeiter-Stammdaten (normalisiert)
