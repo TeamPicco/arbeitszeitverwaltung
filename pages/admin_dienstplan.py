@@ -242,6 +242,65 @@ def erstelle_admin_dienstplan_pdf(mitarbeiter_liste: list, dienste_map: dict, ja
     return buffer.getvalue()
 
 
+def _collect_employee_dienste(dienste_map: dict, mitarbeiter_id: int) -> list:
+    """Sammelt und sortiert alle Dienste für einen Mitarbeiter aus der Monats-Map."""
+    ma_dienste = []
+    for key, eintraege in dienste_map.items():
+        if key[0] == mitarbeiter_id:
+            ma_dienste.extend(eintraege)
+    return sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00')))
+
+
+def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: int, monat: int, key_prefix: str = "dl"):
+    """
+    Zeigt direkte Download-Buttons für:
+    1) Einzel-Dienstplan je Mitarbeiter
+    2) Gesamtansicht (alle Mitarbeiter)
+    """
+    st.markdown("### 📥 Download-Center")
+    d1, d2 = st.columns(2)
+
+    with d1:
+        st.markdown("**Einzelansicht je Mitarbeiter**")
+        ma_download_id = st.selectbox(
+            "Mitarbeiter für PDF",
+            options=[m['id'] for m in mitarbeiter_liste],
+            format_func=lambda x: next((f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste if m['id'] == x), ""),
+            key=f"{key_prefix}_ma_pdf_select",
+        )
+        ma_download = next((m for m in mitarbeiter_liste if m['id'] == ma_download_id), None)
+        if ma_download:
+            try:
+                ma_dienste_sorted = _collect_employee_dienste(dienste_map, ma_download['id'])
+                ma_pdf = erstelle_einzelner_dienstplan_pdf(ma_download, ma_dienste_sorted, jahr, monat)
+                ma_filename = f"Dienstplan_{ma_download.get('nachname', 'Mitarbeiter')}_{MONATE_DE[monat]}_{jahr}.pdf"
+                st.download_button(
+                    label="📥 Einzel-Dienstplan herunterladen",
+                    data=ma_pdf,
+                    file_name=ma_filename,
+                    mime="application/pdf",
+                    use_container_width=True,
+                    key=f"{key_prefix}_ma_pdf_download",
+                )
+            except Exception as e:
+                st.warning(f"Einzel-PDF konnte nicht erstellt werden: {str(e)}")
+
+    with d2:
+        st.markdown("**Komplettansicht (alle Mitarbeiter)**")
+        try:
+            alle_pdf = erstelle_admin_dienstplan_pdf(mitarbeiter_liste, dienste_map, jahr, monat)
+            st.download_button(
+                label="📄 Komplettansicht als PDF herunterladen",
+                data=alle_pdf,
+                file_name=f"Dienstplan_Alle_{MONATE_DE[monat]}_{jahr}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key=f"{key_prefix}_alle_pdf_download",
+            )
+        except Exception as e:
+            st.warning(f"Gesamt-PDF konnte nicht erstellt werden: {str(e)}")
+
+
 # ============================================================
 # HILFSFUNKTIONEN
 # ============================================================
@@ -387,6 +446,7 @@ def show_monatsplan(supabase):
     # Lade genehmigte Urlaube
     urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
 
+    _render_download_center(mitarbeiter_liste, dienste_map, jahr, monat, key_prefix="monatsplan")
     st.markdown("---")
 
     # ── AUTOMATISCHE URLAUBSEINTRÄGE ──────────────────────────
@@ -616,7 +676,7 @@ def show_monatsplan(supabase):
                 )
 
             # PDF-Download für einzelnen Mitarbeiter
-            ma_dienste_sorted = sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00')))
+            ma_dienste_sorted = _collect_employee_dienste(dienste_map, mitarbeiter['id'])
             try:
                 pdf_bytes = erstelle_einzelner_dienstplan_pdf(mitarbeiter, ma_dienste_sorted, jahr, monat)
                 dateiname = f"Dienstplan_{mitarbeiter['nachname']}_{MONATE_DE[monat]}_{jahr}.pdf"
@@ -784,6 +844,7 @@ def show_monatsuebersicht_tabelle(supabase):
     # Genehmigte Urlaube als Fallback (falls nicht im Dienstplan)
     urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
 
+    _render_download_center(mitarbeiter_liste, dienste_map, jahr, monat, key_prefix="tabelle")
     st.markdown("---")
 
     anzahl_tage = calendar.monthrange(jahr, monat)[1]
@@ -1030,19 +1091,7 @@ def show_monatsuebersicht_tabelle(supabase):
                 use_container_width=True
             )
     with col2:
-        if st.button("📄 Alle Dienstpläne als PDF", use_container_width=True, key="admin_pdf_alle"):
-            try:
-                pdf_bytes = erstelle_admin_dienstplan_pdf(mitarbeiter_liste, dienste_map, jahr, monat)
-                st.download_button(
-                    label="💾 PDF herunterladen",
-                    data=pdf_bytes,
-                    file_name=f"Dienstplan_Alle_{MONATE_DE[monat]}_{jahr}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key="admin_pdf_alle_dl"
-                )
-            except Exception as e:
-                st.error(f"PDF-Fehler: {str(e)}")
+        st.info("📌 PDF-Downloads finden Sie oben im Download-Center.")
     
     # ============================================================
     # DIENSTPLAN-VERÖFFENTLICHUNG: E-Mail an alle Mitarbeiter
