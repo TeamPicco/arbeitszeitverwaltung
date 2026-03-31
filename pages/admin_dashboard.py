@@ -1,40 +1,84 @@
 import streamlit as st
+from datetime import datetime, date, timedelta
 import pandas as pd
-from datetime import date, datetime, timedelta
-import calendar
+from utils.database import get_supabase_client
+from utils.calculations import erstelle_zeitraum_auswertung
 
 def show_admin_dashboard():
-    supabase = st.session_state.supabase
-    st.sidebar.title("🥩 Admin Zentrale")
-    choice = st.sidebar.radio("Navigation", ["📅 Dienstplan & Vorlagen", "🏖️ Abwesenheiten (Krank/Urlaub)", "👥 Stammdaten", "📊 Lohn-Export"])
+    st.set_page_config(page_title="Admin - CrewBase Piccolo", layout="wide")
+    supabase = get_supabase_client()
+    
+    st.title("🛡️ Admin-Management - Piccolo")
 
-    # --- SEKTION: DIENSTPLAN ---
-    if choice == "📅 Dienstplan & Vorlagen":
-        st.header("Schichtplanung")
-        # Vorlagen-Editor
-        with st.expander("⚙️ Schichtvorlagen verwalten"):
-            v_name = st.text_input("Name (z.B. Abend)")
-            v_s = st.time_input("Start")
-            v_e = st.time_input("Ende")
-            if st.button("Vorlage speichern"):
-                supabase.table("schicht_vorlagen").upsert({"name": v_name, "start_zeit": v_s.strftime("%H:%M:%S"), "ende_zeit": v_e.strftime("%H:%M:%S")}).execute()
-                st.rerun()
+    # Tabs für die Übersicht
+    tab_planung, tab_auswertung, tab_einstellungen = st.tabs([
+        "📅 Dienstplan (Vorlagen)", 
+        "📊 Zeitauswertung", 
+        "⚙️ System"
+    ])
 
-        # Tabellen-Editor
-        res_v = supabase.table("schicht_vorlagen").select("*").execute()
-        v_namen = ["-- Frei --"] + [v['name'] for v in res_v.data]
-        v_map = {v['name']: v for v in res_v.data}
+    # --- TAB 1: INTERAKTIVE DIENSTPLAN-ERSTELLUNG ---
+    with tab_planung:
+        st.header("Schichtplan per Klick")
+        st.info("Wählen Sie einen Tag aus, um eine Vorlage (Service, Küche, Orga) zuzuweisen.")
+
+        # Vorlagen aus der Datenbank laden
+        vorlagen_res = supabase.table("schicht_vorlagen").select("*").execute()
+        v_dict = {v['anzeige_name']: v for v in vorlagen_res.data}
+
+        # Mitarbeiter laden
+        ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname, bereich").execute()
         
-        ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname").execute()
+        # Aktueller Monat
+        heute = date.today()
+        tage_im_monat = 31 # Vereinfacht für die Ansicht
+
         for ma in ma_res.data:
-            with st.expander(f"Plan für {ma['vorname']}"):
-                cols = st.columns(7)
-                for i in range(7):
-                    d = date.today() + timedelta(days=i)
-                    sel = cols[i].selectbox(f"{d.day}.{d.month}", v_namen, key=f"p_{ma['id']}_{i}")
-                    if sel != "-- Frei --":
-                        v = v_map[sel]
-                        supabase.table("dienstplan").upsert({"mitarbeiter_id": ma['id'], "datum": d.isoformat(), "start_zeit": v['start_zeit'], "ende_zeit": v['ende_zeit']}).execute()
+            with st.expander(f"📌 {ma['vorname']} {ma['nachname']} ({ma['bereich']})", expanded=False):
+                # Erstelle ein Grid für die Tage
+                cols = st.columns(10) # Wir zeigen die nächsten 10 Tage
+                for i in range(10):
+                    tag = heute + timedelta(days=i)
+                    with cols[i]:
+                        st.write(f"**{tag.strftime('%d.%m.')}**")
+                        
+                        # Dropdown mit Schichten (gefiltert nach Bereich oder Alle)
+                        wahl = st.selectbox(
+                            "Schicht", 
+                            ["-"] + list(v_dict.keys()), 
+                            key=f"plan_{ma['id']}_{tag}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        if wahl != "-":
+                            v = v_dict[wahl]
+                            if st.button("OK", key=f"save_{ma['id']}_{tag}"):
+                                supabase.table("dienstplan").upsert({
+                                    "mitarbeiter_id": ma['id'],
+                                    "datum": tag.isoformat(),
+                                    "start_zeit": v['start_zeit'],
+                                    "ende_zeit": v['ende_zeit'],
+                                    "notiz": v['anzeige_name']
+                                }).execute()
+                                st.toast(f"Dienst für {ma['vorname']} gespeichert!")
+
+    # --- TAB 2: ZEITAUSWERTUNG (Wie gewünscht) ---
+    with tab_auswertung:
+        st.header("Arbeitszeitauswertung")
+        c1, c2, c3 = st.columns(3)
+        start = c1.date_input("Von", value=heute.replace(day=1))
+        ende = c2.date_input("Bis", value=heute)
+        
+        ma_namen = {f"{m['vorname']} {m['nachname']}": m['id'] for m in ma_res.data}
+        sel_ma = c3.selectbox("Mitarbeiter wählen", options=list(ma_namen.keys()))
+        
+        if st.button("Auswertung laden"):
+            df = erstelle_zeitraum_auswertung(ma_namen[sel_ma], start, ende, supabase)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+
+# App-Start
+if __name__ == "__main__":
+    show_admin_dashboard()                        supabase.table("dienstplan").upsert({"mitarbeiter_id": ma['id'], "datum": d.isoformat(), "start_zeit": v['start_zeit'], "ende_zeit": v['ende_zeit']}).execute()
 
     # --- SEKTION: ABWESENHEITEN ---
     elif choice == "🏖️ Abwesenheiten (Krank/Urlaub)":
