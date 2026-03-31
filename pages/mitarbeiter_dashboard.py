@@ -2,9 +2,11 @@ import streamlit as st
 from datetime import datetime
 from utils.database import get_supabase_client
 from utils.calculations import berechne_azk_kumuliert
+from utils.styles import apply_custom_css
 
 def show_mitarbeiter_dashboard():
     st.set_page_config(page_title="Mein Bereich", layout="wide")
+    apply_custom_css()
     supabase = get_supabase_client()
     m_id = st.session_state.get('mitarbeiter_id')
 
@@ -29,11 +31,21 @@ def show_mitarbeiter_dashboard():
         )
         if konto.data:
             row = konto.data[0]
-            st.metric("Überstunden-Saldo", f"{float(row.get('ueberstunden_saldo') or 0):.2f} h")
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Soll", f"{float(row.get('soll_stunden') or 0):.2f} h")
-            c2.metric("Ist", f"{float(row.get('ist_stunden') or 0):.2f} h")
-            c3.metric("Urlaub genommen", f"{float(row.get('urlaubstage_genommen') or 0):.1f} Tg")
+            saldo = float(row.get('ueberstunden_saldo') or 0)
+            soll = float(row.get('soll_stunden') or 0)
+            ist = float(row.get('ist_stunden') or 0)
+            urlaub_g = float(row.get('urlaubstage_gesamt') or 0)
+            urlaub_n = float(row.get('urlaubstage_genommen') or 0)
+            krank = float(row.get('krankheitstage_gesamt') or 0)
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Überstunden-Saldo", f"{saldo:.2f} h")
+            k2.metric("Soll / Ist", f"{soll:.2f}h / {ist:.2f}h")
+            k3.metric("Urlaub", f"{urlaub_n:.1f} / {urlaub_g:.1f} Tg")
+            k4.metric("Krankheitstage", f"{krank:.1f} Tg")
+
+            st.progress(min(max((urlaub_n / urlaub_g), 0.0), 1.0) if urlaub_g > 0 else 0.0)
+            st.caption("Urlaubsverbrauch im aktuellen Kontostand")
         else:
             saldo = berechne_azk_kumuliert(m_id, heute.month, heute.year, supabase)
             st.metric("Dein Kontostand", f"{saldo} Std.", delta=saldo)
