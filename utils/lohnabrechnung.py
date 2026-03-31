@@ -15,6 +15,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import io
 
 from utils.database import get_supabase_client
+from utils.planning_tables import resolve_planning_table
 from utils.calculations import (
     berechne_arbeitsstunden,
     berechne_grundlohn,
@@ -41,6 +42,7 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
     """
     try:
         supabase = get_supabase_client()
+        planning_table = resolve_planning_table(supabase)
         
         # Lade Mitarbeiterdaten
         mitarbeiter_response = supabase.table('mitarbeiter').select('*').eq('id', mitarbeiter_id).execute()
@@ -64,7 +66,7 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         
         # Lade Dienstpläne für Urlaubstage und Frei-Tage
         # Nur schichttyp-Feld verwenden (ist_urlaub-Spalte in schichtvorlagen ggf. nicht vorhanden)
-        dienstplaene = supabase.table('dienstplaene').select('*').eq(
+        dienstplaene = supabase.table(planning_table).select('*').eq(
             'mitarbeiter_id', mitarbeiter_id
         ).gte('datum', von_datum.isoformat()).lt('datum', bis_datum.isoformat()).execute()
         

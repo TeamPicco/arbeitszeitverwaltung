@@ -11,6 +11,7 @@ import locale
 import io
 import os
 from utils.database import get_supabase_client, get_all_mitarbeiter
+from utils.planning_tables import resolve_planning_table
 from utils.calculations import (
     parse_zeit,
 )
@@ -288,7 +289,7 @@ def setze_urlaub_automatisch(supabase, betrieb_id: int, mitarbeiter_id: int,
             continue
 
         # Prüfe ob bereits ein Eintrag existiert
-        existing = supabase.table('dienstplaene').select('id').eq(
+        existing = supabase.table(planning_table).select('id').eq(
             'mitarbeiter_id', mitarbeiter_id
         ).eq('datum', datum_str).execute()
 
@@ -296,7 +297,7 @@ def setze_urlaub_automatisch(supabase, betrieb_id: int, mitarbeiter_id: int,
             continue  # Nicht überschreiben
 
         try:
-            supabase.table('dienstplaene').insert({
+            supabase.table(planning_table).insert({
                 'betrieb_id': betrieb_id,
                 'mitarbeiter_id': mitarbeiter_id,
                 'datum': datum_str,
@@ -343,6 +344,7 @@ def show_dienstplanung():
 
 def show_monatsplan(supabase):
     """Zeigt den monatlichen Dienstplan mit Frei/Urlaub-Optionen"""
+    planning_table = resolve_planning_table(supabase)
 
     st.subheader("📆 Monatlicher Dienstplan")
 
@@ -370,7 +372,7 @@ def show_monatsplan(supabase):
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
     # Lade Dienstpläne
-    dienstplaene_resp = supabase.table('dienstplaene').select('*').eq(
+    dienstplaene_resp = supabase.table(planning_table).select('*').eq(
         'betrieb_id', st.session_state.betrieb_id
     ).gte('datum', erster_tag.isoformat()).lte('datum', letzter_tag.isoformat()).execute()
 
@@ -549,7 +551,7 @@ def show_monatsplan(supabase):
                 elif schichttyp == 'krank':
                     eintrag['urlaub_stunden'] = krank_stunden  # LFZ-Stunden im urlaub_stunden-Feld speichern
 
-                supabase.table('dienstplaene').insert(eintrag).execute()
+                supabase.table(planning_table).insert(eintrag).execute()
                 st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
                 # E-Mail-Benachrichtigung an Mitarbeiter
                 try:
@@ -672,7 +674,7 @@ def show_monatsplan(supabase):
                     with col5:
                         if st.button("🗑️", key=f"del_{dienst['id']}", help="Löschen"):
                             try:
-                                supabase.table('dienstplaene').delete().eq('id', dienst['id']).execute()
+                                supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
                                 st.success("✅ Gelöscht!")
                                 st.rerun()
                             except Exception as e:
@@ -719,7 +721,7 @@ def show_monatsplan(supabase):
                                             'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
                                             'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
                                         }
-                                        supabase.table('dienstplaene').update(update_data).eq('id', dienst['id']).execute()
+                                        supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
                                         st.session_state[edit_key] = False
                                         st.success("✅ Dienst aktualisiert!")
                                         st.rerun()
@@ -739,6 +741,7 @@ def show_monatsplan(supabase):
 
 def show_monatsuebersicht_tabelle(supabase):
     """Zeigt Monatsübersicht aller Mitarbeiter in Tabellenform"""
+    planning_table = resolve_planning_table(supabase)
 
     st.subheader("📊 Monatsübersicht (Tabelle)")
     st.info("💡 Übersicht aller Mitarbeiter – Arbeit (blau), Urlaub (gelb), Frei (grau), Ruhetag (–)")
@@ -766,7 +769,7 @@ def show_monatsuebersicht_tabelle(supabase):
     erster_tag = date(jahr, monat, 1)
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
-    dienstplaene_resp = supabase.table('dienstplaene').select('*').eq(
+    dienstplaene_resp = supabase.table(planning_table).select('*').eq(
         'betrieb_id', st.session_state.betrieb_id
     ).gte('datum', erster_tag.isoformat()).lte('datum', letzter_tag.isoformat()).execute()
 
@@ -925,7 +928,7 @@ def show_monatsuebersicht_tabelle(supabase):
                     with fs1:
                         if st.form_submit_button("✅ Speichern", use_container_width=True):
                             try:
-                                supabase.table('dienstplaene').update({
+                                supabase.table(planning_table).update({
                                     'schichttyp': neuer_typ,
                                     'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
                                     'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
@@ -937,7 +940,7 @@ def show_monatsuebersicht_tabelle(supabase):
                     with fs2:
                         if st.form_submit_button("🗑️ Löschen", use_container_width=True):
                             try:
-                                supabase.table('dienstplaene').delete().eq('id', dienst['id']).execute()
+                                supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
                                 st.success("✅ Gelöscht!")
                                 st.rerun()
                             except Exception as e:
@@ -958,7 +961,7 @@ def show_monatsuebersicht_tabelle(supabase):
                     neue_ende = st.text_input("Endzeit (HH:MM)", value="16:00", key="tabelle_neuer_ende")
                 if st.form_submit_button("➕ Dienst anlegen", use_container_width=True, type="primary"):
                     try:
-                        supabase.table('dienstplaene').insert({
+                        supabase.table(planning_table).insert({
                             'betrieb_id': st.session_state.betrieb_id,
                             'mitarbeiter_id': edit_ma,
                             'datum': edit_datum.isoformat(),

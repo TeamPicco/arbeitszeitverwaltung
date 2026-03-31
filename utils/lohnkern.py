@@ -79,7 +79,9 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
             if abwesenheitstyp in ('urlaub', 'vacation', 'u'):
                 urlaub_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['urlaub_stunden'] += urlaub_h
-                contin            # ── Krankheitsstunden (LFZ) ─────────────────────────────────────────────
+                continue
+
+            # ── Krankheitsstunden (LFZ) ─────────────────────────────────────────────
             # Erkannt durch abwesenheitstyp='krank' ODER ist_krank=True
             if abwesenheitstyp in ('krank', 'k', 'krank_lfz') or ist_krank_flag:
                 # Montag (0) und Dienstag (1) sind Ruhetage → kein LFZ (wie beim Urlaub)
@@ -93,7 +95,9 @@ def summiere_monatsstunden(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[s
                         pass
                 krank_h = float(eintrag.get('arbeitsstunden') or 0)
                 result['krank_lfz_stunden'] += krank_h
-                continue        # ── Reguläre Arbeitsstunden ───────────────────────────────────
+                continue
+
+            # ── Reguläre Arbeitsstunden ───────────────────────────────────
             try:
                 # Gespeicherte Arbeitsstunden bevorzugen
                 if eintrag.get('arbeitsstunden') is not None:

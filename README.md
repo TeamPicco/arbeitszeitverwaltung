@@ -131,7 +131,7 @@ git push -u origin main
 ```toml
 SUPABASE_URL = "https://xxxxxxxxxxxxx.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-BUNDESLAND = "NW"
+BUNDESLAND = "SN"
 SESSION_TIMEOUT_MINUTES = "480"
 ```
 
@@ -181,7 +181,7 @@ Um Testdaten zu erstellen, führen Sie folgende SQL-Abfragen in Supabase aus:
 In der `.env`-Datei können Sie das Bundesland für die Feiertags-Berechnung festlegen:
 
 ```
-BUNDESLAND=NW  # Nordrhein-Westfalen
+BUNDESLAND=SN  # Sachsen
 ```
 
 Verfügbare Optionen: BW, BY, BE, BB, HB, HH, HE, MV, NI, NW, RP, SL, SN, ST, SH, TH

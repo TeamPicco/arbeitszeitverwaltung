@@ -11,6 +11,7 @@ import calendar
 import os
 import io
 from utils.database import get_supabase_client
+from utils.planning_tables import resolve_planning_table
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -285,6 +286,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.subheader("📅 Mein Dienstplan")
 
     supabase = get_supabase_client()
+    planning_table = resolve_planning_table(supabase)
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
@@ -304,7 +306,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     erster_tag = date(jahr, monat, 1)
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
-    dienstplaene_resp = supabase.table('dienstplaene').select(
+    dienstplaene_resp = supabase.table(planning_table).select(
         '*, schichtvorlagen(name, farbe)'
     ).eq('mitarbeiter_id', mitarbeiter['id']).gte(
         'datum', erster_tag.isoformat()

@@ -9,16 +9,17 @@ Keine sensiblen Daten (Lohn, Stunden-Summen) sichtbar.
 import streamlit as st
 from supabase import create_client
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 import time
-import json
 
 # ─── Supabase-Verbindung ────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://jehomjeanbmkoptknutx.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImplaG9tamVhbmJta29wdGtudXR4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDkxMzYwOSwiZXhwIjoyMDg2NDg5NjA5fQ.-gssE1hce_BldpSTry-ehFMXZQzmIQDpWFWTXPy61t8")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 @st.cache_resource
 def get_supabase():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL/SUPABASE_KEY fehlt in der Umgebung.")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ─── CSS-Styling ─────────────────────────────────────────────────────────────
@@ -385,41 +386,45 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
     Doppel-Buchungs-Schutz: Kommen nur wenn nicht eingestempelt, Gehen nur wenn eingestempelt.
     """
     jetzt = get_jetzt_berlin()
-    heute = jetzt.date().isoformat()
-    uhrzeit = jetzt.strftime("%H:%M") + ":00"  # Minutengenau (Sekunden immer :00)
 
     try:
         supabase = get_supabase()
-        offener_eintrag = ist_eingestempelt(mitarbeiter_id)
+        from utils.zeit_events import (
+            EVENT_BREAK_END,
+            EVENT_BREAK_START,
+            EVENT_CLOCK_IN,
+            EVENT_CLOCK_OUT,
+            register_time_event,
+        )
 
         if typ == "kommen":
-            # Doppel-Buchungs-Schutz: Bereits eingestempelt?
-            if offener_eintrag:
+            action = EVENT_CLOCK_IN
+        elif typ == "gehen":
+            action = EVENT_CLOCK_OUT
+        elif typ == "pause_start":
+            action = EVENT_BREAK_START
+        else:
+            action = EVENT_BREAK_END
+        result = register_time_event(
+            supabase,
+            betrieb_id=betrieb_id,
+            mitarbeiter_id=mitarbeiter_id,
+            action=action,
+            source="stempeluhr",
+            geraet_id=geraet_id,
+            event_time_utc=jetzt.astimezone(timezone.utc),
+        )
+        if not result.get("ok"):
+            reason = result.get("error", "")
+            if "Bereits eingestempelt" in reason:
                 return "bereits_eingestempelt", jetzt
-            
-            eintrag = {
-                "mitarbeiter_id": mitarbeiter_id,
-                "datum": heute,
-                "start_zeit": uhrzeit,
-                "quelle": "stempeluhr",
-                "manuell_kommentar": f"Stempeluhr: {geraet_id}",
-            }
-            supabase.table("zeiterfassung").insert(eintrag).execute()
-
-        else:  # gehen
-            if offener_eintrag:
-                # Offenen Eintrag schließen – Pause wird manuell eingetragen, nicht automatisch berechnet
-                start_str = offener_eintrag.get("start_zeit", "00:00:00")
-                netto_h = _berechne_stunden(start_str, uhrzeit)
-                supabase.table("zeiterfassung").update({
-                    "ende_zeit": uhrzeit,
-                    "pause_minuten": 0,
-                    "arbeitsstunden": netto_h,
-                    "quelle": "stempeluhr",
-                }).eq("id", offener_eintrag["id"]).execute()
-            else:
-                # Kein offener Eintrag – Doppel-Buchungs-Schutz
+            if "Nicht eingestempelt" in reason:
                 return "nicht_eingestempelt", jetzt
+            if "Pause läuft bereits" in reason:
+                return "pause_laeuft", jetzt
+            if "Keine laufende Pause" in reason:
+                return "keine_pause", jetzt
+            return False, jetzt
 
         st.session_state["kiosk_offline"] = False
         return True, jetzt
@@ -719,9 +724,12 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     name = f"{ma['vorname']} {ma['nachname']}"
     st.markdown(f'<div class="mitarbeiter-name">👤 {name}</div>', unsafe_allow_html=True)
 
-    # Eingestempelt-Status prüfen
+    # Eingestempelt-/Pausen-Status prüfen
+    from utils.zeit_events import get_event_state_for_day
     offener_eintrag = ist_eingestempelt(ma["id"])
     ist_aktuell_eingestempelt = offener_eintrag is not None
+    state = get_event_state_for_day(get_supabase(), mitarbeiter_id=ma["id"], day=get_jetzt_berlin().date())
+    pause_aktiv = state.get("pause_aktiv", False)
 
     # Letzten Eintrag anzeigen (nur Typ + Uhrzeit, kein Lohn)
     letzter = letzter_eintrag(betrieb_id, ma["id"])
@@ -746,7 +754,7 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
     else:
         st.markdown('<div class="letzter-eintrag">Noch kein Eintrag heute</div>', unsafe_allow_html=True)
 
-    col_k, col_g = st.columns(2)
+    col_k, col_g, col_ps, col_pe = st.columns(4)
     with col_k:
         st.markdown('<div class="btn-kommen">', unsafe_allow_html=True)
         # Kommen deaktivieren wenn bereits eingestempelt
@@ -775,6 +783,28 @@ def _zeige_aktion(betrieb_id: int, geraet_name: str):
             st.caption("nicht eingestempelt")
         st.markdown('</div>', unsafe_allow_html=True)
 
+    with col_ps:
+        if st.button(
+            "⏸️ PAUSE START",
+            key="btn_pause_start",
+            use_container_width=True,
+            disabled=(not ist_aktuell_eingestempelt or pause_aktiv),
+        ):
+            _buchung_ausfuehren(betrieb_id, ma, "pause_start", geraet_name)
+        if pause_aktiv:
+            st.caption("Pause läuft")
+
+    with col_pe:
+        if st.button(
+            "▶️ PAUSE ENDE",
+            key="btn_pause_end",
+            use_container_width=True,
+            disabled=(not ist_aktuell_eingestempelt or not pause_aktiv),
+        ):
+            _buchung_ausfuehren(betrieb_id, ma, "pause_end", geraet_name)
+        if not pause_aktiv:
+            st.caption("keine Pause")
+
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown('<div class="btn-zurueck">', unsafe_allow_html=True)
     if st.button("← Zurück zur PIN-Eingabe", key="btn_zurueck", use_container_width=False):
@@ -795,6 +825,14 @@ def _buchung_ausfuehren(betrieb_id: int, ma: dict, typ: str, geraet_name: str):
         return
     if ergebnis == "nicht_eingestempelt":
         st.session_state["kiosk_fehler"] = "Sie sind nicht eingestempelt!"
+        st.rerun()
+        return
+    if ergebnis == "pause_laeuft":
+        st.session_state["kiosk_fehler"] = "Pause läuft bereits!"
+        st.rerun()
+        return
+    if ergebnis == "keine_pause":
+        st.session_state["kiosk_fehler"] = "Keine laufende Pause!"
         st.rerun()
         return
     
@@ -820,10 +858,18 @@ def _zeige_bestaetigung(betrieb_id: int):
         emoji = "✅"
         aktion_text = "KOMMEN gebucht"
         gruss = "Schönen Arbeitstag!"
-    else:
+    elif typ == "gehen":
         emoji = "🚪"
         aktion_text = "GEHEN gebucht"
         gruss = "Schönen Feierabend!"
+    elif typ == "pause_start":
+        emoji = "⏸️"
+        aktion_text = "PAUSE START gebucht"
+        gruss = "Gute Pause!"
+    else:
+        emoji = "▶️"
+        aktion_text = "PAUSE ENDE gebucht"
+        gruss = "Weiter geht's!"
 
     if erfolg:
         box_class = "success-box"
