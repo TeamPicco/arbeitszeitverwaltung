@@ -19,7 +19,13 @@ def init_supabase_client() -> Client:
     """Initialisiert den regulären Supabase-Client aus Session-State."""
     if "supabase" not in st.session_state:
         url = _require_env("SUPABASE_URL")
-        key = _require_env("SUPABASE_KEY")
+        # Streamlit läuft serverseitig. Für stabile Schreiboperationen mit RLS
+        # nutzen wir bevorzugt den Service-Role-Key (falls gesetzt).
+        key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or _require_env("SUPABASE_KEY")
+        )
         st.session_state.supabase = create_client(url, key)
     return st.session_state.supabase
 
