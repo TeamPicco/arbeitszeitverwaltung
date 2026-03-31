@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS public.arbeitszeit_konten (
     UNIQUE (mitarbeiter_id)
 );
 
+-- Legacy-Kompatibilität: bestehende arbeitszeit_konten-Tabelle erweitern
+ALTER TABLE IF EXISTS public.arbeitszeit_konten
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS soll_stunden NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ist_stunden NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ueberstunden_saldo NUMERIC(9,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS urlaubstage_gesamt NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS urlaubstage_genommen NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS krankheitstage_gesamt NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS letztes_update_utc TIMESTAMPTZ DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_arbeitszeit_konten_betrieb
     ON public.arbeitszeit_konten(betrieb_id, mitarbeiter_id);
 
@@ -247,6 +261,19 @@ CREATE TABLE IF NOT EXISTS public.vertraege (
     CHECK (gueltig_bis IS NULL OR gueltig_bis >= gueltig_ab)
 );
 
+-- Legacy-Kompatibilität: bestehende vertraege-Tabelle erweitern
+ALTER TABLE IF EXISTS public.vertraege
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS gueltig_ab DATE,
+    ADD COLUMN IF NOT EXISTS gueltig_bis DATE,
+    ADD COLUMN IF NOT EXISTS wochenstunden NUMERIC(6,2),
+    ADD COLUMN IF NOT EXISTS soll_stunden_monat NUMERIC(6,2),
+    ADD COLUMN IF NOT EXISTS urlaubstage_jahr NUMERIC(5,2),
+    ADD COLUMN IF NOT EXISTS stundenlohn_brutto NUMERIC(10,2),
+    ADD COLUMN IF NOT EXISTS vertrag_dokument_pfad TEXT,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE TABLE IF NOT EXISTS public.abteilungen (
     id BIGSERIAL PRIMARY KEY,
     betrieb_id BIGINT NOT NULL REFERENCES public.betriebe(id) ON DELETE CASCADE,
@@ -256,6 +283,14 @@ CREATE TABLE IF NOT EXISTS public.abteilungen (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (betrieb_id, name)
 );
+
+-- Legacy-Kompatibilität: bestehende abteilungen-Tabelle erweitern
+ALTER TABLE IF EXISTS public.abteilungen
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS name TEXT,
+    ADD COLUMN IF NOT EXISTS beschreibung TEXT,
+    ADD COLUMN IF NOT EXISTS aktiv BOOLEAN DEFAULT TRUE,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE TABLE IF NOT EXISTS public.mitarbeiter_abteilungen (
     id BIGSERIAL PRIMARY KEY,
@@ -270,6 +305,17 @@ CREATE TABLE IF NOT EXISTS public.mitarbeiter_abteilungen (
     CHECK (gueltig_bis IS NULL OR gueltig_bis >= gueltig_ab),
     UNIQUE (mitarbeiter_id, abteilung_id, gueltig_ab)
 );
+
+-- Legacy-Kompatibilität: bestehende mitarbeiter_abteilungen-Tabelle erweitern
+ALTER TABLE IF EXISTS public.mitarbeiter_abteilungen
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS abteilung_id BIGINT REFERENCES public.abteilungen(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS rolle TEXT,
+    ADD COLUMN IF NOT EXISTS primaer BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS gueltig_ab DATE DEFAULT CURRENT_DATE,
+    ADD COLUMN IF NOT EXISTS gueltig_bis DATE,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 -- ------------------------------------------------------------
 -- Dokumentenverwaltung
@@ -437,6 +483,18 @@ CREATE TABLE IF NOT EXISTS public.mitarbeiter_geraete (
     UNIQUE (mitarbeiter_id, device_fingerprint)
 );
 
+ALTER TABLE IF EXISTS public.mitarbeiter_geraete
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS device_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS device_name TEXT,
+    ADD COLUMN IF NOT EXISTS autorisiert BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS ausnahme_genehmigt BOOLEAN DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS autorisiert_durch BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS autorisiert_am TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS letzter_kontakt_utc TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 CREATE INDEX IF NOT EXISTS idx_mitarbeiter_geraete_mitarbeiter
     ON public.mitarbeiter_geraete(mitarbeiter_id, autorisiert);
 
@@ -451,6 +509,16 @@ CREATE TABLE IF NOT EXISTS public.geraete_verifizierungen (
     created_by BIGINT REFERENCES public.users(id),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS public.geraete_verifizierungen
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS device_fingerprint TEXT,
+    ADD COLUMN IF NOT EXISTS code_hash TEXT,
+    ADD COLUMN IF NOT EXISTS expires_at_utc TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS consumed_at_utc TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_geraete_verif_lookup
     ON public.geraete_verifizierungen(mitarbeiter_id, device_fingerprint, expires_at_utc DESC);
@@ -502,6 +570,18 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     reason TEXT,
     created_at_utc TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS public.audit_logs
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS user_id BIGINT REFERENCES public.users(id) ON DELETE SET NULL,
+    ADD COLUMN IF NOT EXISTS event_type TEXT,
+    ADD COLUMN IF NOT EXISTS entity TEXT,
+    ADD COLUMN IF NOT EXISTS entity_id TEXT,
+    ADD COLUMN IF NOT EXISTS before_data JSONB,
+    ADD COLUMN IF NOT EXISTS after_data JSONB,
+    ADD COLUMN IF NOT EXISTS reason TEXT,
+    ADD COLUMN IF NOT EXISTS created_at_utc TIMESTAMPTZ DEFAULT NOW();
 
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON public.audit_logs(entity, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_time ON public.audit_logs(created_at_utc DESC);
