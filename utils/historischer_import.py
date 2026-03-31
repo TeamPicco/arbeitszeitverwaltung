@@ -23,14 +23,19 @@ Mapping:
   Korrektur Notiz → zeiterfassung.manuell_kommentar
 """
 
+import csv
 from datetime import date, datetime, time
 from typing import Optional
 import re
+import tempfile
+from pathlib import Path
 
 try:
     import openpyxl
 except ImportError:
     openpyxl = None
+
+from utils.work_accounts import sync_work_account_range
 
 
 # ─────────────────────────────────────────────────────────────
@@ -108,30 +113,11 @@ def parse_zeitraum(zelle_wert: str) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
-# EXCEL EINLESEN
+# DATEI-EINLESEN (XLSX/CSV)
 # ─────────────────────────────────────────────────────────────
 
-def lese_excel_datei(dateipfad: str) -> dict:
-    """
-    Liest eine Altsystem-Excel-Datei ein und gibt ein strukturiertes Dict zurück.
-
-    Rückgabe:
-    {
-        'mitarbeiter': {vorname, nachname, personalnummer, vollname},
-        'zeitraum': {von, bis, monat, jahr},
-        'tage': [
-            {
-                datum, wochentag, soll, plan, ist, abwesend,
-                saldo, korrektur, korrektur_notiz,
-                laufender_saldo, std_konto, lohn,
-                ist_ruhetag, ist_korrekturzeile
-            }, ...
-        ],
-        'summen': {soll, plan, ist, abwesend, korrektur, laufender_saldo, std_konto, lohn},
-        'startsaldo': float,  # letzter Lauf. Saldo-Wert = Übertrag für CrewBase
-        'fehler': []
-    }
-    """
+def _parse_planovo_rows(rows: list) -> dict:
+    """Parst bereits geladene Planovo-Zeilen in das Standard-Importformat."""
     result = {
         'mitarbeiter': {},
         'zeitraum': {},
@@ -141,35 +127,38 @@ def lese_excel_datei(dateipfad: str) -> dict:
         'fehler': []
     }
 
-    if openpyxl is None:
-        result['fehler'].append("openpyxl ist nicht installiert. Bitte requirements.txt prüfen.")
-        return result
-
-    try:
-        wb = openpyxl.load_workbook(dateipfad, data_only=True)
-        ws = wb.active
-        rows = list(ws.iter_rows(values_only=True))
-    except Exception as e:
-        result['fehler'].append(f"Datei konnte nicht geöffnet werden: {e}")
-        return result
-
-    # ── Metadaten aus Kopfzeilen ──────────────────────────────
+    # ── Metadaten robust erkennen (XLSX/CSV-Varianten) ────────
+    header_row_index = None
     for i, row in enumerate(rows):
-        if i == 1 and row[0]:  # Zeile 2: Titel
-            pass  # "Arbeitszeitauswertung" – nur zur Validierung
-        elif i == 2 and row[0]:  # Zeile 3: Zeitraum
-            result['zeitraum'] = parse_zeitraum(str(row[0]))
-        elif i == 4 and row[0]:  # Zeile 5: Mitarbeiter
-            result['mitarbeiter'] = parse_mitarbeiter_info(str(row[0]))
+        first_cell = row[0] if row and len(row) > 0 else None
+        first_text = str(first_cell).strip() if first_cell is not None else ""
 
-    # ── Spaltenköpfe (Zeile 6 = Index 5) ─────────────────────
-    HEADER_ROW_INDEX = 5
-    if len(rows) <= HEADER_ROW_INDEX:
-        result['fehler'].append("Spaltenköpfe nicht gefunden (Zeile 6 fehlt).")
-        return result
+        if not result['zeitraum'] and first_text:
+            parsed_zeitraum = parse_zeitraum(first_text)
+            if parsed_zeitraum:
+                result['zeitraum'] = parsed_zeitraum
 
-    header = [str(h).strip() if h else '' for h in rows[HEADER_ROW_INDEX]]
-    # Spalten-Mapping (robust gegen Variationen)
+        if not result['mitarbeiter'] and first_text and " - " in first_text:
+            if not parse_zeitraum(first_text):
+                info = parse_mitarbeiter_info(first_text)
+                if info.get("vorname") and info.get("vorname", "").lower() != "datum":
+                    result['mitarbeiter'] = info
+
+        normalized = [str(h).strip().lower() if h is not None else '' for h in row]
+        has_datum = any("datum" == h or "datum" in h for h in normalized)
+        has_ist = any(h in ("ist", "ist-stunden", "ist stunden") for h in normalized)
+        if has_datum and has_ist:
+            header_row_index = i
+            break
+
+    if header_row_index is None:
+        if len(rows) > 5:
+            header_row_index = 5
+        else:
+            result['fehler'].append("Spaltenköpfe nicht gefunden.")
+            return result
+
+    header = [str(h).strip() if h else '' for h in rows[header_row_index]]
     col_map = {}
     for idx, h in enumerate(header):
         h_lower = h.lower()
@@ -198,31 +187,29 @@ def lese_excel_datei(dateipfad: str) -> dict:
         elif h_lower == 'lohn':
             col_map['lohn'] = idx
 
-    # ── Tagesdaten (ab Zeile 8 = Index 7) ────────────────────
     letzter_saldo = 0.0
     letzter_std_konto = 0.0
 
-    for i in range(7, len(rows)):
+    for i in range(header_row_index + 1, len(rows)):
         row = rows[i]
-        if not any(row):
-            continue  # Leerzeile überspringen
+        if not row or not any(row):
+            continue
 
-        datum_wert = row[col_map.get('datum', 0)] if col_map.get('datum') is not None else None
+        datum_idx = col_map.get('datum')
+        datum_wert = row[datum_idx] if datum_idx is not None and datum_idx < len(row) else None
         datum_str = str(datum_wert).strip() if datum_wert else ''
 
-        # Summenzeile erkennen
         if datum_str.lower() == 'summe' or datum_str == '':
-            # Summenzeile verarbeiten
             if datum_str.lower() == 'summe':
                 result['summen'] = {
-                    'soll': safe_float(row[col_map['soll']] if 'soll' in col_map else None),
-                    'plan': safe_float(row[col_map['plan']] if 'plan' in col_map else None),
-                    'ist': safe_float(row[col_map['ist']] if 'ist' in col_map else None),
-                    'abwesend': safe_float(row[col_map['abwesend']] if 'abwesend' in col_map else None),
-                    'korrektur': safe_float(row[col_map['korrektur']] if 'korrektur' in col_map else None),
-                    'laufender_saldo': safe_float(row[col_map['laufender_saldo']] if 'laufender_saldo' in col_map else None),
-                    'std_konto': safe_float(row[col_map['std_konto']] if 'std_konto' in col_map else None),
-                    'lohn': safe_float(row[col_map['lohn']] if 'lohn' in col_map else None),
+                    'soll': safe_float(row[col_map['soll']] if 'soll' in col_map and col_map['soll'] < len(row) else None),
+                    'plan': safe_float(row[col_map['plan']] if 'plan' in col_map and col_map['plan'] < len(row) else None),
+                    'ist': safe_float(row[col_map['ist']] if 'ist' in col_map and col_map['ist'] < len(row) else None),
+                    'abwesend': safe_float(row[col_map['abwesend']] if 'abwesend' in col_map and col_map['abwesend'] < len(row) else None),
+                    'korrektur': safe_float(row[col_map['korrektur']] if 'korrektur' in col_map and col_map['korrektur'] < len(row) else None),
+                    'laufender_saldo': safe_float(row[col_map['laufender_saldo']] if 'laufender_saldo' in col_map and col_map['laufender_saldo'] < len(row) else None),
+                    'std_konto': safe_float(row[col_map['std_konto']] if 'std_konto' in col_map and col_map['std_konto'] < len(row) else None),
+                    'lohn': safe_float(row[col_map['lohn']] if 'lohn' in col_map and col_map['lohn'] < len(row) else None),
                 }
             continue
 
@@ -230,23 +217,26 @@ def lese_excel_datei(dateipfad: str) -> dict:
         if datum is None:
             continue
 
-        wochentag = str(row[col_map['tag']]).strip() if 'tag' in col_map and row[col_map['tag']] else ''
-        ist = safe_float(row[col_map['ist']] if 'ist' in col_map else None)
-        soll = safe_float(row[col_map['soll']] if 'soll' in col_map else None)
-        plan = safe_float(row[col_map['plan']] if 'plan' in col_map else None)
-        abwesend = safe_float(row[col_map['abwesend']] if 'abwesend' in col_map else None)
-        saldo = safe_float(row[col_map['saldo']] if 'saldo' in col_map else None)
-        korrektur = safe_float(row[col_map['korrektur']] if 'korrektur' in col_map else None)
-        korrektur_notiz = str(row[col_map['korrektur_notiz']]).strip() if 'korrektur_notiz' in col_map and row[col_map['korrektur_notiz']] else ''
-        laufender_saldo = safe_float(row[col_map['laufender_saldo']] if 'laufender_saldo' in col_map else None)
-        std_konto = safe_float(row[col_map['std_konto']] if 'std_konto' in col_map else None)
-        lohn = safe_float(row[col_map['lohn']] if 'lohn' in col_map else None)
+        def _row_val(col_name):
+            idx = col_map.get(col_name)
+            if idx is None or idx >= len(row):
+                return None
+            return row[idx]
 
-        # Ruhetag: Mo/Di mit 0 Soll-Stunden
+        wochentag = str(_row_val('tag')).strip() if _row_val('tag') else ''
+        ist = safe_float(_row_val('ist'))
+        soll = safe_float(_row_val('soll'))
+        plan = safe_float(_row_val('plan'))
+        abwesend = safe_float(_row_val('abwesend'))
+        saldo = safe_float(_row_val('saldo'))
+        korrektur = safe_float(_row_val('korrektur'))
+        korrektur_notiz = str(_row_val('korrektur_notiz')).strip() if _row_val('korrektur_notiz') else ''
+        laufender_saldo = safe_float(_row_val('laufender_saldo'))
+        std_konto = safe_float(_row_val('std_konto'))
+        lohn = safe_float(_row_val('lohn'))
+
         ist_ruhetag = (wochentag in ('Mo', 'Di') and soll == 0.0 and ist == 0.0)
-        # Korrekturzeile: Datum doppelt, korrektur_notiz gefüllt
         ist_korrekturzeile = bool(korrektur_notiz and korrektur != 0.0)
-        # Krankheitstag: Soll > 0, Ist = 0, Abwesend > 0 ODER Korrektur-Notiz enthält 'krank'
         ist_krank = (
             soll > 0 and ist == 0.0 and abwesend > 0
         ) or (
@@ -255,7 +245,6 @@ def lese_excel_datei(dateipfad: str) -> dict:
             'arbeitsunfähig' in korrektur_notiz.lower()
         )
 
-        # Letzten Saldo merken (für Startsaldo)
         if laufender_saldo != 0.0:
             letzter_saldo = laufender_saldo
         if std_konto != 0.0:
@@ -279,10 +268,215 @@ def lese_excel_datei(dateipfad: str) -> dict:
             'ist_krank': ist_krank,
         })
 
-    # Startsaldo = letzter Lauf. Saldo-Wert (Übertrag für CrewBase)
     result['startsaldo'] = letzter_saldo if letzter_saldo != 0.0 else letzter_std_konto
-
     return result
+
+
+def lese_excel_datei(dateipfad: str) -> dict:
+    """Liest eine Planovo-Excel-Datei (.xlsx)."""
+    if openpyxl is None:
+        return {
+            'mitarbeiter': {},
+            'zeitraum': {},
+            'tage': [],
+            'summen': {},
+            'startsaldo': 0.0,
+            'fehler': ["openpyxl ist nicht installiert. Bitte requirements.txt prüfen."],
+        }
+    try:
+        wb = openpyxl.load_workbook(dateipfad, data_only=True)
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        return _parse_planovo_rows(rows)
+    except Exception as e:
+        return {
+            'mitarbeiter': {},
+            'zeitraum': {},
+            'tage': [],
+            'summen': {},
+            'startsaldo': 0.0,
+            'fehler': [f"Datei konnte nicht geöffnet werden: {e}"],
+        }
+
+
+def lese_csv_datei(dateipfad: str) -> dict:
+    """Liest eine Planovo-CSV-Datei und mappt sie auf das gleiche Importformat wie XLSX."""
+    encodings = ("utf-8-sig", "cp1252", "latin-1")
+    content = None
+    for enc in encodings:
+        try:
+            content = Path(dateipfad).read_text(encoding=enc)
+            break
+        except Exception:
+            continue
+
+    if content is None:
+        return {
+            'mitarbeiter': {},
+            'zeitraum': {},
+            'tage': [],
+            'summen': {},
+            'startsaldo': 0.0,
+            'fehler': ["CSV-Datei konnte nicht gelesen werden."],
+        }
+
+    try:
+        sample = content[:2048]
+        dialect = csv.Sniffer().sniff(sample, delimiters=";,")
+        delimiter = dialect.delimiter
+    except Exception:
+        delimiter = ";"
+
+    rows = []
+    for row in csv.reader(content.splitlines(), delimiter=delimiter):
+        rows.append(row)
+
+    return _parse_planovo_rows(rows)
+
+
+# ─────────────────────────────────────────────────────────────
+# IMPORT-HILFSFUNKTIONEN
+# ─────────────────────────────────────────────────────────────
+
+def _resolve_import_range(daten: dict, monat: int, jahr: int) -> tuple[date, date]:
+    zeitraum = daten.get('zeitraum', {})
+    range_start = zeitraum.get('von')
+    range_end = zeitraum.get('bis')
+    if not isinstance(range_start, date):
+        range_start = date(int(jahr), int(monat), 1)
+    if not isinstance(range_end, date):
+        range_end = date(int(jahr), int(monat), 28)
+    return range_start, range_end
+
+
+def _count_range_rows(supabase_client, table_name: str, mitarbeiter_id, range_start: date, range_end: date) -> int:
+    try:
+        res = supabase_client.table(table_name).select('id').eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', range_start.isoformat()).lte('datum', range_end.isoformat()).execute()
+        return len(res.data or [])
+    except Exception:
+        return 0
+
+
+def _cleanup_import_month(
+    supabase_client,
+    *,
+    mitarbeiter_id,
+    monat: int,
+    jahr: int,
+    range_start: date,
+    range_end: date,
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        supabase_client.table('zeiterfassung').delete().eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', range_start.isoformat()).lte('datum', range_end.isoformat()).execute()
+    except Exception as e:
+        errors.append(f"Fehler beim Monats-Reset (zeiterfassung): {str(e)}")
+
+    try:
+        supabase_client.table('krankheitstage').delete().eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', range_start.isoformat()).lte('datum', range_end.isoformat()).execute()
+    except Exception:
+        pass
+
+    try:
+        supabase_client.table('arbeitszeitkonto').delete().eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).eq('monat', monat).eq('jahr', jahr).execute()
+    except Exception:
+        pass
+
+    return errors
+
+
+def dry_run_import_summary(
+    daten: dict,
+    *,
+    mitarbeiter_id: str | int,
+    supabase_client,
+) -> dict:
+    """
+    Trockenlauf vor Import:
+    - zeigt geplanten Zeitraum
+    - Anzahl Datensätze, die beim Überschreiben gelöscht würden
+    - Anzahl Datensätze, die importiert würden
+    """
+    monat = daten.get('zeitraum', {}).get('monat')
+    jahr = daten.get('zeitraum', {}).get('jahr')
+    tage = daten.get('tage') or []
+    if not monat or not jahr:
+        return {
+            "ok": False,
+            "fehler": ["Zeitraum konnte nicht ermittelt werden."],
+        }
+
+    range_start, range_end = _resolve_import_range(daten, int(monat), int(jahr))
+    importierbar = sum(1 for t in tage if float(t.get('ist') or 0.0) > 0 or bool(t.get('ist_korrekturzeile')))
+
+    delete_zeiterfassung = _count_range_rows(
+        supabase_client, 'zeiterfassung', mitarbeiter_id, range_start, range_end
+    )
+    delete_krankheitstage = _count_range_rows(
+        supabase_client, 'krankheitstage', mitarbeiter_id, range_start, range_end
+    )
+    try:
+        konto_res = supabase_client.table('arbeitszeitkonto').select('id').eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).eq('monat', int(monat)).eq('jahr', int(jahr)).execute()
+        delete_konto = len(konto_res.data or [])
+    except Exception:
+        delete_konto = 0
+
+    return {
+        "ok": True,
+        "monat": int(monat),
+        "jahr": int(jahr),
+        "range_start": range_start.isoformat(),
+        "range_end": range_end.isoformat(),
+        "would_import": int(importierbar),
+        "would_skip": max(0, len(tage) - int(importierbar)),
+        "would_delete_zeiterfassung": int(delete_zeiterfassung),
+        "would_delete_krankheitstage": int(delete_krankheitstage),
+        "would_delete_arbeitszeitkonto": int(delete_konto),
+    }
+
+
+def _build_import_result_template(daten: dict) -> dict:
+    return {
+        'ok': False,
+        'importiert': 0,
+        'uebersprungen': 0,
+        'fehler': [],
+        'startsaldo': daten.get('startsaldo', 0.0),
+        'monat': daten.get('zeitraum', {}).get('monat'),
+        'jahr': daten.get('zeitraum', {}).get('jahr'),
+    }
+
+
+def importiere_csv_in_crewbase(
+    dateipfad: str,
+    *,
+    mitarbeiter_id: str | int,
+    betrieb_id: str | int,
+    supabase_client,
+    ueberschreiben: bool = False,
+) -> dict:
+    daten = lese_csv_datei(dateipfad)
+    if daten.get('fehler'):
+        result = _build_import_result_template(daten)
+        result['fehler'].extend(daten.get('fehler') or [])
+        return result
+    return importiere_in_crewbase(
+        daten,
+        mitarbeiter_id=str(mitarbeiter_id),
+        betrieb_id=str(betrieb_id),
+        supabase_client=supabase_client,
+        ueberschreiben=ueberschreiben,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -326,6 +520,21 @@ def importiere_in_crewbase(
     if not monat or not jahr:
         result['fehler'].append("Zeitraum konnte nicht ermittelt werden.")
         return result
+
+    # ── 0. Import-Zeitraum vorbereiten (Monat überschreiben) ────────────────
+    range_start, range_end = _resolve_import_range(daten, int(monat), int(jahr))
+
+    if ueberschreiben:
+        result['fehler'].extend(
+            _cleanup_import_month(
+                supabase_client,
+                mitarbeiter_id=mitarbeiter_id,
+                monat=int(monat),
+                jahr=int(jahr),
+                range_start=range_start,
+                range_end=range_end,
+            )
+        )
 
     # ── 1. Zeiterfassung: Tagesbuchungen importieren ──────────
     for tag in daten['tage']:
@@ -385,12 +594,6 @@ def importiere_in_crewbase(
         }
 
         try:
-            if ueberschreiben:
-                # Bestehenden Eintrag löschen
-                supabase_client.table('zeiterfassung').delete().eq(
-                    'mitarbeiter_id', mitarbeiter_id
-                ).eq('datum', datum.isoformat()).eq('quelle', 'historischer_import').execute()
-
             # Prüfen ob bereits vorhanden (nicht überschreiben)
             if not ueberschreiben:
                 existing = supabase_client.table('zeiterfassung').select('id').eq(
@@ -540,5 +743,50 @@ def importiere_in_crewbase(
     except Exception as e:
         result['fehler'].append(f"Fehler beim Saldo-Übertrag: {str(e)}")
 
+    # ── 4. Laufendes Arbeitszeitkonto automatisch neu berechnen ─────────────
+    try:
+        zeitraum = daten.get('zeitraum', {})
+        start_monat = int(zeitraum.get('monat') or monat)
+        start_jahr = int(zeitraum.get('jahr') or jahr)
+        heute = date.today()
+        snapshots = sync_work_account_range(
+            supabase_client,
+            betrieb_id=int(betrieb_id),
+            mitarbeiter_id=int(mitarbeiter_id),
+            start_monat=start_monat,
+            start_jahr=start_jahr,
+            end_monat=heute.month,
+            end_jahr=heute.year,
+        )
+        result['azk_sync_monate'] = len(snapshots)
+    except Exception as e:
+        result['fehler'].append(f"Fehler beim automatischen Arbeitszeitkonto-Sync: {str(e)}")
+
     result['ok'] = len(result['fehler']) == 0 or result['importiert'] > 0
     return result
+
+
+def lese_upload_datei(uploaded_file) -> dict:
+    """
+    Liest eine hochgeladene Importdatei (XLSX/CSV) ein.
+    """
+    suffix = (Path(getattr(uploaded_file, "name", "import.xlsx")).suffix or ".xlsx").lower()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(uploaded_file.getbuffer())
+        tmp_path = tmp.name
+    try:
+        if suffix == ".csv":
+            return lese_csv_datei(tmp_path)
+        return lese_excel_datei(tmp_path)
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def lese_excel_upload(uploaded_file) -> dict:
+    """
+    Rückwärtskompatibler Alias für ältere Aufrufe.
+    """
+    return lese_upload_datei(uploaded_file)

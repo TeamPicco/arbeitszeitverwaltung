@@ -17,6 +17,58 @@ EVENT_BREAK_START = "break_start"
 EVENT_BREAK_END = "break_end"
 
 
+def _is_rls_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    code = None
+    try:
+        # postgrest.exceptions.APIError exposes a json() payload with code/message.
+        json_method = getattr(exc, "json", None)
+        if callable(json_method):
+            payload = json_method() or {}
+            code = str(payload.get("code") or "").lower()
+            payload_msg = str(payload.get("message") or "").lower()
+            if payload_msg:
+                msg = f"{msg} {payload_msg}"
+    except Exception:
+        pass
+
+    return (
+        code == "42501"
+        or "42501" in msg
+        or "row-level security" in msg
+        or "violates row-level security policy" in msg
+    )
+
+
+def _service_role_client_or_none():
+    try:
+        from utils.database import get_service_role_client
+
+        return get_service_role_client()
+    except Exception:
+        return None
+
+
+def _insert_event_with_rls_fallback(primary_client, payload: Dict[str, Any]) -> Any:
+    """
+    Versucht Insert mit Primary-Client, fällt bei RLS auf Service-Role zurück.
+    Gibt den tatsächlich verwendeten Client zurück.
+    """
+    try:
+        primary_client.table("zeit_eintraege").insert(payload).execute()
+        return primary_client
+    except Exception as exc:
+        if not _is_rls_error(exc):
+            raise
+        svc = _service_role_client_or_none()
+        if svc is None:
+            raise RuntimeError(
+                "RLS-Fehler beim Schreiben der Zeit-Events und kein Service-Role-Key verfügbar."
+            ) from exc
+        svc.table("zeit_eintraege").insert(payload).execute()
+        return svc
+
+
 def _normalize_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     parsed: List[Dict[str, Any]] = []
     for row in rows or []:
@@ -218,16 +270,38 @@ def register_time_event(
     if event_time.tzinfo is None:
         event_time = event_time.replace(tzinfo=now_utc().tzinfo)
 
+    # Wenn vorhanden, service_role bevorzugen, um RLS-bedingte Runtime-Fehler
+    # im serverseitigen Streamlit-Prozess zu vermeiden.
+    service_client = _service_role_client_or_none()
+
     # Historie laden (letzte 7 Tage reichen für Restzeitchecks).
     since = (event_time - timedelta(days=7)).isoformat()
-    ev_res = (
-        supabase.table("zeit_eintraege")
-        .select("*")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .gte("zeitpunkt_utc", since)
-        .order("zeitpunkt_utc")
-        .execute()
-    )
+    read_client = service_client or supabase
+    try:
+        ev_res = (
+            read_client.table("zeit_eintraege")
+            .select("*")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("zeitpunkt_utc", since)
+            .order("zeitpunkt_utc")
+            .execute()
+        )
+    except Exception as exc:
+        if read_client is not supabase:
+            raise
+        if not _is_rls_error(exc):
+            raise
+        svc = service_client or _service_role_client_or_none()
+        if svc is None:
+            return {"ok": False, "error": f"RLS-Fehler beim Lesen der Zeit-Events: {exc}"}
+        ev_res = (
+            svc.table("zeit_eintraege")
+            .select("*")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("zeitpunkt_utc", since)
+            .order("zeitpunkt_utc")
+            .execute()
+        )
     events = _normalize_event_rows(ev_res.data or [])
 
     ok, reason = validate_event_transition(events, action)
@@ -243,7 +317,20 @@ def register_time_event(
         "geraet_id": geraet_id,
         "created_by": created_by,
     }
-    supabase.table("zeit_eintraege").insert(insert_payload).execute()
+    write_client = service_client or supabase
+    try:
+        write_client.table("zeit_eintraege").insert(insert_payload).execute()
+    except Exception as exc:
+        # Wenn wir bereits mit service_role schreiben, weiterreichen.
+        if write_client is not supabase:
+            raise
+        if not _is_rls_error(exc):
+            raise
+        svc = _service_role_client_or_none()
+        if svc is None:
+            return {"ok": False, "error": f"RLS-Fehler beim Schreiben der Zeit-Events: {exc}"}
+        write_client = svc
+        write_client.table("zeit_eintraege").insert(insert_payload).execute()
 
     # Eventliste inkl. neuem Event.
     events.append({"aktion": action, "_ts": event_time, "zeitpunkt_utc": event_time})
@@ -270,7 +357,7 @@ def register_time_event(
                 break_minutes=break_minutes,
                 source=source,
             )
-            supabase.table("zeiterfassung").upsert(
+            write_client.table("zeiterfassung").upsert(
                 legacy,
                 on_conflict="mitarbeiter_id,datum,start_zeit",
             ).execute()
@@ -280,13 +367,13 @@ def register_time_event(
     if findings:
         # Optional auf Legacy-Tabelle spiegeln, wenn Spalte vorhanden.
         try:
-            supabase.table("zeiterfassung").update(
+            write_client.table("zeiterfassung").update(
                 {"compliance_warnungen": [f.__dict__ for f in findings]}
             ).eq("mitarbeiter_id", mitarbeiter_id).eq("datum", day.isoformat()).execute()
         except Exception:
             pass
         try:
-            supabase.table("audit_logs").insert(
+            write_client.table("audit_logs").insert(
                 {
                     "betrieb_id": betrieb_id,
                     "mitarbeiter_id": mitarbeiter_id,

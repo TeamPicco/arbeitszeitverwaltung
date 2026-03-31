@@ -57,6 +57,7 @@ BEGIN
         'abwesenheiten',
         'arbeitszeitkonto',
         'arbeitszeit_konten',
+        'azk_monatsabschluesse',
         'lohnabrechnungen',
         'mastergeraete',
         'mitarbeiter_geraete',
