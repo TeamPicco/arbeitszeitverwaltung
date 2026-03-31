@@ -1,116 +1,198 @@
-import streamlit as st
-from supabase import create_client, Client
-import bcrypt
 import os
-import requests
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
+import bcrypt
+import requests
+import streamlit as st
+from supabase import Client, create_client
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Fehlende Umgebungsvariable: {name}")
+    return value
+
 
 def init_supabase_client() -> Client:
-    """Initialisiert den Supabase-Client."""
-    if 'supabase' not in st.session_state:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        if not url or not key:
-            st.error("Supabase-Konfiguration fehlt!")
-            st.stop()
+    """Initialisiert den regulären Supabase-Client aus Session-State."""
+    if "supabase" not in st.session_state:
+        url = _require_env("SUPABASE_URL")
+        key = _require_env("SUPABASE_KEY")
         st.session_state.supabase = create_client(url, key)
     return st.session_state.supabase
 
+
 def get_supabase_client() -> Client:
+    """Alias für den regulären Supabase-Client."""
     return init_supabase_client()
 
-def verify_credentials_with_betrieb(betriebsnummer: str, username: str, password: str) -> Optional[Dict[str, Any]]:
+
+def get_service_role_client() -> Client:
+    """
+    Liefert einen Service-Role-Client.
+
+    Nur für serverseitige Admin-Aufgaben, niemals für Browser-seitige Secrets.
+    """
+    url = _require_env("SUPABASE_URL")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    if not service_key:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY fehlt")
+    return create_client(url, service_key)
+
+
+def verify_credentials_with_betrieb(
+    betriebsnummer: str, username: str, password: str
+) -> Optional[Dict[str, Any]]:
     """Verifiziert die Anmeldung inkl. Betriebsnummer."""
     try:
         supabase = get_supabase_client()
-        # 1. Betrieb prüfen
-        b_res = supabase.table('betriebe').select('*').eq('betriebsnummer', betriebsnummer).eq('aktiv', True).execute()
-        if not b_res.data:
+        betrieb_res = (
+            supabase.table("betriebe")
+            .select("*")
+            .eq("betriebsnummer", betriebsnummer)
+            .eq("aktiv", True)
+            .execute()
+        )
+        if not betrieb_res.data:
             return None
-        betrieb = b_res.data[0]
 
-        # 2. User für diesen Betrieb prüfen
-        u_res = supabase.table('users').select('*').eq('username', username).eq('betrieb_id', betrieb['id']).eq('is_active', True).execute()
-        if u_res.data:
-            user = u_res.data[0]
-            # Passwort prüfen
-            if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                user['betrieb_name'] = betrieb['name']
-                user['betrieb_id'] = betrieb['id']
-                return user
+        betrieb = betrieb_res.data[0]
+        user_res = (
+            supabase.table("users")
+            .select("*")
+            .eq("username", username)
+            .eq("betrieb_id", betrieb["id"])
+            .eq("is_active", True)
+            .execute()
+        )
+        if not user_res.data:
+            return None
+
+        user = user_res.data[0]
+        pw_hash = user.get("password_hash", "")
+        if not pw_hash:
+            return None
+
+        if bcrypt.checkpw(password.encode("utf-8"), pw_hash.encode("utf-8")):
+            user["betrieb_name"] = betrieb.get("name", "")
+            user["betrieb_id"] = betrieb["id"]
+            return user
         return None
-    except Exception as e:
-        st.error(f"Datenbankfehler: {e}")
+    except Exception as exc:
+        st.error(f"Login-Fehler: {exc}")
         return None
 
-def update_last_login(user_id: str):
+
+def update_last_login(user_id: str) -> None:
     """Aktualisiert den Zeitstempel des letzten Logins."""
     try:
         supabase = get_supabase_client()
-        supabase.table('users').update({
-            'last_login': datetime.now().isoformat()
-        }).eq('id', user_id).execute()
+        (
+            supabase.table("users")
+            .update({"last_login": datetime.utcnow().isoformat()})
+            .eq("id", user_id)
+            .execute()
+        )
     except Exception:
+        # Login-Funktion darf nicht an Telemetrie scheitern.
         pass
 
-def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes):
-    """Sicherer Upload via REST API (verhindert Syntaxfehler bei Storage-Methoden)."""
-    url = os.getenv("SUPABASE_URL")
-    service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-    headers = {
-        'apikey': service_key,
-        'Authorization': f'Bearer {service_key}',
-        'x-upsert': 'true'
-    }
-    upload_url = f"{url}/storage/v1/object/{bucket_name}/{file_path}"
-    response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
-    return response.status_code in [200, 201]        return None            user = u_res.data[0]
-            if bcrypt.checkpw(password.encode('utf-8'), user['password_hash'].encode('utf-8')):
-                user['betrieb_name'] = betrieb['name']
-                user['betrieb_id'] = betrieb['id']
-                return user
-        return None
-    except Exception as e:
-        st.error(f"Login-Fehler: {e}")
-        return None
 
-def update_last_login(user_id: str):
-    """Aktualisiert den Zeitstempel des letzten Logins (Wird von app.py gesucht)"""
+def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> bool:
+    """Datei-Upload über Supabase Storage REST API."""
+    try:
+        url = _require_env("SUPABASE_URL")
+        service_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_KEY")
+        )
+        if not service_key:
+            return False
+
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "x-upsert": "true",
+        }
+        upload_url = f"{url}/storage/v1/object/{bucket_name}/{file_path}"
+        response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
+        return response.status_code in (200, 201)
+    except Exception:
+        return False
+
+
+def get_all_mitarbeiter() -> List[Dict[str, Any]]:
+    """Lädt alle Mitarbeiter des aktuellen Betriebs (falls gesetzt)."""
+    supabase = get_supabase_client()
+    query = supabase.table("mitarbeiter").select("*").order("nachname")
+    betrieb_id = st.session_state.get("betrieb_id")
+    if betrieb_id is not None:
+        query = query.eq("betrieb_id", betrieb_id)
+    res = query.execute()
+    return res.data or []
+
+
+def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any]) -> bool:
+    """Aktualisiert einen Mitarbeiterdatensatz."""
     try:
         supabase = get_supabase_client()
-        supabase.table('users').update({
-            'last_login': datetime.now().isoformat()
-        }).eq('id', user_id).execute()
+        query = supabase.table("mitarbeiter").update(values).eq("id", mitarbeiter_id)
+        betrieb_id = st.session_state.get("betrieb_id")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        query.execute()
+        return True
     except Exception:
-        pass
+        return False
 
-def check_and_save_monats_abschluss(mitarbeiter_id, monat, jahr):
-    """Speichert den Saldo fest in der azk_historie Tabelle"""
+
+def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) -> float:
+    """
+    Speichert den Monatsabschluss in azk_historie.
+
+    Fallback-fähig für unterschiedliche historische Spaltennamen.
+    """
     supabase = get_supabase_client()
-    # Ist-Stunden
-    res = supabase.table("zeiterfassung").select("stunden").eq("mitarbeiter_id", mitarbeiter_id).eq("monat", monat).eq("jahr", jahr).execute()
-    ist = sum(r['stunden'] for r in res.data) if res.data else 0.0
-    # Soll-Stunden
-    ma = supabase.table("mitarbeiter").select("soll_stunden_monat").eq("id", mitarbeiter_id).single().execute()
-    soll = ma.data.get('soll_stunden_monat', 160.0)
-    
-    diff = round(ist - soll, 2)
-    supabase.table("azk_historie").upsert({
-        "mitarbeiter_id": mitarbeiter_id, "monat": monat, "jahr": jahr,
-        "ist_stunden": ist, "soll_stunden": soll, "differenz": diff
-    }, on_conflict="mitarbeiter_id, monat, jahr").execute()
-    return diff
 
-def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes):
-    """Sicherer Upload via REST API"""
-    url = os.getenv("SUPABASE_URL")
-    service_key = os.getenv("SUPABASE_SERVICE_KEY") or os.getenv("SUPABASE_KEY")
-    headers = {
-        'apikey': service_key,
-        'Authorization': f'Bearer {service_key}',
-        'x-upsert': 'true'
-    }
-    upload_url = f"{url}/storage/v1/object/{bucket_name}/{file_path}"
-    response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
-    return response.status_code in [200, 201]
+    ist_res = (
+        supabase.table("zeiterfassung")
+        .select("arbeitsstunden, stunden")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .eq("monat", monat)
+        .eq("jahr", jahr)
+        .execute()
+    )
+    ist = 0.0
+    for row in ist_res.data or []:
+        ist += float(row.get("arbeitsstunden") or row.get("stunden") or 0.0)
+
+    ma = (
+        supabase.table("mitarbeiter")
+        .select("monatliche_soll_stunden, soll_stunden_monat")
+        .eq("id", mitarbeiter_id)
+        .single()
+        .execute()
+    )
+    ma_data = ma.data or {}
+    soll = float(ma_data.get("monatliche_soll_stunden") or ma_data.get("soll_stunden_monat") or 160.0)
+
+    diff = round(ist - soll, 2)
+    (
+        supabase.table("azk_historie")
+        .upsert(
+            {
+                "mitarbeiter_id": mitarbeiter_id,
+                "monat": monat,
+                "jahr": jahr,
+                "ist_stunden": round(ist, 2),
+                "soll_stunden": round(soll, 2),
+                "differenz": diff,
+            },
+            on_conflict="mitarbeiter_id,monat,jahr",
+        )
+        .execute()
+    )
+    return diff

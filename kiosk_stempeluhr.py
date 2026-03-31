@@ -9,16 +9,17 @@ Keine sensiblen Daten (Lohn, Stunden-Summen) sichtbar.
 import streamlit as st
 from supabase import create_client
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 import time
-import json
 
 # ─── Supabase-Verbindung ────────────────────────────────────────────────────
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://jehomjeanbmkoptknutx.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImplaG9tamVhbmJta29wdGtudXR4Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDkxMzYwOSwiZXhwIjoyMDg2NDg5NjA5fQ.-gssE1hce_BldpSTry-ehFMXZQzmIQDpWFWTXPy61t8")
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 @st.cache_resource
 def get_supabase():
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise RuntimeError("SUPABASE_URL/SUPABASE_KEY fehlt in der Umgebung.")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ─── CSS-Styling ─────────────────────────────────────────────────────────────
@@ -385,41 +386,28 @@ def stempel_buchen(betrieb_id: int, mitarbeiter_id: int, typ: str, geraet_id: st
     Doppel-Buchungs-Schutz: Kommen nur wenn nicht eingestempelt, Gehen nur wenn eingestempelt.
     """
     jetzt = get_jetzt_berlin()
-    heute = jetzt.date().isoformat()
-    uhrzeit = jetzt.strftime("%H:%M") + ":00"  # Minutengenau (Sekunden immer :00)
 
     try:
         supabase = get_supabase()
-        offener_eintrag = ist_eingestempelt(mitarbeiter_id)
+        from utils.zeit_events import EVENT_CLOCK_IN, EVENT_CLOCK_OUT, register_time_event
 
-        if typ == "kommen":
-            # Doppel-Buchungs-Schutz: Bereits eingestempelt?
-            if offener_eintrag:
+        action = EVENT_CLOCK_IN if typ == "kommen" else EVENT_CLOCK_OUT
+        result = register_time_event(
+            supabase,
+            betrieb_id=betrieb_id,
+            mitarbeiter_id=mitarbeiter_id,
+            action=action,
+            source="stempeluhr",
+            geraet_id=geraet_id,
+            event_time_utc=jetzt.astimezone(timezone.utc),
+        )
+        if not result.get("ok"):
+            reason = result.get("error", "")
+            if "Bereits eingestempelt" in reason:
                 return "bereits_eingestempelt", jetzt
-            
-            eintrag = {
-                "mitarbeiter_id": mitarbeiter_id,
-                "datum": heute,
-                "start_zeit": uhrzeit,
-                "quelle": "stempeluhr",
-                "manuell_kommentar": f"Stempeluhr: {geraet_id}",
-            }
-            supabase.table("zeiterfassung").insert(eintrag).execute()
-
-        else:  # gehen
-            if offener_eintrag:
-                # Offenen Eintrag schließen – Pause wird manuell eingetragen, nicht automatisch berechnet
-                start_str = offener_eintrag.get("start_zeit", "00:00:00")
-                netto_h = _berechne_stunden(start_str, uhrzeit)
-                supabase.table("zeiterfassung").update({
-                    "ende_zeit": uhrzeit,
-                    "pause_minuten": 0,
-                    "arbeitsstunden": netto_h,
-                    "quelle": "stempeluhr",
-                }).eq("id", offener_eintrag["id"]).execute()
-            else:
-                # Kein offener Eintrag – Doppel-Buchungs-Schutz
+            if "Nicht eingestempelt" in reason:
                 return "nicht_eingestempelt", jetzt
+            return False, jetzt
 
         st.session_state["kiosk_offline"] = False
         return True, jetzt
