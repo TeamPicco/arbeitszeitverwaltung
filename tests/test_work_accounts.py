@@ -5,6 +5,7 @@ from datetime import date
 from utils.work_accounts import (
     close_work_account_month,
     sync_work_account_for_month,
+    sync_work_account_range,
 )
 
 
@@ -196,3 +197,17 @@ def test_close_month_creates_immutable_snapshot():
     assert locked.monat_abgeschlossen is True
     assert locked.ist_stunden == closed.ist_stunden
     assert locked.ueberstunden_saldo == closed.ueberstunden_saldo
+
+
+def test_sync_range_runs_inclusive_months():
+    sb = FakeSupabase()
+    snapshots = sync_work_account_range(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        start_monat=2,
+        start_jahr=2026,
+        end_monat=4,
+        end_jahr=2026,
+    )
+    assert len(snapshots) == 3

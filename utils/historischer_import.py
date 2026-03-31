@@ -26,11 +26,15 @@ Mapping:
 from datetime import date, datetime, time
 from typing import Optional
 import re
+import tempfile
+from pathlib import Path
 
 try:
     import openpyxl
 except ImportError:
     openpyxl = None
+
+from utils.work_accounts import sync_work_account_range
 
 
 # ─────────────────────────────────────────────────────────────
@@ -540,5 +544,41 @@ def importiere_in_crewbase(
     except Exception as e:
         result['fehler'].append(f"Fehler beim Saldo-Übertrag: {str(e)}")
 
+    # ── 4. Laufendes Arbeitszeitkonto automatisch neu berechnen ─────────────
+    try:
+        zeitraum = daten.get('zeitraum', {})
+        start_monat = int(zeitraum.get('monat') or monat)
+        start_jahr = int(zeitraum.get('jahr') or jahr)
+        heute = date.today()
+        snapshots = sync_work_account_range(
+            supabase_client,
+            betrieb_id=int(betrieb_id),
+            mitarbeiter_id=int(mitarbeiter_id),
+            start_monat=start_monat,
+            start_jahr=start_jahr,
+            end_monat=heute.month,
+            end_jahr=heute.year,
+        )
+        result['azk_sync_monate'] = len(snapshots)
+    except Exception as e:
+        result['fehler'].append(f"Fehler beim automatischen Arbeitszeitkonto-Sync: {str(e)}")
+
     result['ok'] = len(result['fehler']) == 0 or result['importiert'] > 0
     return result
+
+
+def lese_excel_upload(uploaded_file) -> dict:
+    """
+    Liest eine von Streamlit hochgeladene Excel-Datei (UploadedFile) ein.
+    """
+    suffix = Path(getattr(uploaded_file, "name", "import.xlsx")).suffix or ".xlsx"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(uploaded_file.getbuffer())
+        tmp_path = tmp.name
+    try:
+        return lese_excel_datei(tmp_path)
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass

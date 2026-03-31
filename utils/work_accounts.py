@@ -397,3 +397,43 @@ def close_work_account_month(
         jahr=jahr,
     )
 
+
+def sync_work_account_range(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    start_monat: int,
+    start_jahr: int,
+    end_monat: int,
+    end_jahr: int,
+) -> list[WorkAccountSnapshot]:
+    """
+    Synchronisiert Arbeitszeitkonten für einen Monatsbereich (inklusive Grenzen).
+
+    Nützlich nach historischen Importen, damit sich das laufende Konto automatisch
+    über Folgemonate aktualisiert.
+    """
+    snapshots: list[WorkAccountSnapshot] = []
+    cur_jahr = int(start_jahr)
+    cur_monat = int(start_monat)
+    target_key = _month_key(int(end_monat), int(end_jahr))
+
+    while _month_key(cur_monat, cur_jahr) <= target_key:
+        snapshots.append(
+            sync_work_account_for_month(
+                supabase,
+                betrieb_id=betrieb_id,
+                mitarbeiter_id=mitarbeiter_id,
+                monat=cur_monat,
+                jahr=cur_jahr,
+            )
+        )
+        if cur_monat == 12:
+            cur_monat = 1
+            cur_jahr += 1
+        else:
+            cur_monat += 1
+
+    return snapshots
+
