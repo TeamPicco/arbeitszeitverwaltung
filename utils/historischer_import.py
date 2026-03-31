@@ -127,23 +127,38 @@ def _parse_planovo_rows(rows: list) -> dict:
         'fehler': []
     }
 
-    # ── Metadaten aus Kopfzeilen ──────────────────────────────
+    # ── Metadaten robust erkennen (XLSX/CSV-Varianten) ────────
+    header_row_index = None
     for i, row in enumerate(rows):
         first_cell = row[0] if row and len(row) > 0 else None
-        if i == 1 and first_cell:  # Zeile 2: Titel
-            pass
-        elif i == 2 and first_cell:  # Zeile 3: Zeitraum
-            result['zeitraum'] = parse_zeitraum(str(first_cell))
-        elif i == 4 and first_cell:  # Zeile 5: Mitarbeiter
-            result['mitarbeiter'] = parse_mitarbeiter_info(str(first_cell))
+        first_text = str(first_cell).strip() if first_cell is not None else ""
 
-    # ── Spaltenköpfe (Zeile 6 = Index 5) ─────────────────────
-    HEADER_ROW_INDEX = 5
-    if len(rows) <= HEADER_ROW_INDEX:
-        result['fehler'].append("Spaltenköpfe nicht gefunden (Zeile 6 fehlt).")
-        return result
+        if not result['zeitraum'] and first_text:
+            parsed_zeitraum = parse_zeitraum(first_text)
+            if parsed_zeitraum:
+                result['zeitraum'] = parsed_zeitraum
 
-    header = [str(h).strip() if h else '' for h in rows[HEADER_ROW_INDEX]]
+        if not result['mitarbeiter'] and first_text and " - " in first_text:
+            if not parse_zeitraum(first_text):
+                info = parse_mitarbeiter_info(first_text)
+                if info.get("vorname") and info.get("vorname", "").lower() != "datum":
+                    result['mitarbeiter'] = info
+
+        normalized = [str(h).strip().lower() if h is not None else '' for h in row]
+        has_datum = any("datum" == h or "datum" in h for h in normalized)
+        has_ist = any(h in ("ist", "ist-stunden", "ist stunden") for h in normalized)
+        if has_datum and has_ist:
+            header_row_index = i
+            break
+
+    if header_row_index is None:
+        if len(rows) > 5:
+            header_row_index = 5
+        else:
+            result['fehler'].append("Spaltenköpfe nicht gefunden.")
+            return result
+
+    header = [str(h).strip() if h else '' for h in rows[header_row_index]]
     col_map = {}
     for idx, h in enumerate(header):
         h_lower = h.lower()
@@ -175,7 +190,7 @@ def _parse_planovo_rows(rows: list) -> dict:
     letzter_saldo = 0.0
     letzter_std_konto = 0.0
 
-    for i in range(7, len(rows)):
+    for i in range(header_row_index + 1, len(rows)):
         row = rows[i]
         if not row or not any(row):
             continue
