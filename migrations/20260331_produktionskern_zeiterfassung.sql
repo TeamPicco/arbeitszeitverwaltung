@@ -147,6 +147,60 @@ ALTER TABLE IF EXISTS public.arbeitszeit_konten
 CREATE INDEX IF NOT EXISTS idx_arbeitszeit_konten_betrieb
     ON public.arbeitszeit_konten(betrieb_id, mitarbeiter_id);
 
+-- Monatsabschlüsse (unveränderliche Snapshots)
+CREATE TABLE IF NOT EXISTS public.azk_monatsabschluesse (
+    id BIGSERIAL PRIMARY KEY,
+    betrieb_id BIGINT NOT NULL REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    mitarbeiter_id BIGINT NOT NULL REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    monat INTEGER NOT NULL CHECK (monat BETWEEN 1 AND 12),
+    jahr INTEGER NOT NULL CHECK (jahr >= 2000),
+    soll_stunden NUMERIC(7,2) NOT NULL DEFAULT 0,
+    ist_stunden NUMERIC(7,2) NOT NULL DEFAULT 0,
+    differenz_stunden NUMERIC(7,2) NOT NULL DEFAULT 0,
+    ueberstunden_saldo_start NUMERIC(9,2) NOT NULL DEFAULT 0,
+    ueberstunden_saldo_ende NUMERIC(9,2) NOT NULL DEFAULT 0,
+    urlaubstage_gesamt NUMERIC(5,2) NOT NULL DEFAULT 0,
+    urlaubstage_genommen NUMERIC(5,2) NOT NULL DEFAULT 0,
+    krankheitstage_gesamt NUMERIC(5,2) NOT NULL DEFAULT 0,
+    created_by BIGINT REFERENCES public.users(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (mitarbeiter_id, monat, jahr)
+);
+
+ALTER TABLE IF EXISTS public.azk_monatsabschluesse
+    ADD COLUMN IF NOT EXISTS betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS mitarbeiter_id BIGINT REFERENCES public.mitarbeiter(id) ON DELETE CASCADE,
+    ADD COLUMN IF NOT EXISTS monat INTEGER,
+    ADD COLUMN IF NOT EXISTS jahr INTEGER,
+    ADD COLUMN IF NOT EXISTS soll_stunden NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ist_stunden NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS differenz_stunden NUMERIC(7,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ueberstunden_saldo_start NUMERIC(9,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS ueberstunden_saldo_ende NUMERIC(9,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS urlaubstage_gesamt NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS urlaubstage_genommen NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS krankheitstage_gesamt NUMERIC(5,2) DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS created_by BIGINT REFERENCES public.users(id),
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
+CREATE INDEX IF NOT EXISTS idx_azk_monatsabschluesse_lookup
+    ON public.azk_monatsabschluesse(mitarbeiter_id, jahr, monat);
+
+CREATE OR REPLACE FUNCTION public.azk_monatsabschluss_prevent_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'azk_monatsabschluesse ist append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_azk_monatsabschluesse_no_update ON public.azk_monatsabschluesse;
+CREATE TRIGGER trg_azk_monatsabschluesse_no_update
+BEFORE UPDATE OR DELETE ON public.azk_monatsabschluesse
+FOR EACH ROW
+EXECUTE FUNCTION public.azk_monatsabschluss_prevent_mutation();
+
 -- ------------------------------------------------------------
 -- Abwesenheiten inkl. Attest
 -- ------------------------------------------------------------

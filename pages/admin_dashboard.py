@@ -6,7 +6,7 @@ from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
 from utils.absences import store_absence
 from utils.database import get_supabase_client
 from utils.styles import apply_custom_css
-from utils.work_accounts import sync_work_account_for_month
+from utils.work_accounts import close_work_account_month, sync_work_account_for_month
 
 
 def _load_admin_mitarbeiter():
@@ -188,18 +188,38 @@ def _show_arbeitszeitkonten_tab():
         jahr = st.number_input("Jahr", min_value=2024, max_value=2100, value=date.today().year)
 
     if st.button("Konten synchronisieren", type="primary", use_container_width=True):
+        closed_count = 0
         for ma in alle_ma:
             try:
-                sync_work_account_for_month(
+                snapshot = sync_work_account_for_month(
                     supabase,
                     betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
                 )
+                if snapshot.monat_abgeschlossen:
+                    closed_count += 1
             except Exception:
                 pass
         st.success("Arbeitszeitkonten synchronisiert.")
+        if closed_count:
+            st.info(f"{closed_count} Konten stammen aus unveränderlichen Monatsabschlüssen.")
+
+    if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
+        for ma in alle_ma:
+            try:
+                close_work_account_month(
+                    supabase,
+                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    mitarbeiter_id=ma["id"],
+                    monat=int(monat),
+                    jahr=int(jahr),
+                    created_by=st.session_state.get("user_id"),
+                )
+            except Exception:
+                pass
+        st.success(f"Monat {int(monat):02d}/{int(jahr)} wurde abgeschlossen.")
 
     konto_res = (
         supabase.table("arbeitszeit_konten")
@@ -224,12 +244,25 @@ def _show_arbeitszeitkonten_tab():
     s4.metric("Ist / Soll", f"{total_ist:.1f}h / {total_soll:.1f}h")
     st.markdown("---")
 
+    closed_ids = set()
+    try:
+        closed_q = supabase.table("azk_monatsabschluesse").select("mitarbeiter_id").eq("monat", int(monat)).eq("jahr", int(jahr))
+        betrieb_id = st.session_state.get("betrieb_id")
+        if betrieb_id is not None:
+            closed_q = closed_q.eq("betrieb_id", betrieb_id)
+        closed_rows = closed_q.execute().data or []
+        closed_ids = {int(r.get("mitarbeiter_id")) for r in closed_rows if r.get("mitarbeiter_id") is not None}
+    except Exception:
+        closed_ids = set()
+
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     view_rows = []
     for row in rows:
+        ma_id = row.get("mitarbeiter_id")
         view_rows.append(
             {
-                "Mitarbeiter": ma_lookup.get(row.get("mitarbeiter_id"), str(row.get("mitarbeiter_id"))),
+                "Mitarbeiter": ma_lookup.get(ma_id, str(ma_id)),
+                "Monat fixiert": "Ja" if ma_id in closed_ids else "Nein",
                 "Soll (h)": float(row.get("soll_stunden") or 0),
                 "Ist (h)": float(row.get("ist_stunden") or 0),
                 "Saldo (h)": float(row.get("ueberstunden_saldo") or 0),

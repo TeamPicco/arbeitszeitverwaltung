@@ -48,6 +48,7 @@ def main() -> int:
                     "CREATE TABLE IF NOT EXISTS public.zeit_eintraege",
                     "CREATE TABLE IF NOT EXISTS public.abwesenheiten",
                     "CREATE TABLE IF NOT EXISTS public.arbeitszeit_konten",
+                    "CREATE TABLE IF NOT EXISTS public.azk_monatsabschluesse",
                     "CREATE TABLE IF NOT EXISTS public.mitarbeiter_geraete",
                     "CREATE TABLE IF NOT EXISTS public.audit_logs",
                     "CREATE TYPE public.zeit_aktion AS ENUM ('clock_in', 'clock_out', 'break_start', 'break_end')",
