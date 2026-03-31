@@ -495,8 +495,26 @@ ALTER TABLE IF EXISTS public.mitarbeiter_geraete
     ADD COLUMN IF NOT EXISTS letzter_kontakt_utc TIMESTAMPTZ,
     ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
 
-CREATE INDEX IF NOT EXISTS idx_mitarbeiter_geraete_mitarbeiter
-    ON public.mitarbeiter_geraete(mitarbeiter_id, autorisiert);
+-- Fallback defaults, damit Trigger/Indizes auf Legacy-Schemata nicht scheitern
+UPDATE public.mitarbeiter_geraete
+SET
+    autorisiert = COALESCE(autorisiert, FALSE),
+    ausnahme_genehmigt = COALESCE(ausnahme_genehmigt, FALSE)
+WHERE autorisiert IS NULL OR ausnahme_genehmigt IS NULL;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='mitarbeiter_geraete' AND column_name='mitarbeiter_id'
+    ) AND EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='mitarbeiter_geraete' AND column_name='autorisiert'
+    ) THEN
+        EXECUTE 'CREATE INDEX IF NOT EXISTS idx_mitarbeiter_geraete_mitarbeiter
+                 ON public.mitarbeiter_geraete(mitarbeiter_id, autorisiert)';
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.geraete_verifizierungen (
     id BIGSERIAL PRIMARY KEY,
