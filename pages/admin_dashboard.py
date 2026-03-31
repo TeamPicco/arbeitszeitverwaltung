@@ -4,37 +4,112 @@ import calendar
 from utils.database import get_supabase_client
 
 def show_admin_dashboard():
+    st.set_page_config(page_title="Admin-Zentrale Piccolo", layout="wide")
     supabase = get_supabase_client()
-    
-    # --- STYLING (Edle Optik) ---
+
+    # --- OPTIK & STYLING ---
     st.markdown("""
         <style>
-        .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+        .main { background-color: #0e1117; }
+        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] {
-            background-color: #1e1e1e; border-radius: 10px 10px 0 0;
-            padding: 10px 20px; color: white;
+            background-color: #262730; border-radius: 5px; padding: 10px; color: #ffffff;
         }
-        .stTabs [aria-selected="true"] { background-color: #8A2BE2 !important; }
-        .shift-cell {
-            border: 1px solid #333; padding: 5px; border-radius: 5px;
-            text-align: center; cursor: pointer; min-height: 45px;
+        .stTabs [aria-selected="true"] { background-color: #FF4B4B !important; }
+        
+        /* Tabellen-Optik erzwingen */
+        .ma-row { border-bottom: 1px solid #444; padding: 5px 0; }
+        .day-box { 
+            border: 1px solid #333; 
+            text-align: center; 
+            padding: 2px;
+            font-size: 0.8rem;
+            min-width: 35px;
         }
         </style>
     """, unsafe_allow_html=True)
 
-    st.title("🛡️ Admin-Zentrale - Piccolo")
+    st.title("🇮🇹 Piccolo Admin-Management")
 
-    # TABS
-    tab_planung, tab_auswertung, tab_personal = st.tabs(["📅 Monats-Dienstplan", "📊 Auswertung", "👥 Team"])
+    tab_plan, tab_auswertung = st.tabs(["📅 Monats-Dienstplan", "📊 Auswertung & Lohn"])
 
-    with tab_planung:
-        # Monats-Navigation
-        c1, c2 = st.columns([2, 4])
+    with tab_plan:
+        # Navigation
+        c1, c2, c3 = st.columns([2, 2, 4])
         heute = datetime.now()
-        gew_monat = c1.selectbox("Monat wählen", range(1, 13), index=heute.month-1)
-        jahr = heute.year
+        monat = c1.selectbox("Monat", range(1, 13), index=heute.month-1)
+        jahr = c2.number_input("Jahr", value=heute.year)
         
-        st.subheader(f"Dienstplan für {calendar.month_name[gew_monat]} {jahr}")
+        anzahl_tage = calendar.monthrange(jahr, monat)[1]
+        
+        st.subheader(f"Dienstplan Übersicht: {calendar.month_name[monat]} {jahr}")
+
+        # Daten laden
+        ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname, bereich").execute()
+        vorlagen_res = supabase.table("schicht_vorlagen").select("*").execute()
+        vorlagen_namen = {v['anzeige_name']: v for v in vorlagen_res.data}
+
+        # --- DIE TABELLEN-STRUKTUR ---
+        # Header: Tage 1 bis 31
+        header_cols = st.columns([2] + [1] * anzahl_tage)
+        header_cols[0].markdown("**Mitarbeiter**")
+        for d in range(1, anzahl_tage + 1):
+            # Wochenenden farblich markieren
+            wd = date(jahr, monat, d).weekday()
+            color = "#FF4B4B" if wd >= 5 else "#ffffff"
+            header_cols[d].markdown(f"<span style='color:{color}'>{d}</span>", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # Zeilen: Für jeden Mitarbeiter eine feste Zeile
+        for ma in ma_res.data:
+            row_cols = st.columns([2] + [1] * anzahl_tage)
+            row_cols[0].markdown(f"**{ma['vorname']}**")
+            
+            for d in range(1, anzahl_tage + 1):
+                with row_cols[d]:
+                    # Jedes Feld ist ein Button, auch wenn leer
+                    if st.button(" ", key=f"btn_{ma['id']}_{d}", help=f"{ma['vorname']} am {d}. bearbeiten"):
+                        st.session_state['edit_target'] = {
+                            "id": ma['id'], "name": ma['vorname'], "datum": date(jahr, monat, d)
+                        }
+
+        # --- BEARBEITUNGS-MODAL (Sidebar) ---
+        if 'edit_target' in st.session_state:
+            target = st.session_state['edit_target']
+            with st.sidebar:
+                st.header(f"Dienst für {target['name']}")
+                st.write(f"Datum: {target['datum'].strftime('%d.%m.%Y')}")
+                
+                wahl = st.selectbox("Vorlage wählen", ["-"] + list(vorlagen_namen.keys()))
+                
+                st.write("Oder manuell:")
+                m_start = st.time_input("Beginn", value=datetime.strptime("17:00", "%H:%M").time())
+                m_ende = st.time_input("Ende", value=datetime.strptime("22:00", "%H:%M").time())
+                
+                if st.button("💾 Schicht speichern", use_container_width=True):
+                    f_start = vorlagen_namen[wahl]['start_zeit'] if wahl != "-" else m_start.strftime("%H:%M")
+                    f_ende = vorlagen_namen[wahl]['ende_zeit'] if wahl != "-" else m_ende.strftime("%H:%M")
+                    
+                    supabase.table("dienstplan").upsert({
+                        "mitarbeiter_id": target['id'],
+                        "datum": target['datum'].isoformat(),
+                        "start_zeit": f_start,
+                        "ende_zeit": f_ende,
+                        "notiz": wahl if wahl != "-" else "Manuell"
+                    }).execute()
+                    
+                    st.success("Gespeichert!")
+                    del st.session_state['edit_target']
+                    st.rerun()
+                
+                if st.button("❌ Schicht löschen", use_container_width=True):
+                    supabase.table("dienstplan").delete().eq("mitarbeiter_id", target['id']).eq("datum", target['datum'].isoformat()).execute()
+                    del st.session_state['edit_target']
+                    st.rerun()
+
+    with tab_auswertung:
+        st.info("Hier werden die monatlichen Salden (Soll vs. Ist) für alle Mitarbeiter angezeigt.")        st.subheader(f"Dienstplan für {calendar.month_name[gew_monat]} {jahr}")
 
         # Mitarbeiter und Vorlagen laden
         ma_res = supabase.table("mitarbeiter").select("id, vorname, nachname, bereich").execute()
