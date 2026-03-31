@@ -41,4 +41,11 @@ def erstelle_zeitraum_auswertung(mitarbeiter_id, start_datum, end_datum, supabas
             "laufender Saldo": round(lauf_saldo, 2)
         })
         aktuell += timedelta(days=1)
+    return pd.DataFrame(auswertung)            "Datum": aktuell.strftime("%d.%m.%Y"),
+            "Soll": round(soll_tag, 2),
+            "Ist": round(ist, 2),
+            "Saldo": round(tages_saldo, 2),
+            "laufender Saldo": round(lauf_saldo, 2)
+        })
+        aktuell += timedelta(days=1)
     return pd.DataFrame(auswertung)
