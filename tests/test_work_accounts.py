@@ -213,3 +213,25 @@ def test_sync_range_runs_inclusive_months():
         end_jahr=2026,
     )
     assert len(snapshots) == 3
+
+
+def test_load_month_ist_hours_ignores_historical_balance_rows():
+    sb = FakeSupabase()
+    sb.table("zeiterfassung").rows.append(
+        {
+            "mitarbeiter_id": 1,
+            "datum": "2026-03-31",
+            "arbeitsstunden": 100.0,
+            "stunden": None,
+            "quelle": "historischer_saldo",
+        }
+    )
+    snap = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=3,
+        jahr=2026,
+    )
+    # 50 + 70 (+ 0) aus den vorhandenen Testzeilen, der historische_saldo darf nicht mitzählen.
+    assert snap.ist_stunden == 120.0

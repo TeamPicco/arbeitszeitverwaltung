@@ -13,6 +13,7 @@ class WorkAccountSnapshot:
     urlaubstage_gesamt: float
     urlaubstage_genommen: float
     krankheitstage_gesamt: float
+    ueberstunden_vortrag: float = 0.0
     differenz_stunden: float = 0.0
     monat_abgeschlossen: bool = False
 
@@ -258,13 +259,19 @@ def _resolve_month_soll_and_vacation(
 def _load_month_ist_hours(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> float:
     zeit_res = (
         supabase.table("zeiterfassung")
-        .select("arbeitsstunden, stunden")
+        .select("arbeitsstunden, stunden, quelle")
         .eq("mitarbeiter_id", mitarbeiter_id)
         .gte("datum", month_start.isoformat())
         .lte("datum", month_end.isoformat())
         .execute()
     )
-    return round(sum(_to_float(row.get("arbeitsstunden") or row.get("stunden")) for row in (zeit_res.data or [])), 2)
+    total = 0.0
+    for row in (zeit_res.data or []):
+        if str(row.get("quelle") or "").lower() == "historischer_saldo":
+            # Reiner Startsaldo-Übertrag, darf nie als Arbeitszeit zählen.
+            continue
+        total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
+    return round(total, 2)
 
 
 def _load_month_absence_counters(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> tuple[float, float]:

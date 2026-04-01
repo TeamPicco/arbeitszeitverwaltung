@@ -30,6 +30,7 @@ from utils.calculations import (
     get_wochentag,
     get_monatsnamen,
 )
+from utils.work_accounts import sync_work_account_for_month
 
 MONATE = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -557,12 +558,18 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     if admin_modus:
         st.markdown("### ⏱️ Arbeitszeitkonto")
         try:
-            from utils.lohnabrechnung import berechne_arbeitszeitkonto
-            konto = berechne_arbeitszeitkonto(aktiver_ma['id'], monat, jahr)
-            if konto:
-                vortrag = float(konto.get('ueberstunden_vortrag') or 0)
-                saldo = float(konto.get('ueberstunden_saldo') or 0)
-                diff_mon = float(konto.get('differenz_stunden') or 0)
+            supabase_konto = get_supabase_client()
+            snap = sync_work_account_for_month(
+                supabase_konto,
+                betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+                mitarbeiter_id=int(aktiver_ma["id"]),
+                monat=int(monat),
+                jahr=int(jahr),
+            )
+            if snap:
+                saldo = float(snap.ueberstunden_saldo or 0.0)
+                diff_mon = float(snap.differenz_stunden or 0.0)
+                vortrag = round(saldo - diff_mon, 2)
                 
                 col_k1, col_k2, col_k3 = st.columns(3)
                 with col_k1:
