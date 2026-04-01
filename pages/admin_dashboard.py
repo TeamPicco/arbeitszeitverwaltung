@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime
+from pathlib import Path
 
 import streamlit as st
 
@@ -1165,9 +1166,14 @@ def _show_arbeitszeitkonten_tab():
 
 
 def show_admin_dashboard():
-    st.set_page_config(page_title="Admin-Zentrale", layout="wide")
+    logo_icon = str((Path(__file__).resolve().parents[1] / "assets" / "favicon.png"))
+    st.set_page_config(page_title="Coreo-Flow – Admin", page_icon=logo_icon, layout="wide")
     apply_custom_css()
-    st.title("🇩🇪 CrewBase – Admin")
+    c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
+    with c_logo:
+        st.image(str((Path(__file__).resolve().parents[1] / "assets" / "crewbase_logo_optimized.png")), width=90)
+    with c_title:
+        st.title("Coreo-Flow – Admin")
 
     tabs = st.tabs(
         [

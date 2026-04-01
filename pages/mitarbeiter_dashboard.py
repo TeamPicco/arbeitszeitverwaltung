@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from datetime import datetime
 from utils.database import get_supabase_client
@@ -5,7 +6,12 @@ from utils.calculations import berechne_azk_kumuliert
 from utils.styles import apply_custom_css
 
 def show_mitarbeiter_dashboard():
-    st.set_page_config(page_title="Mein Bereich", layout="wide")
+    logo_icon_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "assets",
+        "favicon.png",
+    )
+    st.set_page_config(page_title="Coreo-Flow", page_icon=logo_icon_path, layout="wide")
     apply_custom_css()
     supabase = get_supabase_client()
     m_id = st.session_state.get('mitarbeiter_id')

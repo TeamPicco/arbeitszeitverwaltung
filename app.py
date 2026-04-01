@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+from pathlib import Path
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.zeit_events import (
@@ -12,7 +13,14 @@ from utils.zeit_events import (
 )
 from pages import admin_dashboard
 
-st.set_page_config(page_title="🥩 CrewBase Piccolo", page_icon="🥩", layout="wide")
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "assets" / "piccolo_logo.jpeg"
+
+st.set_page_config(
+    page_title="Coreo-Flow",
+    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🔘",
+    layout="wide",
+)
 supabase = init_supabase_client()
 
 # --- RESET LOGIK ---
@@ -22,7 +30,9 @@ if st.session_state.get("trigger_reset"):
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    st.title("🥩 CrewBase Piccolo")
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=220)
+    st.title("Coreo-Flow")
     tab_stempel, tab_admin = st.tabs(["🕒 Mitarbeiter Stempeluhr", "🔐 Admin Login"])
     
     with tab_stempel:
@@ -134,6 +144,8 @@ if not st.session_state.get('logged_in'):
                     update_last_login(str(user.get("id")))
                     st.rerun()
 else:
+    if LOGO_PATH.exists():
+        st.sidebar.image(str(LOGO_PATH), use_container_width=True)
     admin_dashboard.show_admin_dashboard()
     if st.sidebar.button("Abmelden"):
         st.session_state.clear(); st.rerun()

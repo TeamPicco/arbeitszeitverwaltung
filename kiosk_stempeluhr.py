@@ -12,6 +12,8 @@ import os
 from datetime import datetime
 import time
 
+LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "crewbase_logo_optimized.png")
+
 # ─── Supabase-Verbindung ────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
@@ -576,6 +578,8 @@ KEYBOARD_JS = """
 
 def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     """Haupt-Einstiegspunkt für den Kiosk-Modus."""
+    if os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=240)
     st.markdown(KIOSK_CSS, unsafe_allow_html=True)
 
     # Session-State initialisieren
