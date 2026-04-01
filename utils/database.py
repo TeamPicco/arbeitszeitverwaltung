@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 import bcrypt
 import requests
@@ -106,8 +107,23 @@ def update_last_login(user_id: str) -> None:
         pass
 
 
-def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> bool:
-    """Datei-Upload über Supabase Storage REST API."""
+def upload_file_to_storage_result(
+    bucket_name: str,
+    file_path: str,
+    file_data: bytes,
+    fallback_buckets: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Datei-Upload über Supabase Storage REST API mit Bucket-Fallback.
+
+    Rückgabe:
+      {
+        "ok": bool,
+        "bucket": str | None,
+        "status_code": int | None,
+        "error": str | None
+      }
+    """
     try:
         url = _require_env("SUPABASE_URL")
         service_key = (
@@ -116,18 +132,57 @@ def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -
             or os.getenv("SUPABASE_KEY")
         )
         if not service_key:
-            return False
+            return {
+                "ok": False,
+                "bucket": None,
+                "status_code": None,
+                "error": "SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY fehlt",
+            }
 
         headers = {
             "apikey": service_key,
             "Authorization": f"Bearer {service_key}",
             "x-upsert": "true",
+            "Content-Type": "application/octet-stream",
         }
-        upload_url = f"{url}/storage/v1/object/{bucket_name}/{file_path}"
-        response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
-        return response.status_code in (200, 201)
-    except Exception:
-        return False
+        buckets = [bucket_name] + [b for b in (fallback_buckets or []) if b and b != bucket_name]
+
+        last_status = None
+        last_error = None
+        for bucket in buckets:
+            encoded_path = quote(file_path, safe="/")
+            upload_url = f"{url}/storage/v1/object/{bucket}/{encoded_path}"
+            response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
+            if response.status_code in (200, 201):
+                return {
+                    "ok": True,
+                    "bucket": bucket,
+                    "status_code": response.status_code,
+                    "error": None,
+                }
+            last_status = response.status_code
+            body = (response.text or "").strip()
+            last_error = body[:500] if body else "Unbekannter Storage-Fehler"
+
+        return {
+            "ok": False,
+            "bucket": None,
+            "status_code": last_status,
+            "error": last_error,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "bucket": None,
+            "status_code": None,
+            "error": str(exc),
+        }
+
+
+def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> bool:
+    """Legacy-Wrapper für bool-Rückgabe."""
+    result = upload_file_to_storage_result(bucket_name, file_path, file_data)
+    return bool(result.get("ok"))
 
 
 def get_all_mitarbeiter() -> List[Dict[str, Any]]:

@@ -5,7 +5,12 @@ import streamlit as st
 
 from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
 from utils.absences import store_absence
-from utils.database import get_supabase_client, update_mitarbeiter, upload_file_to_storage
+from utils.database import (
+    get_supabase_client,
+    update_mitarbeiter,
+    upload_file_to_storage,
+    upload_file_to_storage_result,
+)
 from utils.historischer_import import (
     dry_run_import_summary,
     importiere_in_crewbase,
@@ -121,9 +126,18 @@ def _show_absenzen_tab():
                         attest_pfad = (
                             f"atteste/{mitarbeiter['id']}/{date.today().strftime('%Y%m%d')}_{attest.name}"
                         )
-                        ok = upload_file_to_storage("dokumente", attest_pfad, att_bytes)
-                        if not ok:
-                            st.warning("Attest konnte nicht hochgeladen werden, Abwesenheit wird trotzdem gespeichert.")
+                        attest_upload = upload_file_to_storage_result(
+                            "dokumente",
+                            attest_pfad,
+                            att_bytes,
+                            fallback_buckets=["arbeitsvertraege"],
+                        )
+                        if not attest_upload.get("ok"):
+                            st.warning(
+                                "Attest konnte nicht hochgeladen werden, Abwesenheit wird trotzdem gespeichert. "
+                                f"Details: {attest_upload.get('status_code') or '-'} "
+                                f"{attest_upload.get('error') or ''}"
+                            )
                             attest_pfad = None
 
                     result = store_absence(
@@ -442,11 +456,21 @@ def _show_mitarbeiter_stammdaten_tab():
                     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                     safe_name = upload.name.replace(" ", "_")
                     file_path = f"mitarbeiter/{ma['id']}/{ts}_{safe_name}"
-                    ok = upload_file_to_storage("dokumente", file_path, file_bytes)
-                    if not ok:
-                        st.error("Upload in Supabase Storage fehlgeschlagen.")
+                    upload_result = upload_file_to_storage_result(
+                        "dokumente",
+                        file_path,
+                        file_bytes,
+                        fallback_buckets=["arbeitsvertraege"],
+                    )
+                    if not upload_result.get("ok"):
+                        st.error(
+                            "Upload in Supabase Storage fehlgeschlagen. "
+                            f"Details: {upload_result.get('status_code') or '-'} "
+                            f"{upload_result.get('error') or ''}"
+                        )
                     else:
-                        file_url = _storage_public_url("dokumente", file_path)
+                        used_bucket = upload_result.get("bucket") or "dokumente"
+                        file_url = _storage_public_url(used_bucket, file_path)
                         try:
                             supabase.table("mitarbeiter_dokumente").insert(
                                 {
