@@ -694,13 +694,31 @@ def importiere_in_crewbase(
             'mitarbeiter_id', mitarbeiter_id
         ).eq('monat', monat).eq('jahr', jahr).execute()
 
+        basis_konto_eintrag = {k: v for k, v in konto_eintrag.items() if k != 'feiertagsstunden'}
+
         if existing_konto.data:
             if ueberschreiben:
-                supabase_client.table('arbeitszeitkonto').update(konto_eintrag).eq(
-                    'id', existing_konto.data[0]['id']
-                ).execute()
+                try:
+                    supabase_client.table('arbeitszeitkonto').update(konto_eintrag).eq(
+                        'id', existing_konto.data[0]['id']
+                    ).execute()
+                except Exception as e:
+                    # Legacy-Schema ohne feiertagsstunden
+                    if "feiertagsstunden" in str(e).lower() or "pgrst204" in str(e).lower():
+                        supabase_client.table('arbeitszeitkonto').update(basis_konto_eintrag).eq(
+                            'id', existing_konto.data[0]['id']
+                        ).execute()
+                    else:
+                        raise
         else:
-            supabase_client.table('arbeitszeitkonto').insert(konto_eintrag).execute()
+            try:
+                supabase_client.table('arbeitszeitkonto').insert(konto_eintrag).execute()
+            except Exception as e:
+                # Legacy-Schema ohne feiertagsstunden
+                if "feiertagsstunden" in str(e).lower() or "pgrst204" in str(e).lower():
+                    supabase_client.table('arbeitszeitkonto').insert(basis_konto_eintrag).execute()
+                else:
+                    raise
 
     except Exception as e:
         result['fehler'].append(f"Fehler beim Arbeitszeitkonto: {str(e)}")

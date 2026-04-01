@@ -87,6 +87,7 @@ class FakeTable:
         self.last_insert_payload = None
         self.last_upsert_payload = None
         self.last_on_conflict = None
+        self.raise_on_upsert = None
 
     def select(self, columns):
         return FakeQuery(self).select(columns)

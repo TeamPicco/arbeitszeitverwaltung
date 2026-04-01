@@ -132,6 +132,11 @@ def _to_float(value) -> float:
         return 0.0
 
 
+def _is_on_conflict_constraint_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "42p10" in msg or "no unique or exclusion constraint matching the on conflict" in msg
+
+
 def _month_bounds(monat: int, jahr: int) -> tuple[date, date]:
     start = date(jahr, monat, 1)
     end = date(
@@ -350,7 +355,25 @@ def _upsert_live_account(
         "urlaubstage_genommen": round(snapshot.urlaubstage_genommen, 2),
         "krankheitstage_gesamt": round(snapshot.krankheitstage_gesamt, 2),
     }
-    supabase.table("arbeitszeit_konten").upsert(payload, on_conflict="mitarbeiter_id").execute()
+    try:
+        supabase.table("arbeitszeit_konten").upsert(payload, on_conflict="mitarbeiter_id").execute()
+        return
+    except Exception as exc:
+        if not _is_on_conflict_constraint_error(exc):
+            raise
+
+    # Legacy-Fallback: Instanzen ohne passenden UNIQUE-Index für ON CONFLICT.
+    existing = (
+        supabase.table("arbeitszeit_konten")
+        .select("id")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        supabase.table("arbeitszeit_konten").update(payload).eq("mitarbeiter_id", mitarbeiter_id).execute()
+    else:
+        supabase.table("arbeitszeit_konten").insert(payload).execute()
 
 
 def _build_month_snapshot(
