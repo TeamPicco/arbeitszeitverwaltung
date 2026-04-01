@@ -16,7 +16,7 @@ from utils.historischer_import import (
     lese_upload_datei,
 )
 from utils.styles import apply_custom_css
-from utils.work_accounts import close_work_account_month, sync_work_account_for_month
+from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
 
 
 def _load_admin_mitarbeiter():
@@ -992,6 +992,75 @@ def _show_system_tab():
         st.metric("Zeiteinträge", zeit_count)
 
     st.caption(f"Berichtsdatum: {date.today().strftime('%d.%m.%Y')}")
+
+    st.markdown("---")
+    st.markdown("### 🔄 Geschlossener Kreislauf – AZK Konsistenzcheck")
+    st.caption(
+        "Prüft, ob Zeiteinträge/Abwesenheiten und berechneter AZK-Snapshot zueinander passen. "
+        "Abweichungen weisen auf Dateninkonsistenzen oder fehlerhafte Zweckzuordnung hin."
+    )
+
+    cc1, cc2 = st.columns([1, 1])
+    with cc1:
+        check_monat = st.number_input(
+            "Prüfmonat",
+            min_value=1,
+            max_value=12,
+            value=date.today().month,
+            key="sys_check_monat",
+        )
+    with cc2:
+        check_jahr = st.number_input(
+            "Prüfjahr",
+            min_value=2024,
+            max_value=2100,
+            value=date.today().year,
+            key="sys_check_jahr",
+        )
+
+    if st.button("🔍 Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
+        ma_list = _load_admin_mitarbeiter()
+        if not ma_list:
+            st.info("Keine Mitarbeiter für den Konsistenzcheck gefunden.")
+            return
+
+        findings = []
+        ok_count = 0
+        for ma in ma_list:
+            try:
+                validation = validate_work_account_month(
+                    supabase,
+                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    mitarbeiter_id=ma["id"],
+                    monat=int(check_monat),
+                    jahr=int(check_jahr),
+                )
+                if validation.get("ok"):
+                    ok_count += 1
+                else:
+                    findings.append(
+                        {
+                            "Mitarbeiter": f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip(),
+                            "Monat": f"{int(check_monat):02d}/{int(check_jahr)}",
+                            "Details": "; ".join(validation.get("issues") or ["Unbekannte Abweichung"]),
+                        }
+                    )
+            except Exception as exc:
+                findings.append(
+                    {
+                        "Mitarbeiter": f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip(),
+                        "Monat": f"{int(check_monat):02d}/{int(check_jahr)}",
+                        "Details": f"Prüfung fehlgeschlagen: {exc}",
+                    }
+                )
+
+        if findings:
+            st.warning(
+                f"Kreislauf-Check abgeschlossen: {ok_count} konsistent, {len(findings)} mit Abweichung."
+            )
+            st.dataframe(findings, use_container_width=True, hide_index=True)
+        else:
+            st.success(f"Kreislauf-Check erfolgreich: alle {ok_count} Mitarbeiter konsistent.")
 
 
 def _show_arbeitszeitkonten_tab():
