@@ -936,12 +936,91 @@ def show_monatsuebersicht_tabelle(supabase):
     html += '</tbody></table></div>'
     st.markdown(html, unsafe_allow_html=True)
 
+    # ── TAP-TO-EDIT MATRIX (direkt im Feld antippen) ─────────
+    st.markdown("---")
+    st.markdown("### 👆 Direkt im Feld tippen")
+    st.caption("Tippen Sie auf ein Tagesfeld beim jeweiligen Mitarbeiter, um den Dienst dort direkt zu bearbeiten oder anzulegen.")
+
+    header_cols = st.columns([2.6] + [1] * anzahl_tage)
+    header_cols[0].markdown("**Mitarbeiter**")
+    for tag in range(1, anzahl_tage + 1):
+        tag_datum = date(jahr, monat, tag)
+        wt_kurz = WOCHENTAGE_KURZ[tag_datum.weekday()]
+        header_cols[tag].markdown(
+            f"<div style='text-align:center; font-size:0.78rem;'><b>{tag}</b><br><small>{wt_kurz}</small></div>",
+            unsafe_allow_html=True,
+        )
+
+    for mitarbeiter in mitarbeiter_liste:
+        row_cols = st.columns([2.6] + [1] * anzahl_tage)
+        row_cols[0].markdown(
+            f"<div style='font-size:0.82rem;'><b>{mitarbeiter['vorname']} {mitarbeiter['nachname']}</b></div>",
+            unsafe_allow_html=True,
+        )
+
+        for tag in range(1, anzahl_tage + 1):
+            tag_datum = date(jahr, monat, tag)
+            key = (mitarbeiter['id'], tag_datum.isoformat())
+            eintraege = sorted(dienste_map.get(key, []), key=lambda x: x.get('start_zeit', '00:00'))
+
+            label = "+"
+            hint = "Neuen Dienst anlegen"
+            if eintraege:
+                typen = [d.get('schichttyp', 'arbeit') for d in eintraege]
+                if 'urlaub' in typen:
+                    label = "U"
+                    stunden = float(next((d.get('urlaub_stunden') or 0.0) for d in eintraege if d.get('schichttyp') == 'urlaub'))
+                    hint = f"Urlaub ({stunden:.1f}h) bearbeiten"
+                elif 'krank' in typen:
+                    label = "K"
+                    lfz_h = float(next((d.get('urlaub_stunden') or 0.0) for d in eintraege if d.get('schichttyp') == 'krank'))
+                    hint = f"Krank (LFZ {lfz_h:.1f}h) bearbeiten"
+                elif 'frei' in typen:
+                    label = "F"
+                    hint = "Freien Tag bearbeiten"
+                else:
+                    arbeit = [d for d in eintraege if d.get('schichttyp', 'arbeit') == 'arbeit']
+                    if len(arbeit) > 1:
+                        label = "A2"
+                        zeiten = " | ".join(f"{d.get('start_zeit', '')[:5]}-{d.get('ende_zeit', '')[:5]}" for d in arbeit)
+                        hint = f"Mehrere Arbeitsdienste: {zeiten}"
+                    elif arbeit:
+                        label = "A"
+                        hint = f"Arbeitsdienst: {arbeit[0].get('start_zeit', '')[:5]}-{arbeit[0].get('ende_zeit', '')[:5]}"
+            elif key in urlaub_map:
+                label = "U*"
+                hint = "Genehmigter Urlaub (noch nicht im Plan) – antippen zum Eintragen"
+            elif tag_datum.weekday() in [0, 1]:
+                label = "–"
+                hint = "Ruhetag (Mo/Di) – antippen, um trotzdem einen Eintrag zu setzen"
+
+            btn_key = f"tap_edit_{jahr}_{monat}_{mitarbeiter['id']}_{tag}"
+            if row_cols[tag].button(label, key=btn_key, use_container_width=True, help=hint):
+                st.session_state["tabelle_edit_ma"] = mitarbeiter['id']
+                st.session_state["tabelle_edit_datum"] = tag_datum
+                st.session_state["tabelle_edit_open"] = True
+                st.rerun()
+
     # ── DIREKTES BEARBEITEN AUS MONATSÜBERSICHT ──────────────
     st.markdown("---")
     st.markdown("### ✏️ Dienst direkt bearbeiten")
     st.info("💡 Wählen Sie Mitarbeiter und Datum, um einen Dienst direkt zu ändern oder anzulegen.")
 
-    with st.expander("✏️ Dienst bearbeiten / anlegen", expanded=False):
+    if "tabelle_edit_ma" not in st.session_state and mitarbeiter_liste:
+        st.session_state["tabelle_edit_ma"] = mitarbeiter_liste[0]["id"]
+    if "tabelle_edit_datum" not in st.session_state:
+        st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
+    if isinstance(st.session_state.get("tabelle_edit_datum"), str):
+        try:
+            st.session_state["tabelle_edit_datum"] = date.fromisoformat(st.session_state["tabelle_edit_datum"])
+        except Exception:
+            st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
+    current_edit_date = st.session_state.get("tabelle_edit_datum")
+    if isinstance(current_edit_date, date):
+        if current_edit_date.year != jahr or current_edit_date.month != monat:
+            st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
+
+    with st.expander("✏️ Dienst bearbeiten / anlegen", expanded=bool(st.session_state.get("tabelle_edit_open", False))):
         ec1, ec2 = st.columns(2)
         with ec1:
             edit_ma = st.selectbox(
@@ -994,6 +1073,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                     'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
                                     'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
                                 }).eq('id', dienst['id']).execute()
+                                st.session_state["tabelle_edit_open"] = False
                                 st.success("✅ Gespeichert!")
                                 st.rerun()
                             except Exception as e:
@@ -1002,6 +1082,7 @@ def show_monatsuebersicht_tabelle(supabase):
                         if st.form_submit_button("🗑️ Löschen", use_container_width=True):
                             try:
                                 supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
+                                st.session_state["tabelle_edit_open"] = False
                                 st.success("✅ Gelöscht!")
                                 st.rerun()
                             except Exception as e:
@@ -1031,6 +1112,7 @@ def show_monatsuebersicht_tabelle(supabase):
                             'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
                             'pause_minuten': 0,
                         }).execute()
+                        st.session_state["tabelle_edit_open"] = False
                         st.success("✅ Dienst angelegt!")
                         st.rerun()
                     except Exception as e:
