@@ -27,9 +27,12 @@ if st.session_state.get("trigger_reset"):
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    if BRAND_LOGO_IMAGE:
-        st.image(BRAND_LOGO_IMAGE, width=220)
-    st.title(BRAND_APP_NAME)
+    brand_col, title_col = st.columns([1, 3], vertical_alignment="center")
+    with brand_col:
+        if BRAND_LOGO_IMAGE:
+            st.image(BRAND_LOGO_IMAGE, width=150)
+    with title_col:
+        st.markdown(f"## {BRAND_APP_NAME}")
     tab_stempel, tab_admin = st.tabs(["🕒 Mitarbeiter Stempeluhr", "🔐 Admin Login"])
     
     with tab_stempel:
