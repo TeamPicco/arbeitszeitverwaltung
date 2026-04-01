@@ -936,10 +936,10 @@ def show_monatsuebersicht_tabelle(supabase):
     html += '</tbody></table></div>'
     st.markdown(html, unsafe_allow_html=True)
 
-    # ── TAP-TO-EDIT MATRIX (direkt im Feld antippen) ─────────
+    # ── TAP-TO-EDIT MATRIX + POPUP (direkt im Feld antippen) ─
     st.markdown("---")
     st.markdown("### 👆 Direkt im Feld tippen")
-    st.caption("Tippen Sie auf ein Tagesfeld beim jeweiligen Mitarbeiter, um den Dienst dort direkt zu bearbeiten oder anzulegen.")
+    st.caption("Tippen Sie ein Tagesfeld an. Es öffnet sich sofort ein Popup zum Bearbeiten/Anlegen – ohne unteren Editor.")
 
     header_cols = st.columns([2.6] + [1] * anzahl_tage)
     header_cols[0].markdown("**Mitarbeiter**")
@@ -996,127 +996,225 @@ def show_monatsuebersicht_tabelle(supabase):
 
             btn_key = f"tap_edit_{jahr}_{monat}_{mitarbeiter['id']}_{tag}"
             if row_cols[tag].button(label, key=btn_key, use_container_width=True, help=hint):
-                st.session_state["tabelle_edit_ma"] = mitarbeiter['id']
-                st.session_state["tabelle_edit_datum"] = tag_datum
-                st.session_state["tabelle_edit_open"] = True
+                st.session_state["tabelle_cell_editor"] = {
+                    "ma_id": mitarbeiter["id"],
+                    "datum": tag_datum.isoformat(),
+                    "jahr": jahr,
+                    "monat": monat,
+                }
                 st.rerun()
 
-    # ── DIREKTES BEARBEITEN AUS MONATSÜBERSICHT ──────────────
-    st.markdown("---")
-    st.markdown("### ✏️ Dienst direkt bearbeiten")
-    st.info("💡 Wählen Sie Mitarbeiter und Datum, um einen Dienst direkt zu ändern oder anzulegen.")
+    active_editor = st.session_state.get("tabelle_cell_editor")
+    if active_editor and (
+        int(active_editor.get("jahr") or 0) != int(jahr) or int(active_editor.get("monat") or 0) != int(monat)
+    ):
+        st.session_state["tabelle_cell_editor"] = None
+        active_editor = None
 
-    if "tabelle_edit_ma" not in st.session_state and mitarbeiter_liste:
-        st.session_state["tabelle_edit_ma"] = mitarbeiter_liste[0]["id"]
-    if "tabelle_edit_datum" not in st.session_state:
-        st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
-    if isinstance(st.session_state.get("tabelle_edit_datum"), str):
-        try:
-            st.session_state["tabelle_edit_datum"] = date.fromisoformat(st.session_state["tabelle_edit_datum"])
-        except Exception:
-            st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
-    current_edit_date = st.session_state.get("tabelle_edit_datum")
-    if isinstance(current_edit_date, date):
-        if current_edit_date.year != jahr or current_edit_date.month != monat:
-            st.session_state["tabelle_edit_datum"] = date(jahr, monat, 1)
+    if active_editor:
+        @st.dialog("✏️ Dienst im Feld bearbeiten")
+        def _cell_editor_dialog():
+            ma_id = int(active_editor.get("ma_id"))
+            datum_iso = str(active_editor.get("datum"))
+            datum_obj = date.fromisoformat(datum_iso)
+            ma = next((m for m in mitarbeiter_liste if m["id"] == ma_id), None)
+            if not ma:
+                st.error("Mitarbeiter nicht gefunden.")
+                if st.button("Schließen", key="cell_editor_close_missing"):
+                    st.session_state["tabelle_cell_editor"] = None
+                    st.rerun()
+                return
 
-    with st.expander("✏️ Dienst bearbeiten / anlegen", expanded=bool(st.session_state.get("tabelle_edit_open", False))):
-        ec1, ec2 = st.columns(2)
-        with ec1:
-            edit_ma = st.selectbox(
-                "Mitarbeiter",
-                options=[m['id'] for m in mitarbeiter_liste],
-                format_func=lambda x: next(
-                    (f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste if m['id'] == x), ""),
-                key="tabelle_edit_ma"
+            st.markdown(f"**{ma['vorname']} {ma['nachname']}** – {datum_obj.strftime('%d.%m.%Y')} ({WOCHENTAGE_DE[datum_obj.weekday()]})")
+
+            fresh_resp = (
+                supabase.table(planning_table)
+                .select("*")
+                .eq("betrieb_id", st.session_state.betrieb_id)
+                .eq("mitarbeiter_id", ma_id)
+                .eq("datum", datum_iso)
+                .order("start_zeit")
+                .execute()
             )
-        with ec2:
-            edit_datum = st.date_input(
-                "Datum",
-                value=date(jahr, monat, 1),
-                min_value=date(jahr, monat, 1),
-                max_value=date(jahr, monat, calendar.monthrange(jahr, monat)[1]),
-                format="DD.MM.YYYY",
-                key="tabelle_edit_datum"
-            )
+            bestehende = fresh_resp.data or []
 
-        # Bestehenden Dienst laden
-        edit_key_lookup = (edit_ma, edit_datum.isoformat())
-        bestehende = dienste_map.get(edit_key_lookup, [])
+            if bestehende:
+                st.success(f"{len(bestehende)} bestehende(r) Dienst(e) gefunden.")
+                for dienst in bestehende:
+                    typ_b = dienst.get("schichttyp", "arbeit")
+                    with st.form(key=f"cell_edit_form_{dienst['id']}"):
+                        st.markdown(f"**Dienst #{dienst['id']}**")
+                        fc1, fc2, fc3 = st.columns(3)
+                        with fc1:
+                            neuer_typ = st.selectbox(
+                                "Typ",
+                                options=list(SCHICHTTYPEN.keys()),
+                                index=list(SCHICHTTYPEN.keys()).index(typ_b) if typ_b in SCHICHTTYPEN else 0,
+                                format_func=lambda x: SCHICHTTYPEN[x]["label"],
+                                key=f"cell_typ_{dienst['id']}",
+                            )
+                        with fc2:
+                            start_v = (dienst.get("start_zeit") or "08:00")[:5]
+                            neue_start = st.text_input("Start (HH:MM)", value=start_v, key=f"cell_start_{dienst['id']}")
+                        with fc3:
+                            ende_v = (dienst.get("ende_zeit") or "16:00")[:5]
+                            neue_ende = st.text_input("Ende (HH:MM)", value=ende_v, key=f"cell_ende_{dienst['id']}")
 
-        if bestehende:
-            st.success(f"✅ Bestehender Eintrag gefunden: {len(bestehende)} Dienst(e) am {edit_datum.strftime('%d.%m.%Y')}")
-            for dienst in bestehende:
-                typ_b = dienst.get('schichttyp', 'arbeit')
-                with st.form(key=f"tabelle_edit_form_{dienst['id']}"):
-                    st.markdown(f"**Dienst #{dienst['id']} – {SCHICHTTYPEN.get(typ_b, {}).get('label', typ_b)}**")
-                    fc1, fc2 = st.columns(2)
-                    with fc1:
-                        neuer_typ = st.selectbox(
-                            "Typ",
-                            options=list(SCHICHTTYPEN.keys()),
-                            index=list(SCHICHTTYPEN.keys()).index(typ_b) if typ_b in SCHICHTTYPEN else 0,
-                            format_func=lambda x: SCHICHTTYPEN[x]['label'],
-                            key=f"tabelle_typ_{dienst['id']}"
-                        )
-                    with fc2:
-                        start_v = (dienst.get('start_zeit') or '08:00')[:5]
-                        ende_v = (dienst.get('ende_zeit') or '16:00')[:5]
-                        neue_start = st.text_input("Startzeit (HH:MM)", value=start_v, key=f"tabelle_start_{dienst['id']}")
-                        neue_ende = st.text_input("Endzeit (HH:MM)", value=ende_v, key=f"tabelle_ende_{dienst['id']}")
-                    fs1, fs2 = st.columns(2)
-                    with fs1:
-                        if st.form_submit_button("✅ Speichern", use_container_width=True):
+                        ec1, ec2 = st.columns(2)
+                        with ec1:
+                            pause_minuten = st.number_input(
+                                "Pause (Min)",
+                                min_value=0,
+                                max_value=240,
+                                value=int(dienst.get("pause_minuten") or 0),
+                                step=5,
+                                key=f"cell_pause_{dienst['id']}",
+                            )
+                        with ec2:
+                            stunden_sonder = st.number_input(
+                                "Stunden (Urlaub/Krank)",
+                                min_value=0.0,
+                                max_value=24.0,
+                                value=float(dienst.get("urlaub_stunden") or 0.0),
+                                step=0.5,
+                                format="%.2f",
+                                key=f"cell_stunden_{dienst['id']}",
+                            )
+
+                        s1, s2 = st.columns(2)
+                        with s1:
+                            speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
+                        with s2:
+                            loeschen = st.form_submit_button("🗑️ Löschen", use_container_width=True)
+
+                        if speichern:
                             try:
-                                supabase.table(planning_table).update({
-                                    'schichttyp': neuer_typ,
-                                    'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
-                                    'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
-                                }).eq('id', dienst['id']).execute()
-                                st.session_state["tabelle_edit_open"] = False
-                                st.success("✅ Gespeichert!")
+                                if neuer_typ == "arbeit":
+                                    update_data = {
+                                        "schichttyp": neuer_typ,
+                                        "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
+                                        "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
+                                        "pause_minuten": int(pause_minuten),
+                                        "urlaub_stunden": 0.0,
+                                    }
+                                elif neuer_typ in ("urlaub", "krank"):
+                                    update_data = {
+                                        "schichttyp": neuer_typ,
+                                        "start_zeit": "00:00:00",
+                                        "ende_zeit": "00:00:00",
+                                        "pause_minuten": 0,
+                                        "urlaub_stunden": float(stunden_sonder),
+                                    }
+                                else:
+                                    update_data = {
+                                        "schichttyp": neuer_typ,
+                                        "start_zeit": "00:00:00",
+                                        "ende_zeit": "00:00:00",
+                                        "pause_minuten": 0,
+                                        "urlaub_stunden": 0.0,
+                                    }
+                                supabase.table(planning_table).update(update_data).eq("id", dienst["id"]).execute()
+                                st.session_state["tabelle_cell_editor"] = None
+                                st.success("✅ Dienst gespeichert.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Fehler: {str(e)}")
-                    with fs2:
-                        if st.form_submit_button("🗑️ Löschen", use_container_width=True):
+                                st.error(f"Fehler beim Speichern: {str(e)}")
+
+                        if loeschen:
                             try:
-                                supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
-                                st.session_state["tabelle_edit_open"] = False
-                                st.success("✅ Gelöscht!")
+                                supabase.table(planning_table).delete().eq("id", dienst["id"]).execute()
+                                st.session_state["tabelle_cell_editor"] = None
+                                st.success("✅ Dienst gelöscht.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Fehler: {str(e)}")
-        else:
-            st.info(f"Kein Dienst am {edit_datum.strftime('%d.%m.%Y')} für diesen Mitarbeiter. Neuen Dienst anlegen:")
-            with st.form(key="tabelle_neuer_dienst_form"):
-                fn1, fn2 = st.columns(2)
-                with fn1:
+                                st.error(f"Fehler beim Löschen: {str(e)}")
+
+                st.markdown("---")
+                st.markdown("**➕ Zusätzlichen Dienst anlegen**")
+
+            with st.form(key=f"cell_new_form_{ma_id}_{datum_iso}"):
+                n1, n2, n3 = st.columns(3)
+                with n1:
                     neuer_typ = st.selectbox(
-                        "Typ",
+                        "Neuer Typ",
                         options=list(SCHICHTTYPEN.keys()),
-                        format_func=lambda x: SCHICHTTYPEN[x]['label'],
-                        key="tabelle_neuer_typ"
+                        format_func=lambda x: SCHICHTTYPEN[x]["label"],
+                        key=f"cell_new_typ_{ma_id}_{datum_iso}",
                     )
-                with fn2:
-                    neue_start = st.text_input("Startzeit (HH:MM)", value="08:00", key="tabelle_neuer_start")
-                    neue_ende = st.text_input("Endzeit (HH:MM)", value="16:00", key="tabelle_neuer_ende")
-                if st.form_submit_button("➕ Dienst anlegen", use_container_width=True, type="primary"):
+                with n2:
+                    neue_start = st.text_input("Start (HH:MM)", value="08:00", key=f"cell_new_start_{ma_id}_{datum_iso}")
+                with n3:
+                    neue_ende = st.text_input("Ende (HH:MM)", value="16:00", key=f"cell_new_ende_{ma_id}_{datum_iso}")
+
+                p1, p2 = st.columns(2)
+                with p1:
+                    neue_pause = st.number_input(
+                        "Pause (Min)",
+                        min_value=0,
+                        max_value=240,
+                        value=0,
+                        step=5,
+                        key=f"cell_new_pause_{ma_id}_{datum_iso}",
+                    )
+                with p2:
+                    neue_stunden = st.number_input(
+                        "Stunden (Urlaub/Krank)",
+                        min_value=0.0,
+                        max_value=24.0,
+                        value=0.0,
+                        step=0.5,
+                        format="%.2f",
+                        key=f"cell_new_stunden_{ma_id}_{datum_iso}",
+                    )
+
+                anlegen = st.form_submit_button("➕ Anlegen", use_container_width=True, type="primary")
+                if anlegen:
                     try:
-                        supabase.table(planning_table).insert({
-                            'betrieb_id': st.session_state.betrieb_id,
-                            'mitarbeiter_id': edit_ma,
-                            'datum': edit_datum.isoformat(),
-                            'schichttyp': neuer_typ,
-                            'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
-                            'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
-                            'pause_minuten': 0,
-                        }).execute()
-                        st.session_state["tabelle_edit_open"] = False
-                        st.success("✅ Dienst angelegt!")
+                        if neuer_typ == "arbeit":
+                            payload = {
+                                "betrieb_id": st.session_state.betrieb_id,
+                                "mitarbeiter_id": ma_id,
+                                "datum": datum_iso,
+                                "schichttyp": neuer_typ,
+                                "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
+                                "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
+                                "pause_minuten": int(neue_pause),
+                                "urlaub_stunden": 0.0,
+                            }
+                        elif neuer_typ in ("urlaub", "krank"):
+                            payload = {
+                                "betrieb_id": st.session_state.betrieb_id,
+                                "mitarbeiter_id": ma_id,
+                                "datum": datum_iso,
+                                "schichttyp": neuer_typ,
+                                "start_zeit": "00:00:00",
+                                "ende_zeit": "00:00:00",
+                                "pause_minuten": 0,
+                                "urlaub_stunden": float(neue_stunden),
+                            }
+                        else:
+                            payload = {
+                                "betrieb_id": st.session_state.betrieb_id,
+                                "mitarbeiter_id": ma_id,
+                                "datum": datum_iso,
+                                "schichttyp": neuer_typ,
+                                "start_zeit": "00:00:00",
+                                "ende_zeit": "00:00:00",
+                                "pause_minuten": 0,
+                                "urlaub_stunden": 0.0,
+                            }
+                        supabase.table(planning_table).insert(payload).execute()
+                        st.session_state["tabelle_cell_editor"] = None
+                        st.success("✅ Dienst angelegt.")
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Fehler: {str(e)}")
+                        st.error(f"Fehler beim Anlegen: {str(e)}")
+
+            if st.button("Schließen", key=f"cell_editor_close_{ma_id}_{datum_iso}", use_container_width=True):
+                st.session_state["tabelle_cell_editor"] = None
+                st.rerun()
+
+        _cell_editor_dialog()
 
     # Legende
     st.markdown("---")
