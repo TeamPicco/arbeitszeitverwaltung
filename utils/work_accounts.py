@@ -289,9 +289,10 @@ def _load_month_absence_counters(supabase, mitarbeiter_id: int, month_start: dat
         if overlap_end < overlap_start:
             continue
         tage = calculate_absence_days(overlap_start, overlap_end)
-        if row.get("typ") == "urlaub":
+        typ = str(row.get("typ") or "").lower()
+        if typ == "urlaub":
             urlaub_genommen += tage
-        elif row.get("typ") == "krankheit":
+        elif typ in ("krankheit", "krank"):
             krank_tage += tage
 
     return round(urlaub_genommen, 2), round(krank_tage, 2)

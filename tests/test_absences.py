@@ -47,6 +47,7 @@ class FakeTable:
         self.last_insert_payload = None
         self.last_upsert_payload = None
         self.raise_after_insert = None
+        self.raise_after_insert_queue = []
 
     def insert(self, payload):
         return FakeQuery(self).insert(payload)
@@ -93,3 +94,53 @@ def test_store_absence_fallback_sets_legacy_datum_field():
     # Legacy-Spiegel schreibt keine 24h-Konstrukte.
     for row in sb.table("zeiterfassung").rows:
         assert row.get("arbeitsstunden", 0.0) <= 12.0
+
+
+def test_store_absence_fallback_maps_krankheit_to_legacy_krank_typ():
+    sb = FakeSupabase()
+    table = sb.table("abwesenheiten")
+    # Legacy-Check auf "typ" schlägt für "krankheit" fehl (mit und ohne datum).
+    table.raise_after_insert_queue = [
+        Exception(
+            "{'message': 'new row violates check constraint \"abwesenheiten_typ_check\"', 'code': '23514'}"
+        ),
+        Exception(
+            "{'message': 'new row violates check constraint \"abwesenheiten_typ_check\"', 'code': '23514'}"
+        ),
+    ]
+
+    # Patch FakeQuery-Ausführung lokal über Queue-Verhalten.
+    original_execute = FakeQuery.execute
+
+    def _queued_execute(self):
+        if self._insert_payload is not None:
+            payload = dict(self._insert_payload)
+            self.table.rows.append(payload)
+            self.table.last_insert_payload = payload
+            if self.table.raise_after_insert_queue:
+                raise self.table.raise_after_insert_queue.pop(0)
+            if self.table.raise_after_insert:
+                exc = self.table.raise_after_insert
+                self.table.raise_after_insert = None
+                raise exc
+            return FakeResponse([payload])
+        return original_execute(self)
+
+    FakeQuery.execute = _queued_execute
+    try:
+        out = store_absence(
+            sb,
+            betrieb_id=1,
+            mitarbeiter_id=7,
+            typ="krankheit",
+            start=date(2026, 4, 1),
+            end=date(2026, 4, 2),
+            monthly_target_hours=160.0,
+        )
+    finally:
+        FakeQuery.execute = original_execute
+
+    assert out["typ"] == "krankheit"
+    inserted = sb.table("abwesenheiten").last_insert_payload
+    assert inserted is not None
+    assert inserted.get("typ") == "krank"

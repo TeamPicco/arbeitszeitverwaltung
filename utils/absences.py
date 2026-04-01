@@ -40,6 +40,54 @@ def calculate_absence_credit(
     return AbsenceResult(days=days, credited_hours=hours, typ=typ)
 
 
+def _normalize_absence_type(typ: str) -> str:
+    normalized = (typ or "").strip().lower()
+    if normalized == "krank":
+        return "krankheit"
+    return normalized
+
+
+def _candidate_db_types(normalized_typ: str) -> list[str]:
+    # Legacy-Instanzen akzeptieren teils "krank" statt "krankheit".
+    if normalized_typ == "krankheit":
+        return ["krankheit", "krank"]
+    return [normalized_typ]
+
+
+def _is_not_null_datum_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "datum" in msg and ("not-null" in msg or "not null" in msg or "23502" in msg)
+
+
+def _is_typ_check_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "abwesenheiten_typ_check" in msg or ("23514" in msg and "typ" in msg)
+
+
+def _insert_absence_compat(supabase, base_payload: dict, start: date) -> str:
+    attempts: list[dict] = []
+    for db_typ in _candidate_db_types(base_payload["typ"]):
+        payload = {**base_payload, "typ": db_typ}
+        attempts.append(payload)
+        attempts.append({**payload, "datum": start.isoformat()})
+
+    last_exc: Exception | None = None
+    for idx, payload in enumerate(attempts):
+        try:
+            supabase.table("abwesenheiten").insert(payload).execute()
+            return str(payload["typ"])
+        except Exception as exc:
+            last_exc = exc
+            has_next = idx < len(attempts) - 1
+            if has_next and (_is_not_null_datum_error(exc) or _is_typ_check_error(exc)):
+                continue
+            raise
+
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Abwesenheit konnte nicht gespeichert werden.")
+
+
 def store_absence(
     supabase,
     *,
@@ -53,9 +101,10 @@ def store_absence(
     grund: str | None = None,
     created_by: int | None = None,
 ) -> Dict[str, float | str]:
-    paid = typ in ("urlaub", "krankheit", "sonderurlaub")
+    normalized_typ = _normalize_absence_type(typ)
+    paid = normalized_typ in ("urlaub", "krankheit", "sonderurlaub")
     result = calculate_absence_credit(
-        typ=typ,
+        typ=normalized_typ,
         start=start,
         end=end,
         monthly_target_hours=monthly_target_hours,
@@ -65,7 +114,7 @@ def store_absence(
     payload = {
         "betrieb_id": betrieb_id,
         "mitarbeiter_id": mitarbeiter_id,
-        "typ": typ,
+        "typ": normalized_typ,
         "start_datum": start.isoformat(),
         "ende_datum": end.isoformat(),
         "bezahlte_zeit": paid,
@@ -74,18 +123,7 @@ def store_absence(
         "grund": grund,
         "created_by": created_by,
     }
-    try:
-        supabase.table("abwesenheiten").insert(payload).execute()
-    except Exception as exc:
-        # Legacy-Instanzen haben teils weiterhin ein NOT NULL auf "datum".
-        msg = str(exc).lower()
-        if (
-            "datum" not in msg
-            or ("not-null" not in msg and "not null" not in msg and "23502" not in msg)
-        ):
-            raise
-        legacy_payload = {**payload, "datum": start.isoformat()}
-        supabase.table("abwesenheiten").insert(legacy_payload).execute()
+    _insert_absence_compat(supabase, payload, start)
 
     # Rückwärtskompatibilität: für bestehende Auswertungen in zeiterfassung spiegeln.
     cur = start
@@ -97,8 +135,8 @@ def store_absence(
                 "datum": cur.isoformat(),
                 "start_zeit": "00:00:00",
                 "ende_zeit": "00:00:00",
-                "abwesenheitstyp": typ,
-                "ist_krank": typ == "krankheit",
+                "abwesenheitstyp": normalized_typ,
+                "ist_krank": normalized_typ == "krankheit",
                 "arbeitsstunden": per_day_credit if paid else 0.0,
                 "pause_minuten": 0,
                 "quelle": "abwesenheit_system",
@@ -114,5 +152,5 @@ def store_absence(
     return {
         "tage": result.days,
         "stunden_gutschrift": result.credited_hours,
-        "typ": typ,
+        "typ": normalized_typ,
     }
