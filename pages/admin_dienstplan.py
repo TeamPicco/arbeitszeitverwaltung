@@ -15,6 +15,7 @@ from utils.planning_tables import resolve_planning_table
 from utils.calculations import (
     parse_zeit,
 )
+from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -164,13 +165,13 @@ def _pdf_header(elements, logo_path, monat, jahr, mitarbeiter_name):
     if os.path.exists(logo_path):
         try:
             logo = Image(logo_path, width=3*cm, height=2.5*cm)
-            hd = [[logo, Paragraph("<b>Steakhouse Piccolo</b><br/>Dienstplan",
+            hd = [[logo, Paragraph(f"<b>{BRAND_COMPANY_NAME}</b><br/>Dienstplan",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
         except:
-            hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+            hd = [[Paragraph(f"<b>{BRAND_COMPANY_NAME}</b>",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
     else:
-        hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+        hd = [[Paragraph(f"<b>{BRAND_COMPANY_NAME}</b>",
                ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
 
     ht = Table(hd, colWidths=[4*cm, 13*cm])
@@ -285,7 +286,7 @@ def erstelle_einzelner_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jah
                             rightMargin=2*cm, leftMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
     elements = []
-    logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+    logo_path = BRAND_LOGO_IMAGE
     name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}"
 
     _pdf_header(elements, logo_path, monat, jahr, name)
@@ -316,7 +317,7 @@ def erstelle_admin_dienstplan_pdf(mitarbeiter_liste: list, dienste_map: dict, ja
                             rightMargin=2*cm, leftMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
     elements = []
-    logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+    logo_path = BRAND_LOGO_IMAGE
 
     for idx, mitarbeiter in enumerate(mitarbeiter_liste):
         if idx > 0:

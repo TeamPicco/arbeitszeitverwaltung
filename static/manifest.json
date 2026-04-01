@@ -1,11 +1,11 @@
 {
-  "name": "CrewBase - Arbeitszeitverwaltung",
-  "short_name": "CrewBase",
-  "description": "Arbeitszeitverwaltung für Steakhouse Piccolo",
+  "name": "Coreo-Flow - Arbeitszeitverwaltung",
+  "short_name": "Coreo-Flow",
+  "description": "Arbeitszeitverwaltung für Coreo-Flow",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#1f77b4",
+  "background_color": "#000000",
+  "theme_color": "#2563eb",
   "orientation": "portrait-primary",
   "icons": [
     {

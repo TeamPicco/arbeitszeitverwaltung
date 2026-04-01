@@ -11,8 +11,9 @@ from supabase import create_client
 import os
 from datetime import datetime
 import time
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), "assets", "crewbase_logo_optimized.png")
+LOGO_PATH = BRAND_LOGO_IMAGE
 
 # ─── Supabase-Verbindung ────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -578,7 +579,7 @@ KEYBOARD_JS = """
 
 def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     """Haupt-Einstiegspunkt für den Kiosk-Modus."""
-    if os.path.exists(LOGO_PATH):
+    if LOGO_PATH and os.path.exists(LOGO_PATH):
         st.image(LOGO_PATH, width=240)
     st.markdown(KIOSK_CSS, unsafe_allow_html=True)
 
@@ -622,7 +623,7 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     st.markdown(f"""
     <div class="kiosk-header-wrap">
         <div>
-            <div class="kiosk-brand">Stempeluhr</div>
+            <div class="kiosk-brand">{BRAND_APP_NAME} Stempeluhr</div>
             <div class="kiosk-geraet">{geraet_name}</div>
         </div>
         <div>{status_html}</div>

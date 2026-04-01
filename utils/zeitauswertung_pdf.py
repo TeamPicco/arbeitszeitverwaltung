@@ -6,6 +6,7 @@ Erzeugt eine uebersichtliche, MiLoG-konforme Zeiterfassungs-PDF.
 from fpdf import FPDF
 from datetime import date
 import io
+from utils.branding import BRAND_COMPANY_NAME
 
 
 MONATSNAMEN = {
@@ -49,7 +50,7 @@ def erstelle_azk_pdf(
     ergebnis: dict,
     saldo_kumuliert: float,
     urlaub: dict,
-    betrieb_name: str = "Steakhouse Piccolo",
+    betrieb_name: str = BRAND_COMPANY_NAME,
 ) -> bytes:
     """
     Erstellt eine uebersichtliche PDF-Zeitauswertung fuer einen Mitarbeiter.

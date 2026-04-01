@@ -12,6 +12,7 @@ import os
 import io
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
+from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -177,19 +178,19 @@ def erstelle_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jahr: int, mo
                             topMargin=2*cm, bottomMargin=2*cm)
     elements = []
 
-    logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
+    logo_path = BRAND_LOGO_IMAGE
 
     # Header
     if os.path.exists(logo_path):
         try:
             logo = Image(logo_path, width=3*cm, height=2.5*cm)
-            hd = [[logo, Paragraph("<b>Steakhouse Piccolo</b><br/>Dienstplan",
+            hd = [[logo, Paragraph(f"<b>{BRAND_COMPANY_NAME}</b><br/>Dienstplan",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
         except:
-            hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+            hd = [[Paragraph(f"<b>{BRAND_COMPANY_NAME}</b>",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
     else:
-        hd = [[Paragraph("<b>Steakhouse Piccolo</b>",
+        hd = [[Paragraph(f"<b>{BRAND_COMPANY_NAME}</b>",
                ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
 
     ht = Table(hd, colWidths=[4*cm, 13*cm])

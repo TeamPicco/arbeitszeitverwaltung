@@ -1,21 +1,17 @@
-import os
 import streamlit as st
 from datetime import datetime
 from utils.database import get_supabase_client
 from utils.calculations import berechne_azk_kumuliert
 from utils.styles import apply_custom_css
+from utils.branding import BRAND_APP_NAME, BRAND_ICON_IMAGE, BRAND_LOGO_IMAGE
 
 def show_mitarbeiter_dashboard():
-    logo_icon_path = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)),
-        "assets",
-        "favicon.png",
-    )
-    st.set_page_config(page_title="Coreo-Flow", page_icon=logo_icon_path, layout="wide")
+    st.set_page_config(page_title=f"{BRAND_APP_NAME} – Mein Bereich", page_icon=BRAND_ICON_IMAGE, layout="wide")
     apply_custom_css()
     supabase = get_supabase_client()
     m_id = st.session_state.get('mitarbeiter_id')
 
+    st.image(BRAND_LOGO_IMAGE, width=140)
     st.title(f"Hallo {st.session_state.get('vorname')}! 👋")
     
     t1, t2, t3 = st.tabs(["🕒 Stempeln", "📅 Zeitkonto", "📄 Dokumente"])

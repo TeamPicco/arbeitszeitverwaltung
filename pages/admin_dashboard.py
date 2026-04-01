@@ -1,6 +1,5 @@
 import os
 from datetime import date, datetime
-from pathlib import Path
 
 import streamlit as st
 
@@ -18,6 +17,12 @@ from utils.historischer_import import (
 )
 from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from utils.vertrag_templates import (
+    VERTRAG_TEMPLATE_OPTIONS,
+    build_default_contract_payload,
+    generate_contract_pdf,
+)
 
 
 ADMIN_MITARBEITER_COLUMNS = (
@@ -872,6 +877,179 @@ def _show_mitarbeiter_stammdaten_tab():
         st.info("Keine Dokumente für diesen Mitarbeiter vorhanden.")
 
 
+def _show_vertrag_generator_tab():
+    st.subheader("📄 Vertragsgenerator")
+    st.caption(
+        "Vertrag individuell anpassen und als PDF direkt herunterladen. "
+        "Änderbare Felder: Name, Anschrift, Geburtsdatum, Datum, Eintrittsdatum, "
+        "monatliche Arbeitszeit, Probezeit, Zusatzvereinbarungen, gültig ab und weitere vertragsrelevante Angaben."
+    )
+    supabase = get_supabase_client()
+    alle_ma = _load_admin_mitarbeiter()
+    if not alle_ma:
+        st.info("Keine Mitarbeiter vorhanden.")
+        return
+
+    ma_options = {
+        f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
+        for m in alle_ma
+    }
+    selected_label = st.selectbox(
+        "Mitarbeiter",
+        list(ma_options.keys()),
+        key="vertrag_ma_select",
+    )
+    ma = ma_options[selected_label]
+
+    template_key = st.selectbox(
+        "Vertragsvorlage",
+        list(VERTRAG_TEMPLATE_OPTIONS.keys()),
+        format_func=lambda x: VERTRAG_TEMPLATE_OPTIONS.get(x, x),
+        key="vertrag_template_select",
+    )
+    payload = build_default_contract_payload(ma, template_key=template_key)
+    st.markdown("---")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### Arbeitgeber")
+        ag_name = st.text_input("Firmenname", value=payload["arbeitgeber_name"], key="v_ag_name")
+        ag_vertretung = st.text_input("Vertreten durch", value=payload["arbeitgeber_vertreten_durch"], key="v_ag_vertreter")
+        ag_strasse = st.text_input("Straße / Hausnummer", value=payload["arbeitgeber_strasse"], key="v_ag_strasse")
+        ag_plz_ort = st.text_input("PLZ / Ort", value=payload["arbeitgeber_plz_ort"], key="v_ag_plz_ort")
+
+        st.markdown("#### Arbeitnehmer – persönliche Daten")
+        an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key="v_an_name")
+        an_geburtsdatum = st.date_input("Geburtsdatum", value=payload["arbeitnehmer_geburtsdatum"], format="DD.MM.YYYY", key="v_an_geb")
+        an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key="v_an_anschrift")
+        an_personaldaten = st.text_area("Weitere persönliche Daten", value=payload["persoenliche_daten"], key="v_person_daten")
+
+    with c2:
+        st.markdown("#### Vertragsdaten")
+        vertragsdatum = st.date_input("Vertragsdatum", value=payload["vertragsdatum"], format="DD.MM.YYYY", key="v_vertragsdatum")
+        eintrittsdatum = st.date_input("Eintrittsdatum", value=payload["eintrittsdatum"], format="DD.MM.YYYY", key="v_eintritt")
+        gueltig_ab = st.date_input("Gültig ab", value=payload["gueltig_ab"], format="DD.MM.YYYY", key="v_gueltig_ab")
+        monatliche_arbeitszeit = st.number_input(
+            "Monatliche Arbeitszeit (Stunden)",
+            min_value=0.0,
+            value=float(payload["monatliche_arbeitszeit"]),
+            step=0.5,
+            key="v_monatszeit",
+        )
+        probezeit_monate = st.number_input(
+            "Probezeit (Monate)",
+            min_value=0,
+            max_value=24,
+            value=int(payload["probezeit_monate"]),
+            step=1,
+            key="v_probezeit",
+        )
+        wochenarbeitstage = st.text_input("Arbeitstage pro Woche", value=payload["wochenarbeitstage"], key="v_arbeitstage")
+        stundenlohn_brutto = st.number_input(
+            "Stundenlohn (brutto)",
+            min_value=0.0,
+            value=float(payload["stundenlohn_brutto"]),
+            step=0.5,
+            key="v_stundenlohn",
+        )
+        zuschlaege = st.text_area("Zuschläge / Vergütungsdetails", value=payload["zuschlaege"], key="v_zuschlaege")
+        zusatzvereinbarungen = st.text_area(
+            "Zusatzvereinbarungen",
+            value=payload["zusatzvereinbarungen"],
+            key="v_zusatz",
+        )
+
+    generated_payload = {
+        "arbeitgeber_name": ag_name.strip(),
+        "arbeitgeber_vertreten_durch": ag_vertretung.strip(),
+        "arbeitgeber_strasse": ag_strasse.strip(),
+        "arbeitgeber_plz_ort": ag_plz_ort.strip(),
+        "arbeitnehmer_name": an_name.strip(),
+        "arbeitnehmer_geburtsdatum": an_geburtsdatum,
+        "arbeitnehmer_anschrift": an_anschrift.strip(),
+        "persoenliche_daten": an_personaldaten.strip(),
+        "vertragsdatum": vertragsdatum,
+        "eintrittsdatum": eintrittsdatum,
+        "gueltig_ab": gueltig_ab,
+        "monatliche_arbeitszeit": float(monatliche_arbeitszeit),
+        "probezeit_monate": int(probezeit_monate),
+        "wochenarbeitstage": wochenarbeitstage.strip(),
+        "stundenlohn_brutto": float(stundenlohn_brutto),
+        "zuschlaege": zuschlaege.strip(),
+        "zusatzvereinbarungen": zusatzvereinbarungen.strip(),
+        "template_name": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
+    }
+
+    pdf_bytes = generate_contract_pdf(generated_payload)
+    file_suffix = ma.get("nachname") or "Mitarbeiter"
+    file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
+
+    st.download_button(
+        "📥 Vertrag als PDF herunterladen",
+        data=pdf_bytes,
+        file_name=file_name,
+        mime="application/pdf",
+        use_container_width=True,
+        key="vertrag_pdf_download",
+    )
+
+    if st.button("💾 Als Vertrags-Dokument beim Mitarbeiter speichern", use_container_width=True, key="vertrag_store_doc"):
+        file_path = (
+            f"vertraege/{ma['id']}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name.replace(' ', '_')}"
+        )
+        upload_result = upload_file_to_storage_result(
+            "dokumente",
+            file_path,
+            pdf_bytes,
+            fallback_buckets=["arbeitsvertraege"],
+        )
+        if not upload_result.get("ok"):
+            st.error(
+                "PDF-Upload fehlgeschlagen. "
+                f"Details: {upload_result.get('status_code') or '-'} {upload_result.get('error') or ''}"
+            )
+            return
+        used_bucket = upload_result.get("bucket") or "dokumente"
+        file_url = _storage_public_url(used_bucket, file_path)
+        try:
+            supabase.table("mitarbeiter_dokumente").insert(
+                {
+                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                    "mitarbeiter_id": ma["id"],
+                    "name": f"Vertrag {gueltig_ab.strftime('%d.%m.%Y')}",
+                    "typ": "arbeitsvertrag",
+                    "file_path": file_path,
+                    "file_url": file_url,
+                    "status": "aktiv",
+                    "gueltig_bis": None,
+                    "metadaten": {
+                        "generated_by": "vertrag_generator",
+                        "template": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
+                    },
+                    "erstellt_von": st.session_state.get("user_id"),
+                }
+            ).execute()
+        except Exception as e:
+            st.warning(f"Dokument-Metadaten konnten nicht gespeichert werden: {e}")
+        try:
+            supabase.table("vertraege").insert(
+                {
+                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                    "mitarbeiter_id": ma["id"],
+                    "gueltig_ab": gueltig_ab.isoformat(),
+                    "gueltig_bis": None,
+                    "wochenstunden": 0.0,
+                    "soll_stunden_monat": float(monatliche_arbeitszeit),
+                    "urlaubstage_jahr": float(ma.get("jahres_urlaubstage") or 0.0),
+                    "stundenlohn_brutto": float(stundenlohn_brutto),
+                    "vertrag_dokument_pfad": file_path,
+                }
+            ).execute()
+        except Exception as e:
+            st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
+        st.success("Vertrag als Dokument gespeichert.")
+
+
 def _show_planovo_import_tab():
     st.subheader("📥 Planovo-Import (historische Daten)")
     supabase = get_supabase_client()
@@ -1185,14 +1363,13 @@ def _show_arbeitszeitkonten_tab():
 
 
 def show_admin_dashboard():
-    logo_icon = str((Path(__file__).resolve().parents[1] / "assets" / "favicon.png"))
-    st.set_page_config(page_title="Coreo-Flow – Admin", page_icon=logo_icon, layout="wide")
+    st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
     c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
     with c_logo:
-        st.image(str((Path(__file__).resolve().parents[1] / "assets" / "crewbase_logo_optimized.png")), width=90)
+        st.image(BRAND_LOGO_IMAGE, width=90)
     with c_title:
-        st.title("Coreo-Flow – Admin")
+        st.title(f"{BRAND_APP_NAME} – Admin")
 
     tabs = st.tabs(
         [
@@ -1201,6 +1378,7 @@ def show_admin_dashboard():
             "👥 Mitarbeiter",
             "📁 Planovo-Import",
             "📊 Zeitauswertung",
+            "🧾 Verträge",
             "⏱️ Arbeitszeitkonten",
             "🖥️ Mastergeräte",
             "⚙️ System",
@@ -1218,10 +1396,12 @@ def show_admin_dashboard():
     with tabs[4]:
         _show_zeitauswertung_tab()
     with tabs[5]:
-        _show_arbeitszeitkonten_tab()
+        _show_vertrag_generator_tab()
     with tabs[6]:
-        admin_mastergeraete.show_mastergeraete()
+        _show_arbeitszeitkonten_tab()
     with tabs[7]:
+        admin_mastergeraete.show_mastergeraete()
+    with tabs[8]:
         _show_system_tab()
 
 

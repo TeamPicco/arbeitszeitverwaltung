@@ -1,8 +1,8 @@
 import streamlit as st
 import time
-from pathlib import Path
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 from utils.zeit_events import (
     EVENT_BREAK_END,
     EVENT_BREAK_START,
@@ -13,12 +13,9 @@ from utils.zeit_events import (
 )
 from pages import admin_dashboard
 
-BASE_DIR = Path(__file__).resolve().parent
-LOGO_PATH = BASE_DIR / "assets" / "piccolo_logo.jpeg"
-
 st.set_page_config(
-    page_title="Coreo-Flow",
-    page_icon=str(LOGO_PATH) if LOGO_PATH.exists() else "🔘",
+    page_title=BRAND_APP_NAME,
+    page_icon=BRAND_LOGO_IMAGE,
     layout="wide",
 )
 supabase = init_supabase_client()
@@ -30,9 +27,9 @@ if st.session_state.get("trigger_reset"):
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=220)
-    st.title("Coreo-Flow")
+    if BRAND_LOGO_IMAGE:
+        st.image(BRAND_LOGO_IMAGE, width=220)
+    st.title(BRAND_APP_NAME)
     tab_stempel, tab_admin = st.tabs(["🕒 Mitarbeiter Stempeluhr", "🔐 Admin Login"])
     
     with tab_stempel:
@@ -144,8 +141,8 @@ if not st.session_state.get('logged_in'):
                     update_last_login(str(user.get("id")))
                     st.rerun()
 else:
-    if LOGO_PATH.exists():
-        st.sidebar.image(str(LOGO_PATH), use_container_width=True)
+    if BRAND_LOGO_IMAGE:
+        st.sidebar.image(BRAND_LOGO_IMAGE, use_container_width=True)
     admin_dashboard.show_admin_dashboard()
     if st.sidebar.button("Abmelden"):
         st.session_state.clear(); st.rerun()
