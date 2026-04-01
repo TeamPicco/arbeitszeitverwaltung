@@ -47,7 +47,9 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     supabase = get_supabase_client()
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table('zeiterfassung').select('*').eq(
+    r = supabase.table('zeiterfassung').select(
+        'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at'
+    ).eq(
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []
@@ -59,7 +61,9 @@ def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     planning_table = resolve_planning_table(supabase)
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table(planning_table).select('*').eq(
+    r = supabase.table(planning_table).select(
+        'datum,schichttyp,start_zeit,ende_zeit,pause_minuten,urlaub_stunden'
+    ).eq(
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []

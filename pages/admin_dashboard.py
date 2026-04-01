@@ -20,9 +20,17 @@ from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
 
 
+ADMIN_MITARBEITER_COLUMNS = (
+    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
+    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
+    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage, resturlaub_vorjahr, "
+    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+
+
 def _load_admin_mitarbeiter():
     supabase = get_supabase_client()
-    query = supabase.table("mitarbeiter").select("*").order("nachname")
+    query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
     betrieb_id = st.session_state.get("betrieb_id")
     if betrieb_id is not None:
         query = query.eq("betrieb_id", betrieb_id)
@@ -77,7 +85,15 @@ def _show_absenzen_tab():
         return
 
     betrieb_id = st.session_state.get("betrieb_id")
-    abs_query = supabase.table("abwesenheiten").select("*").order("created_at", desc=True).limit(200)
+    abs_query = (
+        supabase.table("abwesenheiten")
+        .select(
+            "id, mitarbeiter_id, typ, start_datum, ende_datum, datum, "
+            "stunden_gutschrift, attest_pfad, grund, status, created_at, betrieb_id"
+        )
+        .order("created_at", desc=True)
+        .limit(200)
+    )
     if betrieb_id is not None:
         abs_query = abs_query.eq("betrieb_id", betrieb_id)
     abs_res = abs_query.execute()
@@ -1114,7 +1130,10 @@ def _show_arbeitszeitkonten_tab():
 
     konto_res = (
         supabase.table("arbeitszeit_konten")
-        .select("*")
+        .select(
+            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
+            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
+        )
         .order("mitarbeiter_id")
         .execute()
     )
