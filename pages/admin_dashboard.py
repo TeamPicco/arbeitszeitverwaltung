@@ -223,6 +223,8 @@ def _show_absenzen_tab():
     with e1:
         with st.form(f"abwesenheit_update_form_{selected_id}"):
             st.markdown("**Abwesenheit bearbeiten**")
+            existing_attest = selected_absence.get("attest_pfad")
+            st.caption(f"Aktuelles Attest: {existing_attest or 'kein Attest hinterlegt'}")
             new_typ = st.selectbox(
                 "Typ",
                 ["urlaub", "krankheit", "sonderurlaub"],
@@ -246,6 +248,11 @@ def _show_absenzen_tab():
                 value=selected_absence.get("grund") or "",
                 key=f"abwesen_update_grund_{selected_id}",
             )
+            new_attest = st.file_uploader(
+                "Attest nachträglich hochladen/ersetzen (optional)",
+                type=["pdf", "jpg", "jpeg", "png"],
+                key=f"abwesen_update_attest_{selected_id}",
+            )
             edit_reason = st.text_area(
                 "Begründung der Änderung *",
                 placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
@@ -263,6 +270,28 @@ def _show_absenzen_tab():
                     st.error("Bitte eine Begründung für die Änderung angeben.")
                 else:
                     try:
+                        attest_pfad = existing_attest
+                        if new_attest is not None:
+                            att_bytes = new_attest.read()
+                            att_name = new_attest.name.replace(" ", "_")
+                            attest_pfad_neu = (
+                                f"atteste/{selected_ma_id}/{date.today().strftime('%Y%m%d')}_{selected_id}_{att_name}"
+                            )
+                            attest_upload = upload_file_to_storage_result(
+                                "dokumente",
+                                attest_pfad_neu,
+                                att_bytes,
+                                fallback_buckets=["arbeitsvertraege"],
+                            )
+                            if attest_upload.get("ok"):
+                                attest_pfad = attest_pfad_neu
+                            else:
+                                st.warning(
+                                    "Attest-Upload fehlgeschlagen, Änderung wird ohne neues Attest gespeichert. "
+                                    f"Details: {attest_upload.get('status_code') or '-'} "
+                                    f"{attest_upload.get('error') or ''}"
+                                )
+
                         update_absence(
                             supabase,
                             absence_id=selected_id,
@@ -272,7 +301,7 @@ def _show_absenzen_tab():
                             monthly_target_hours=float(selected_ma.get("monatliche_soll_stunden") or 0.0),
                             change_reason=edit_reason.strip(),
                             changed_by=st.session_state.get("user_id"),
-                            attest_pfad=selected_absence.get("attest_pfad"),
+                            attest_pfad=attest_pfad,
                             grund=new_grund or None,
                         )
                         st.success("Abwesenheit wurde aktualisiert.")
