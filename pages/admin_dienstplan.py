@@ -10,7 +10,7 @@ import calendar
 import locale
 import io
 import os
-from utils.database import get_supabase_client, get_all_mitarbeiter
+from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.calculations import (
     parse_zeit,
@@ -41,6 +41,109 @@ except:
         locale.setlocale(locale.LC_TIME, 'de_DE')
     except:
         pass
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_mitarbeiter(betrieb_id: int) -> list:
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table("mitarbeiter")
+        .select("*")
+        .eq("betrieb_id", betrieb_id)
+        .order("nachname")
+        .execute()
+    )
+    return resp.data or []
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_schichtvorlagen(betrieb_id: int) -> list:
+    supabase = get_supabase_client()
+    resp = supabase.table("schichtvorlagen").select("*").eq("betrieb_id", betrieb_id).execute()
+    return resp.data or []
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_monatsdienste(planning_table: str, betrieb_id: int, start_iso: str, end_iso: str) -> list:
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table(planning_table)
+        .select("*")
+        .eq("betrieb_id", betrieb_id)
+        .gte("datum", start_iso)
+        .lte("datum", end_iso)
+        .execute()
+    )
+    return resp.data or []
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cached_genehmigte_urlaube(betrieb_id: int, start_iso: str, end_iso: str) -> list:
+    supabase = get_supabase_client()
+    resp = (
+        supabase.table("urlaubsantraege")
+        .select("id, mitarbeiter_id, von_datum, bis_datum, anzahl_tage")
+        .eq("status", "genehmigt")
+        .lte("von_datum", end_iso)
+        .gte("bis_datum", start_iso)
+        .execute()
+    )
+    return resp.data or []
+
+
+def _clear_dienstplan_cache():
+    _cached_mitarbeiter.clear()
+    _cached_schichtvorlagen.clear()
+    _cached_monatsdienste.clear()
+    _cached_genehmigte_urlaube.clear()
+
+
+def _build_urlaub_map_from_rows(urlaub_rows: list, erster_tag: date, letzter_tag: date) -> dict:
+    """Baut aus Urlaubszeilen eine Datum-Map pro Mitarbeiter."""
+    urlaub_map = {}
+    for u in urlaub_rows:
+        von = date.fromisoformat(u["von_datum"])
+        bis = date.fromisoformat(u["bis_datum"])
+        aktuell = von
+        while aktuell <= bis:
+            if erster_tag <= aktuell <= letzter_tag and aktuell.weekday() not in [0, 1]:
+                urlaub_map[(u["mitarbeiter_id"], aktuell.isoformat())] = u
+            aktuell += timedelta(days=1)
+    return urlaub_map
+
+
+def _apply_schichtvorlage_one_click(
+    supabase,
+    planning_table: str,
+    betrieb_id: int,
+    mitarbeiter: dict,
+    datum_iso: str,
+    vorlage: dict,
+):
+    """
+    Wendet eine Schichtvorlage per 1-Klick an.
+    Vorhandene Tageseinträge werden ersetzt.
+    """
+    supabase.table(planning_table).delete().eq("betrieb_id", betrieb_id).eq(
+        "mitarbeiter_id", mitarbeiter["id"]
+    ).eq("datum", datum_iso).execute()
+
+    soll = float(mitarbeiter.get("monatliche_soll_stunden") or 160.0)
+    urlaub_tagessatz = round(soll / (5 * 4.33), 2)
+    ist_urlaub = bool(vorlage.get("ist_urlaub"))
+
+    payload = {
+        "betrieb_id": betrieb_id,
+        "mitarbeiter_id": mitarbeiter["id"],
+        "datum": datum_iso,
+        "schichttyp": "urlaub" if ist_urlaub else "arbeit",
+        "start_zeit": "00:00:00" if ist_urlaub else (vorlage.get("start_zeit") or "08:00:00"),
+        "ende_zeit": "00:00:00" if ist_urlaub else (vorlage.get("ende_zeit") or "16:00:00"),
+        "pause_minuten": 0 if ist_urlaub else int(vorlage.get("pause_minuten") or 0),
+        "urlaub_stunden": urlaub_tagessatz if ist_urlaub else 0.0,
+        "schichtvorlage_id": None if ist_urlaub else vorlage.get("id"),
+    }
+    supabase.table(planning_table).insert(payload).execute()
 
 
 # ============================================================
@@ -305,35 +408,29 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
 # HILFSFUNKTIONEN
 # ============================================================
 
-def lade_genehmigte_urlaube(supabase, betrieb_id: int, erster_tag: date, letzter_tag: date) -> dict:
+def lade_genehmigte_urlaube(betrieb_id: int, erster_tag: date, letzter_tag: date) -> dict:
     """
     Lädt alle genehmigten Urlaubsanträge für den Monat.
     Gibt ein Dict zurück: {(mitarbeiter_id, datum_str): urlaubsantrag_dict}
     """
-    urlaube_resp = supabase.table('urlaubsantraege').select(
-        'id, mitarbeiter_id, von_datum, bis_datum, anzahl_tage'
-    ).eq('status', 'genehmigt').lte('von_datum', letzter_tag.isoformat()).gte(
-        'bis_datum', erster_tag.isoformat()
-    ).execute()
-
-    urlaub_map = {}
-    if urlaube_resp.data:
-        for u in urlaube_resp.data:
-            von = date.fromisoformat(u['von_datum'])
-            bis = date.fromisoformat(u['bis_datum'])
-            aktuell = von
-            while aktuell <= bis:
-                if erster_tag <= aktuell <= letzter_tag:
-                    # Ruhetage (Mo/Di) nicht als Urlaubstag eintragen
-                    if aktuell.weekday() not in [0, 1]:
-                        urlaub_map[(u['mitarbeiter_id'], aktuell.isoformat())] = u
-                aktuell += timedelta(days=1)
-    return urlaub_map
+    rows = _cached_genehmigte_urlaube(
+        betrieb_id,
+        erster_tag.isoformat(),
+        letzter_tag.isoformat(),
+    )
+    return _build_urlaub_map_from_rows(rows, erster_tag, letzter_tag)
 
 
-def setze_urlaub_automatisch(supabase, betrieb_id: int, mitarbeiter_id: int,
-                              urlaub_map: dict, erster_tag: date, letzter_tag: date,
-                              mitarbeiter_soll_stunden: float) -> int:
+def setze_urlaub_automatisch(
+    supabase,
+    planning_table: str,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    urlaub_map: dict,
+    erster_tag: date,
+    letzter_tag: date,
+    mitarbeiter_soll_stunden: float,
+) -> int:
     """
     Trägt genehmigte Urlaubstage automatisch in den Dienstplan ein.
     Überschreibt keine bestehenden Einträge.
@@ -367,6 +464,7 @@ def setze_urlaub_automatisch(supabase, betrieb_id: int, mitarbeiter_id: int,
                 'ende_zeit': '00:00:00',
                 'pause_minuten': 0,
             }).execute()
+            _clear_dienstplan_cache()
             eingetragen += 1
         except Exception:
             pass
@@ -417,34 +515,40 @@ def show_monatsplan(supabase):
         if st.button("🔄 Aktualisieren", use_container_width=True):
             st.rerun()
 
-    mitarbeiter_liste = get_all_mitarbeiter()
+    mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
     if not mitarbeiter_liste:
         st.warning("Keine Mitarbeiter gefunden.")
         return
 
-    schichtvorlagen_resp = supabase.table('schichtvorlagen').select('*').eq(
-        'betrieb_id', st.session_state.betrieb_id
-    ).execute()
-    vorlagen_dict = {v['id']: v for v in schichtvorlagen_resp.data} if schichtvorlagen_resp.data else {}
+    schichtvorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    vorlagen_dict = {v['id']: v for v in schichtvorlagen_rows} if schichtvorlagen_rows else {}
 
     erster_tag = date(jahr, monat, 1)
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
     # Lade Dienstpläne
-    dienstplaene_resp = supabase.table(planning_table).select('*').eq(
-        'betrieb_id', st.session_state.betrieb_id
-    ).gte('datum', erster_tag.isoformat()).lte('datum', letzter_tag.isoformat()).execute()
+    dienstplaene_rows = _cached_monatsdienste(
+        planning_table,
+        st.session_state.betrieb_id,
+        erster_tag.isoformat(),
+        letzter_tag.isoformat(),
+    )
 
     dienste_map = {}
-    if dienstplaene_resp.data:
-        for d in dienstplaene_resp.data:
+    if dienstplaene_rows:
+        for d in dienstplaene_rows:
             key = (d['mitarbeiter_id'], d['datum'])
             if key not in dienste_map:
                 dienste_map[key] = []
             dienste_map[key].append(d)
 
     # Lade genehmigte Urlaube
-    urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
+    urlaub_rows = _cached_genehmigte_urlaube(
+        st.session_state.betrieb_id,
+        erster_tag.isoformat(),
+        letzter_tag.isoformat(),
+    )
+    urlaub_map = _build_urlaub_map_from_rows(urlaub_rows, erster_tag, letzter_tag)
 
     _render_download_center(mitarbeiter_liste, dienste_map, jahr, monat, key_prefix="monatsplan")
     st.markdown("---")
@@ -476,12 +580,19 @@ def show_monatsplan(supabase):
                     continue
                 soll = float(ma.get('monatliche_soll_stunden') or 160.0)
                 n = setze_urlaub_automatisch(
-                    supabase, st.session_state.betrieb_id, ma['id'],
-                    urlaub_map, erster_tag, letzter_tag, soll
+                    supabase,
+                    planning_table,
+                    st.session_state.betrieb_id,
+                    ma['id'],
+                    urlaub_map,
+                    erster_tag,
+                    letzter_tag,
+                    soll,
                 )
                 gesamt += n
             if gesamt > 0:
                 st.success(f"✅ {gesamt} Urlaubstag(e) automatisch eingetragen!")
+                _clear_dienstplan_cache()
                 st.rerun()
             else:
                 st.info("Keine neuen Urlaubstage einzutragen (bereits vorhanden oder keine genehmigten Urlaube).")
@@ -612,6 +723,7 @@ def show_monatsplan(supabase):
                     eintrag['urlaub_stunden'] = krank_stunden  # LFZ-Stunden im urlaub_stunden-Feld speichern
 
                 supabase.table(planning_table).insert(eintrag).execute()
+                _clear_dienstplan_cache()
                 st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
                 # E-Mail-Benachrichtigung an Mitarbeiter
                 try:
@@ -735,6 +847,7 @@ def show_monatsplan(supabase):
                         if st.button("🗑️", key=f"del_{dienst['id']}", help="Löschen"):
                             try:
                                 supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
+                                _clear_dienstplan_cache()
                                 st.success("✅ Gelöscht!")
                                 st.rerun()
                             except Exception as e:
@@ -782,6 +895,7 @@ def show_monatsplan(supabase):
                                             'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
                                         }
                                         supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
+                                        _clear_dienstplan_cache()
                                         st.session_state[edit_key] = False
                                         st.success("✅ Dienst aktualisiert!")
                                         st.rerun()
@@ -816,33 +930,52 @@ def show_monatsuebersicht_tabelle(supabase):
         if st.button("🔄 Aktualisieren", use_container_width=True, key="tabelle_refresh"):
             st.rerun()
 
-    mitarbeiter_liste = get_all_mitarbeiter()
+    mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
     if not mitarbeiter_liste:
         st.warning("Keine Mitarbeiter gefunden.")
         return
 
-    schichtvorlagen_resp = supabase.table('schichtvorlagen').select('*').eq(
-        'betrieb_id', st.session_state.betrieb_id
-    ).execute()
-    vorlagen_dict = {v['id']: v for v in schichtvorlagen_resp.data} if schichtvorlagen_resp.data else {}
+    schichtvorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    vorlagen_dict = {v['id']: v for v in schichtvorlagen_rows} if schichtvorlagen_rows else {}
 
     erster_tag = date(jahr, monat, 1)
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
-    dienstplaene_resp = supabase.table(planning_table).select('*').eq(
-        'betrieb_id', st.session_state.betrieb_id
-    ).gte('datum', erster_tag.isoformat()).lte('datum', letzter_tag.isoformat()).execute()
+    dienstplaene_rows = _cached_monatsdienste(
+        planning_table,
+        st.session_state.betrieb_id,
+        erster_tag.isoformat(),
+        letzter_tag.isoformat(),
+    )
 
     dienste_map = {}
-    if dienstplaene_resp.data:
-        for d in dienstplaene_resp.data:
+    if dienstplaene_rows:
+        for d in dienstplaene_rows:
             key = (d['mitarbeiter_id'], d['datum'])
             if key not in dienste_map:
                 dienste_map[key] = []
             dienste_map[key].append(d)
 
     # Genehmigte Urlaube als Fallback (falls nicht im Dienstplan)
-    urlaub_map = lade_genehmigte_urlaube(supabase, st.session_state.betrieb_id, erster_tag, letzter_tag)
+    urlaub_rows = _cached_genehmigte_urlaube(
+        st.session_state.betrieb_id,
+        erster_tag.isoformat(),
+        letzter_tag.isoformat(),
+    )
+    urlaub_map = _build_urlaub_map_from_rows(urlaub_rows, erster_tag, letzter_tag)
+
+    vorlagen_arbeit = [v for v in vorlagen_dict.values() if not v.get("ist_urlaub")]
+    if vorlagen_arbeit:
+        vorlage_quickpick = st.selectbox(
+            "⚡ 1‑Klick-Vorlage für Monatsübersicht",
+            options=[None] + [v["id"] for v in vorlagen_arbeit],
+            format_func=lambda x: "Keine" if x is None else next((v["name"] for v in vorlagen_arbeit if v["id"] == x), ""),
+            help="Wenn gewählt, setzt ein Klick auf eine Tageszelle direkt diese Schichtvorlage.",
+            key="tabelle_quickpick_vorlage",
+        )
+    else:
+        vorlage_quickpick = None
+        st.caption("Keine Arbeits-Schichtvorlagen vorhanden.")
 
     _render_download_center(mitarbeiter_liste, dienste_map, jahr, monat, key_prefix="tabelle")
     st.markdown("---")
@@ -941,6 +1074,8 @@ def show_monatsuebersicht_tabelle(supabase):
     st.markdown("### 👆 Direkt im Feld tippen")
     st.caption("Tippen Sie ein Tagesfeld an. Es öffnet sich sofort ein Popup zum Bearbeiten/Anlegen – ohne unteren Editor.")
 
+    st.caption("Wenn eine Vorlage gewählt ist, setzt ein Klick auf eine Tageszelle die Schicht sofort ohne zusätzliches Popup.")
+
     header_cols = st.columns([2.6] + [1] * anzahl_tage)
     header_cols[0].markdown("**Mitarbeiter**")
     for tag in range(1, anzahl_tage + 1):
@@ -996,6 +1131,24 @@ def show_monatsuebersicht_tabelle(supabase):
 
             btn_key = f"tap_edit_{jahr}_{monat}_{mitarbeiter['id']}_{tag}"
             if row_cols[tag].button(label, key=btn_key, use_container_width=True, help=hint):
+                if vorlage_quickpick is not None:
+                    quick_vorlage = vorlagen_dict.get(vorlage_quickpick)
+                    if quick_vorlage:
+                        try:
+                            _apply_schichtvorlage_one_click(
+                                supabase=supabase,
+                                planning_table=planning_table,
+                                betrieb_id=st.session_state.betrieb_id,
+                                mitarbeiter=mitarbeiter,
+                                datum_iso=tag_datum.isoformat(),
+                                vorlage=quick_vorlage,
+                            )
+                            _clear_dienstplan_cache()
+                            st.success(f"✅ {quick_vorlage['name']} gesetzt: {mitarbeiter['vorname']} {mitarbeiter['nachname']} · {tag_datum.strftime('%d.%m.%Y')}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Vorlage konnte nicht gesetzt werden: {str(e)}")
+                            st.stop()
                 st.session_state["tabelle_cell_editor"] = {
                     "ma_id": mitarbeiter["id"],
                     "datum": tag_datum.isoformat(),
@@ -1114,6 +1267,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                         "urlaub_stunden": 0.0,
                                     }
                                 supabase.table(planning_table).update(update_data).eq("id", dienst["id"]).execute()
+                                _clear_dienstplan_cache()
                                 st.session_state["tabelle_cell_editor"] = None
                                 st.success("✅ Dienst gespeichert.")
                                 st.rerun()
@@ -1123,6 +1277,7 @@ def show_monatsuebersicht_tabelle(supabase):
                         if loeschen:
                             try:
                                 supabase.table(planning_table).delete().eq("id", dienst["id"]).execute()
+                                _clear_dienstplan_cache()
                                 st.session_state["tabelle_cell_editor"] = None
                                 st.success("✅ Dienst gelöscht.")
                                 st.rerun()
@@ -1204,6 +1359,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                 "urlaub_stunden": 0.0,
                             }
                         supabase.table(planning_table).insert(payload).execute()
+                        _clear_dienstplan_cache()
                         st.session_state["tabelle_cell_editor"] = None
                         st.success("✅ Dienst angelegt.")
                         st.rerun()
@@ -1372,6 +1528,7 @@ def show_schichtvorlagen(supabase):
                         'farbe': farbe,
                         'ist_urlaub': ist_urlaub
                     }).execute()
+                    _clear_dienstplan_cache()
                     st.success("✅ Schichtvorlage erstellt!")
                     st.rerun()
                 except Exception as e:
@@ -1416,6 +1573,7 @@ def show_schichtvorlagen(supabase):
                                     'pause_minuten': pause_minuten,
                                     'farbe': farbe,
                                 }).eq('id', vorlage['id']).execute()
+                                _clear_dienstplan_cache()
                                 st.session_state[f"edit_vorlage_{vorlage['id']}"] = False
                                 st.success("✅ Vorlage aktualisiert!")
                                 st.rerun()
@@ -1448,6 +1606,7 @@ def show_schichtvorlagen(supabase):
                         if st.button("🗑️", key=f"del_vorlage_{vorlage['id']}", help="Löschen"):
                             try:
                                 supabase.table('schichtvorlagen').delete().eq('id', vorlage['id']).execute()
+                                _clear_dienstplan_cache()
                                 st.success("✅ Vorlage gelöscht!")
                                 st.rerun()
                             except Exception as e:
