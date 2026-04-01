@@ -1,6 +1,8 @@
 from datetime import date
 
-from utils.absences import store_absence
+import pytest
+
+from utils.absences import delete_absence, store_absence, update_absence
 
 
 class FakeResponse:
@@ -22,7 +24,44 @@ class FakeQuery:
         self._upsert_payload = payload
         return self
 
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def update(self, payload):
+        self._update_payload = payload
+        return self
+
+    def delete(self):
+        self._is_delete = True
+        return self
+
+    def eq(self, _field, _value):
+        return self
+
+    def gte(self, _field, _value):
+        return self
+
+    def lte(self, _field, _value):
+        return self
+
+    def limit(self, _value):
+        return self
+
     def execute(self):
+        if getattr(self, "_is_delete", False):
+            if self.table.rows:
+                self.table.rows.pop(0)
+            return FakeResponse([])
+        if getattr(self, "_update_payload", None) is not None:
+            payload = dict(self._update_payload)
+            self.table.last_update_payload = payload
+            if self.table.rows:
+                self.table.rows[0].update(payload)
+            else:
+                self.table.rows.append(payload)
+            return FakeResponse([payload])
+        if getattr(self, "_select_mode", False):
+            return FakeResponse(self.table.rows)
         if self._insert_payload is not None:
             payload = dict(self._insert_payload)
             self.table.rows.append(payload)
@@ -45,6 +84,7 @@ class FakeTable:
     def __init__(self):
         self.rows = []
         self.last_insert_payload = None
+        self.last_update_payload = None
         self.last_upsert_payload = None
         self.raise_after_insert = None
         self.raise_after_insert_queue = []
@@ -54,6 +94,17 @@ class FakeTable:
 
     def upsert(self, payload, on_conflict=None):
         return FakeQuery(self).upsert(payload, on_conflict=on_conflict)
+
+    def select(self, *args, **kwargs):
+        q = FakeQuery(self)
+        q._select_mode = True
+        return q
+
+    def update(self, payload):
+        return FakeQuery(self).update(payload)
+
+    def delete(self):
+        return FakeQuery(self).delete()
 
 
 class FakeSupabase:
@@ -144,3 +195,48 @@ def test_store_absence_fallback_maps_krankheit_to_legacy_krank_typ():
     inserted = sb.table("abwesenheiten").last_insert_payload
     assert inserted is not None
     assert inserted.get("typ") == "krank"
+
+
+def test_update_absence_requires_reason():
+    sb = FakeSupabase()
+    sb.table("abwesenheiten").rows = [
+        {
+            "id": 10,
+            "betrieb_id": 1,
+            "mitarbeiter_id": 7,
+            "typ": "urlaub",
+            "start_datum": "2026-04-01",
+            "ende_datum": "2026-04-02",
+            "stunden_gutschrift": 8.0,
+        }
+    ]
+    with pytest.raises(ValueError):
+        update_absence(
+            sb,
+            absence_id=10,
+            typ="urlaub",
+            start=date(2026, 4, 1),
+            end=date(2026, 4, 2),
+            monthly_target_hours=160.0,
+            change_reason="",
+        )
+
+
+def test_delete_absence_requires_reason():
+    sb = FakeSupabase()
+    sb.table("abwesenheiten").rows = [
+        {
+            "id": 11,
+            "betrieb_id": 1,
+            "mitarbeiter_id": 7,
+            "typ": "krankheit",
+            "start_datum": "2026-04-01",
+            "ende_datum": "2026-04-03",
+        }
+    ]
+    with pytest.raises(ValueError):
+        delete_absence(
+            sb,
+            absence_id=11,
+            delete_reason="",
+        )

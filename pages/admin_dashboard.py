@@ -4,11 +4,10 @@ from datetime import date, datetime
 import streamlit as st
 
 from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
-from utils.absences import store_absence
+from utils.absences import delete_absence, store_absence, update_absence
 from utils.database import (
     get_supabase_client,
     update_mitarbeiter,
-    upload_file_to_storage,
     upload_file_to_storage_result,
 )
 from utils.historischer_import import (
@@ -83,7 +82,7 @@ def _show_absenzen_tab():
     abs_res = abs_query.execute()
     abwesenheiten = abs_res.data or []
     atteste_count = sum(1 for a in abwesenheiten if a.get("attest_pfad"))
-    krank_count = sum(1 for a in abwesenheiten if a.get("typ") == "krankheit")
+    krank_count = sum(1 for a in abwesenheiten if str(a.get("typ") or "").lower() in ("krankheit", "krank"))
     urlaub_count = sum(1 for a in abwesenheiten if a.get("typ") == "urlaub")
 
     m1, m2, m3, m4 = st.columns(4)
@@ -163,7 +162,12 @@ def _show_absenzen_tab():
         st.info("Noch keine Abwesenheiten gespeichert.")
         return
 
-    typ_labels = {"urlaub": "🏖️ Urlaub", "krankheit": "🤒 Krankheit", "sonderurlaub": "🎗️ Sonderurlaub"}
+    typ_labels = {
+        "urlaub": "🏖️ Urlaub",
+        "krankheit": "🤒 Krankheit",
+        "krank": "🤒 Krankheit",
+        "sonderurlaub": "🎗️ Sonderurlaub",
+    }
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     rows = []
     for a in abwesenheiten[:50]:
@@ -179,6 +183,137 @@ def _show_absenzen_tab():
             }
         )
     st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    st.markdown("#### ✏️ Abwesenheit ändern / 🗑️ löschen (mit Begründung)")
+    select_options = {}
+    for a in abwesenheiten[:200]:
+        a_id = a.get("id")
+        if a_id is None:
+            continue
+        ma_name = ma_lookup.get(a.get("mitarbeiter_id"), str(a.get("mitarbeiter_id")))
+        start_iso = a.get("start_datum") or a.get("datum") or "-"
+        end_iso = a.get("ende_datum") or a.get("datum") or "-"
+        typ_raw = str(a.get("typ") or "").lower()
+        typ_display = typ_labels.get(typ_raw, typ_raw or "-")
+        label = f"#{a_id} | {ma_name} | {typ_display} | {start_iso} bis {end_iso}"
+        select_options[label] = a
+
+    if not select_options:
+        st.info("Keine bearbeitbaren Abwesenheits-Einträge vorhanden.")
+        return
+
+    selected_label = st.selectbox(
+        "Eintrag auswählen",
+        list(select_options.keys()),
+        key="abwesenheit_edit_delete_select",
+    )
+    selected_absence = select_options[selected_label]
+
+    selected_id = int(selected_absence.get("id"))
+    selected_ma_id = int(selected_absence.get("mitarbeiter_id"))
+    selected_ma = next((m for m in alle_ma if int(m.get("id")) == selected_ma_id), {})
+    default_typ_raw = str(selected_absence.get("typ") or "").lower()
+    default_typ = "krankheit" if default_typ_raw == "krank" else default_typ_raw
+    if default_typ not in ("urlaub", "krankheit", "sonderurlaub"):
+        default_typ = "urlaub"
+    default_start = _safe_date(selected_absence.get("start_datum") or selected_absence.get("datum")) or date.today()
+    default_end = _safe_date(selected_absence.get("ende_datum") or selected_absence.get("datum")) or default_start
+
+    e1, e2 = st.columns(2)
+    with e1:
+        with st.form(f"abwesenheit_update_form_{selected_id}"):
+            st.markdown("**Abwesenheit bearbeiten**")
+            new_typ = st.selectbox(
+                "Typ",
+                ["urlaub", "krankheit", "sonderurlaub"],
+                index=["urlaub", "krankheit", "sonderurlaub"].index(default_typ),
+                key=f"abwesen_update_typ_{selected_id}",
+            )
+            new_start = st.date_input(
+                "Von",
+                value=default_start,
+                format="DD.MM.YYYY",
+                key=f"abwesen_update_start_{selected_id}",
+            )
+            new_end = st.date_input(
+                "Bis",
+                value=default_end,
+                format="DD.MM.YYYY",
+                key=f"abwesen_update_end_{selected_id}",
+            )
+            new_grund = st.text_area(
+                "Grund / Kommentar",
+                value=selected_absence.get("grund") or "",
+                key=f"abwesen_update_grund_{selected_id}",
+            )
+            edit_reason = st.text_area(
+                "Begründung der Änderung *",
+                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                key=f"abwesen_update_reason_{selected_id}",
+            )
+            save_edit = st.form_submit_button(
+                "✅ Änderung speichern",
+                type="primary",
+                use_container_width=True,
+            )
+            if save_edit:
+                if new_end < new_start:
+                    st.error("Enddatum muss >= Startdatum sein.")
+                elif not (edit_reason or "").strip():
+                    st.error("Bitte eine Begründung für die Änderung angeben.")
+                else:
+                    try:
+                        update_absence(
+                            supabase,
+                            absence_id=selected_id,
+                            typ=new_typ,
+                            start=new_start,
+                            end=new_end,
+                            monthly_target_hours=float(selected_ma.get("monatliche_soll_stunden") or 0.0),
+                            change_reason=edit_reason.strip(),
+                            changed_by=st.session_state.get("user_id"),
+                            attest_pfad=selected_absence.get("attest_pfad"),
+                            grund=new_grund or None,
+                        )
+                        st.success("Abwesenheit wurde aktualisiert.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Änderung fehlgeschlagen: {e}")
+
+    with e2:
+        with st.form(f"abwesenheit_delete_form_{selected_id}"):
+            st.markdown("**Abwesenheit löschen**")
+            st.warning("Diese Aktion entfernt den Eintrag inkl. gespiegeltem Legacy-Zeiteintrag.")
+            delete_reason = st.text_area(
+                "Begründung der Löschung *",
+                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                key=f"abwesen_delete_reason_{selected_id}",
+            )
+            confirm_delete = st.checkbox(
+                "Ich bestätige die Löschung",
+                key=f"abwesen_delete_confirm_{selected_id}",
+            )
+            do_delete = st.form_submit_button(
+                "🗑️ Eintrag löschen",
+                use_container_width=True,
+            )
+            if do_delete:
+                if not confirm_delete:
+                    st.error("Bitte zuerst die Löschung bestätigen.")
+                elif not (delete_reason or "").strip():
+                    st.error("Bitte eine Begründung für die Löschung angeben.")
+                else:
+                    try:
+                        delete_absence(
+                            supabase,
+                            absence_id=selected_id,
+                            delete_reason=delete_reason.strip(),
+                            deleted_by=st.session_state.get("user_id"),
+                        )
+                        st.success("Abwesenheit wurde gelöscht.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Löschen fehlgeschlagen: {e}")
 
 
 def _show_mitarbeiter_stammdaten_tab():
