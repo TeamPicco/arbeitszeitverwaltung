@@ -74,7 +74,18 @@ def store_absence(
         "grund": grund,
         "created_by": created_by,
     }
-    supabase.table("abwesenheiten").insert(payload).execute()
+    try:
+        supabase.table("abwesenheiten").insert(payload).execute()
+    except Exception as exc:
+        # Legacy-Instanzen haben teils weiterhin ein NOT NULL auf "datum".
+        msg = str(exc).lower()
+        if (
+            "datum" not in msg
+            or ("not-null" not in msg and "not null" not in msg and "23502" not in msg)
+        ):
+            raise
+        legacy_payload = {**payload, "datum": start.isoformat()}
+        supabase.table("abwesenheiten").insert(legacy_payload).execute()
 
     # Rückwärtskompatibilität: für bestehende Auswertungen in zeiterfassung spiegeln.
     cur = start

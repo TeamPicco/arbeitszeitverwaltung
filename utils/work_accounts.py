@@ -17,6 +17,102 @@ class WorkAccountSnapshot:
     monat_abgeschlossen: bool = False
 
 
+def set_work_account_opening_balance(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+    opening_hours: float,
+    created_by: Optional[int] = None,
+) -> WorkAccountSnapshot:
+    """
+    Setzt einen festen Anfangsbestand für einen Monat (z. B. Neubeginn per 01.04).
+
+    Umsetzung über einen unveränderlichen Monatsabschluss mit 0 Soll/0 Ist und
+    Saldo-Ende = Anfangsbestand. Nachfolgende Monate bauen darauf auf.
+    """
+    opening = round(float(opening_hours or 0.0), 2)
+
+    try:
+        existing = (
+            supabase.table("azk_monatsabschluesse")
+            .select("id")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("monat", monat)
+            .eq("jahr", jahr)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            # Bereits gesetzt -> nur synchronisierten Snapshot zurückgeben.
+            return sync_work_account_for_month(
+                supabase,
+                betrieb_id=betrieb_id,
+                mitarbeiter_id=mitarbeiter_id,
+                monat=monat,
+                jahr=jahr,
+            )
+    except Exception:
+        # Wenn Tabelle/Schema nicht vorhanden ist, fällt der spätere Insert ggf. auch aus.
+        pass
+
+    try:
+        supabase.table("azk_monatsabschluesse").insert(
+            {
+                "betrieb_id": betrieb_id,
+                "mitarbeiter_id": mitarbeiter_id,
+                "monat": int(monat),
+                "jahr": int(jahr),
+                "soll_stunden": 0.0,
+                "ist_stunden": 0.0,
+                "differenz_stunden": 0.0,
+                "ueberstunden_saldo_start": opening,
+                "ueberstunden_saldo_ende": opening,
+                "urlaubstage_gesamt": 0.0,
+                "urlaubstage_genommen": 0.0,
+                "krankheitstage_gesamt": 0.0,
+                "created_by": created_by,
+            }
+        ).execute()
+    except Exception:
+        # Fallback ohne Snapshot-Tabelle: live Konto direkt setzen.
+        _upsert_live_account(
+            supabase,
+            betrieb_id=betrieb_id,
+            mitarbeiter_id=mitarbeiter_id,
+            snapshot=WorkAccountSnapshot(
+                soll_stunden=0.0,
+                ist_stunden=0.0,
+                ueberstunden_saldo=opening,
+                urlaubstage_gesamt=0.0,
+                urlaubstage_genommen=0.0,
+                krankheitstage_gesamt=0.0,
+                differenz_stunden=0.0,
+                monat_abgeschlossen=False,
+            ),
+        )
+        return WorkAccountSnapshot(
+            soll_stunden=0.0,
+            ist_stunden=0.0,
+            ueberstunden_saldo=opening,
+            urlaubstage_gesamt=0.0,
+            urlaubstage_genommen=0.0,
+            krankheitstage_gesamt=0.0,
+            differenz_stunden=0.0,
+            monat_abgeschlossen=False,
+        )
+
+    return sync_work_account_for_month(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        monat=monat,
+        jahr=jahr,
+    )
+
+
 def _daterange(start: date, end: date):
     cur = start
     while cur <= end:

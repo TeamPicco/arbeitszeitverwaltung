@@ -127,6 +127,7 @@ class FakeSupabase:
                 [
                     {"mitarbeiter_id": 1, "datum": "2026-03-02", "arbeitsstunden": 50.0, "stunden": None},
                     {"mitarbeiter_id": 1, "datum": "2026-03-11", "arbeitsstunden": 70.0, "stunden": None},
+                    {"mitarbeiter_id": 1, "datum": "2026-03-31", "arbeitsstunden": 0.0, "stunden": None},
                 ]
             ),
             "abwesenheiten": FakeTable(
