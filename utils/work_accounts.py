@@ -468,6 +468,26 @@ def validate_work_account_cycle(
     }
 
 
+# Backward-compatible alias used by dashboard imports.
+def validate_work_account_month(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+    tolerance_hours: float = 0.05,
+) -> dict:
+    return validate_work_account_cycle(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        monat=monat,
+        jahr=jahr,
+        tolerance_hours=tolerance_hours,
+    )
+
+
 def _load_closed_snapshot(supabase, mitarbeiter_id: int, monat: int, jahr: int) -> Optional[dict]:
     try:
         res = (
