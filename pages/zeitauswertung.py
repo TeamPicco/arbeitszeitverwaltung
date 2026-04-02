@@ -30,6 +30,7 @@ from utils.calculations import (
     get_wochentag,
     get_monatsnamen,
 )
+from utils.work_accounts import sync_work_account_for_month
 
 MONATE = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -46,7 +47,9 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     supabase = get_supabase_client()
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table('zeiterfassung').select('*').eq(
+    r = supabase.table('zeiterfassung').select(
+        'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at'
+    ).eq(
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []
@@ -58,7 +61,9 @@ def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     planning_table = resolve_planning_table(supabase)
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table(planning_table).select('*').eq(
+    r = supabase.table(planning_table).select(
+        'datum,schichttyp,start_zeit,ende_zeit,pause_minuten,urlaub_stunden'
+    ).eq(
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []
@@ -557,12 +562,18 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     if admin_modus:
         st.markdown("### ⏱️ Arbeitszeitkonto")
         try:
-            from utils.lohnabrechnung import berechne_arbeitszeitkonto
-            konto = berechne_arbeitszeitkonto(aktiver_ma['id'], monat, jahr)
-            if konto:
-                vortrag = float(konto.get('ueberstunden_vortrag') or 0)
-                saldo = float(konto.get('ueberstunden_saldo') or 0)
-                diff_mon = float(konto.get('differenz_stunden') or 0)
+            supabase_konto = get_supabase_client()
+            snap = sync_work_account_for_month(
+                supabase_konto,
+                betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+                mitarbeiter_id=int(aktiver_ma["id"]),
+                monat=int(monat),
+                jahr=int(jahr),
+            )
+            if snap:
+                saldo = float(snap.ueberstunden_saldo or 0.0)
+                diff_mon = float(snap.differenz_stunden or 0.0)
+                vortrag = round(saldo - diff_mon, 2)
                 
                 col_k1, col_k2, col_k3 = st.columns(3)
                 with col_k1:

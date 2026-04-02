@@ -17,8 +17,16 @@ import os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import Optional
+from utils.branding import BRAND_APP_NAME, BRAND_TAGLINE
 
 logger = logging.getLogger(__name__)
+
+
+def _brand_text(text: str) -> str:
+    """Ersetzt alte Brand-Strings durch das zentrale Branding."""
+    if not text:
+        return text
+    return text.replace("CrewBase", BRAND_APP_NAME).replace("Steakhouse Piccolo", BRAND_APP_NAME)
 
 # Standard-Admin-E-Mail (kann in DB oder .env überschrieben werden)
 DEFAULT_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "piccolo_leipzig@yahoo.de")
@@ -59,7 +67,7 @@ def send_email(
         smtp_username = os.getenv("SMTP_USERNAME")
         smtp_password = os.getenv("SMTP_PASSWORD")
         from_email = os.getenv("SMTP_FROM_EMAIL", smtp_username)
-        from_name = os.getenv("SMTP_FROM_NAME", "CrewBase")
+        from_name = os.getenv("SMTP_FROM_NAME", BRAND_APP_NAME)
         
         # E-Mail erstellen
         msg = MIMEMultipart('alternative')
@@ -118,8 +126,8 @@ def _erstelle_html_template(titel: str, inhalt: str, farbe: str = "#1e3a5f") -> 
     <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
         <!-- Header -->
         <div style="background-color: {farbe}; padding: 20px 30px;">
-            <h1 style="color: #ffffff; margin: 0; font-size: 1.5rem;">🍽️ CrewBase</h1>
-            <p style="color: rgba(255,255,255,0.8); margin: 5px 0 0 0; font-size: 0.9rem;">Arbeitszeitverwaltung</p>
+            <h1 style="color: #ffffff; margin: 0; font-size: 1.5rem;">{BRAND_APP_NAME}</h1>
+            <p style="color: rgba(255,255,255,0.8); margin: 5px 0 0 0; font-size: 0.9rem;">{BRAND_TAGLINE}</p>
         </div>
         <!-- Inhalt -->
         <div style="padding: 30px;">
@@ -129,7 +137,7 @@ def _erstelle_html_template(titel: str, inhalt: str, farbe: str = "#1e3a5f") -> 
         <!-- Footer -->
         <div style="background-color: #f8f9fa; padding: 15px 30px; border-top: 1px solid #dee2e6;">
             <p style="color: #6c757d; font-size: 0.8rem; margin: 0;">
-                Diese E-Mail wurde automatisch von CrewBase generiert. Bitte nicht direkt antworten.
+                Diese E-Mail wurde automatisch von {BRAND_APP_NAME} generiert. Bitte nicht direkt antworten.
             </p>
         </div>
     </div>
@@ -193,7 +201,7 @@ def send_urlaubsantrag_email(
     
     html_body = _erstelle_html_template(f"Neuer Urlaubsantrag: {mitarbeiter_name}", inhalt)
     
-    return send_email(empfaenger, subject, body, html_body)
+    return send_email(empfaenger, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 def send_urlaubsgenehmigung_email(
@@ -260,7 +268,7 @@ def send_urlaubsgenehmigung_email(
     
     html_body = _erstelle_html_template(f"Urlaubsantrag {status_text}", inhalt, farbe=farbe)
     
-    return send_email(mitarbeiter_email, subject, body, html_body)
+    return send_email(mitarbeiter_email, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -317,7 +325,7 @@ def send_dienstplan_email(
     
     html_body = _erstelle_html_template(f"Dienstplan {monat} {jahr} verfügbar", inhalt)
     
-    return send_email(mitarbeiter_email, subject, body, html_body)
+    return send_email(mitarbeiter_email, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 def send_dienstplan_alle_mitarbeiter(
@@ -423,7 +431,7 @@ def send_stammdaten_aenderung_email(
     
     html_body = _erstelle_html_template(titel, inhalt)
     
-    return send_email(empfaenger, subject, body, html_body)
+    return send_email(empfaenger, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -484,7 +492,7 @@ def send_lohnabrechnung_email(
     
     html_body = _erstelle_html_template(f"Lohnabrechnung {monat} {jahr}", inhalt)
     
-    return send_email(mitarbeiter_email, subject, body, html_body)
+    return send_email(mitarbeiter_email, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -559,7 +567,7 @@ def send_aenderungsantrag_admin_email(
     
     html_body = _erstelle_html_template(f"Änderungsantrag: {mitarbeiter_name}", inhalt, farbe="#b7791f")
     
-    return send_email(empfaenger, subject, body, html_body)
+    return send_email(empfaenger, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -760,7 +768,7 @@ def send_zeitkorrektur_email(
         </p>
     """
     html_body = _erstelle_html_template("Zeitkorrektur vorgenommen", inhalt, farbe="#b7791f")
-    return send_email(mitarbeiter_email, subject, body, html_body)
+    return send_email(mitarbeiter_email, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -812,7 +820,7 @@ def send_dienstplan_veroeffentlichung_alle(
             </div>
         """
         html_body = _erstelle_html_template(f"Dienstplan {monat} {jahr} veröffentlicht", inhalt)
-        if send_email(email, subject, body, html_body):
+        if send_email(email, _brand_text(subject), _brand_text(body), _brand_text(html_body)):
             ergebnis['gesendet'] += 1
         else:
             ergebnis['fehlgeschlagen'] += 1
@@ -854,7 +862,7 @@ def send_dsgvo_stammdaten_antrag_admin(
            <strong>Mitarbeiterverwaltung → Stammdaten-Anträge</strong>.</p>
     """
     html_body = _erstelle_html_template("Neuer Stammdaten-Antrag", inhalt, farbe="#2c5282")
-    return send_email(empfaenger, subject, body, html_body)
+    return send_email(empfaenger, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================
@@ -901,4 +909,4 @@ def send_dsgvo_loeschfrist_warnung(
            <strong>Mitarbeiterverwaltung → DSGVO-Verwaltung</strong>.</p>
     """
     html_body = _erstelle_html_template("DSGVO-Löschfristen fällig", inhalt, farbe="#dc2626")
-    return send_email(empfaenger, subject, body, html_body)
+    return send_email(empfaenger, _brand_text(subject), _brand_text(body), _brand_text(html_body))

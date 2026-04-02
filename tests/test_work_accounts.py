@@ -4,8 +4,10 @@ from datetime import date
 
 from utils.work_accounts import (
     close_work_account_month,
+    compute_work_account_snapshot,
     sync_work_account_for_month,
     sync_work_account_range,
+    validate_work_account_cycle,
 )
 
 
@@ -87,6 +89,7 @@ class FakeTable:
         self.last_insert_payload = None
         self.last_upsert_payload = None
         self.last_on_conflict = None
+        self.raise_on_upsert = None
 
     def select(self, columns):
         return FakeQuery(self).select(columns)
@@ -127,6 +130,7 @@ class FakeSupabase:
                 [
                     {"mitarbeiter_id": 1, "datum": "2026-03-02", "arbeitsstunden": 50.0, "stunden": None},
                     {"mitarbeiter_id": 1, "datum": "2026-03-11", "arbeitsstunden": 70.0, "stunden": None},
+                    {"mitarbeiter_id": 1, "datum": "2026-03-31", "arbeitsstunden": 0.0, "stunden": None},
                 ]
             ),
             "abwesenheiten": FakeTable(
@@ -211,3 +215,48 @@ def test_sync_range_runs_inclusive_months():
         end_jahr=2026,
     )
     assert len(snapshots) == 3
+
+
+def test_load_month_ist_hours_ignores_historical_balance_rows():
+    sb = FakeSupabase()
+    sb.table("zeiterfassung").rows.append(
+        {
+            "mitarbeiter_id": 1,
+            "datum": "2026-03-31",
+            "arbeitsstunden": 100.0,
+            "stunden": None,
+            "quelle": "historischer_saldo",
+        }
+    )
+    snap = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=3,
+        jahr=2026,
+    )
+    # 50 + 70 (+ 0) aus den vorhandenen Testzeilen, der historische_saldo darf nicht mitzählen.
+    assert snap.ist_stunden == 120.0
+
+
+def test_validate_work_account_cycle_flags_purpose_mismatch():
+    sb = FakeSupabase()
+    # Zweckwidriger Eintrag: abwesenheit_system mit positivem Arbeitsstundenwert.
+    sb.table("zeiterfassung").rows.append(
+        {
+            "mitarbeiter_id": 1,
+            "datum": "2026-03-12",
+            "arbeitsstunden": 5.0,
+            "stunden": None,
+            "quelle": "abwesenheit_system",
+        }
+    )
+    checks = validate_work_account_cycle(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=3,
+        jahr=2026,
+    )
+    assert checks["ok"] is False
+    assert checks["invalid_purpose_rows"] >= 1

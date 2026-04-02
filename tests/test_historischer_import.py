@@ -98,14 +98,24 @@ class FakeTable:
     def __init__(self, rows=None):
         self.rows = list(rows or [])
         self.last_insert_payload = None
+        self.raise_on_insert_msg = None
+        self.raise_on_update_msg = None
 
     def select(self, columns):
         return FakeQuery(self).select(columns)
 
     def insert(self, payload):
+        if self.raise_on_insert_msg:
+            msg = self.raise_on_insert_msg
+            self.raise_on_insert_msg = None
+            raise Exception(msg)
         return FakeQuery(self).insert(payload)
 
     def update(self, payload):
+        if self.raise_on_update_msg:
+            msg = self.raise_on_update_msg
+            self.raise_on_update_msg = None
+            raise Exception(msg)
         return FakeQuery(self).update(payload)
 
     def delete(self):
@@ -274,6 +284,86 @@ def test_dry_run_counts_existing_rows():
     assert res["would_import"] == 1
     assert res["would_skip"] == 1
     assert res["would_delete_zeiterfassung"] >= 1
+
+
+def test_import_arbeitszeitkonto_falls_back_without_feiertagsstunden_column():
+    supabase = FakeSupabase()
+    # Simuliert Legacy-DB ohne feiertagsstunden-Spalte in arbeitszeitkonto.
+    supabase.table("arbeitszeitkonto").raise_on_insert_msg = (
+        "Could not find the 'feiertagsstunden' column of 'arbeitszeitkonto' in the schema cache"
+    )
+    daten = {
+        "zeitraum": {"von": date(2026, 1, 1), "bis": date(2026, 1, 31), "monat": 1, "jahr": 2026},
+        "startsaldo": 0.0,
+        "tage": [
+            {
+                "datum": date(2026, 1, 10),
+                "wochentag": "Sa",
+                "soll": 8.0,
+                "plan": 8.0,
+                "ist": 8.0,
+                "abwesend": 0.0,
+                "saldo": 0.0,
+                "korrektur": 0.0,
+                "korrektur_notiz": "",
+                "laufender_saldo": 0.0,
+                "std_konto": 0.0,
+                "lohn": 120.0,
+                "ist_ruhetag": False,
+                "ist_korrekturzeile": False,
+                "ist_krank": False,
+            }
+        ],
+    }
+    result = importiere_in_crewbase(
+        daten,
+        mitarbeiter_id=1,
+        betrieb_id=1,
+        supabase_client=supabase,
+        ueberschreiben=False,
+    )
+    assert result["ok"] is True
+    assert not any("Fehler beim Arbeitszeitkonto" in e for e in result.get("fehler", []))
+
+
+def test_import_arbeitszeitkonto_falls_back_without_sonntagsstunden_column():
+    supabase = FakeSupabase()
+    # Simuliert Legacy-DB ohne sonntagsstunden-Spalte in arbeitszeitkonto.
+    supabase.table("arbeitszeitkonto").raise_on_insert_msg = (
+        "Could not find the 'sonntagsstunden' column of 'arbeitszeitkonto' in the schema cache"
+    )
+    daten = {
+        "zeitraum": {"von": date(2026, 1, 1), "bis": date(2026, 1, 31), "monat": 1, "jahr": 2026},
+        "startsaldo": 0.0,
+        "tage": [
+            {
+                "datum": date(2026, 1, 11),
+                "wochentag": "So",
+                "soll": 8.0,
+                "plan": 8.0,
+                "ist": 8.0,
+                "abwesend": 0.0,
+                "saldo": 0.0,
+                "korrektur": 0.0,
+                "korrektur_notiz": "",
+                "laufender_saldo": 0.0,
+                "std_konto": 0.0,
+                "lohn": 120.0,
+                "ist_ruhetag": False,
+                "ist_korrekturzeile": False,
+                "ist_krank": False,
+            }
+        ],
+    }
+    result = importiere_in_crewbase(
+        daten,
+        mitarbeiter_id=1,
+        betrieb_id=1,
+        supabase_client=supabase,
+        ueberschreiben=False,
+    )
+    assert result["ok"] is True
+    assert not any("Fehler beim Arbeitszeitkonto" in e for e in result.get("fehler", []))
 
 
 def test_csv_reader_parses_minimal_planovo_format():

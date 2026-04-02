@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from utils.compliance import (
@@ -9,7 +9,7 @@ from utils.compliance import (
     check_daily_work_limit,
     check_rest_period,
 )
-from utils.time_utils import now_utc
+from utils.time_utils import get_berlin_tz, now_utc, to_berlin, to_utc
 
 EVENT_CLOCK_IN = "clock_in"
 EVENT_CLOCK_OUT = "clock_out"
@@ -75,11 +75,14 @@ def _normalize_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         ts = row.get("zeitpunkt_utc")
         if isinstance(ts, str):
             try:
-                row["_ts"] = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                parsed_dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                if parsed_dt.tzinfo is None:
+                    parsed_dt = parsed_dt.replace(tzinfo=timezone.utc)
+                row["_ts"] = parsed_dt
             except Exception:
                 continue
         elif isinstance(ts, datetime):
-            row["_ts"] = ts
+            row["_ts"] = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
         else:
             continue
         parsed.append(row)
@@ -88,7 +91,7 @@ def _normalize_event_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _same_day(dt: datetime, day: date) -> bool:
-    return dt.date() == day
+    return to_berlin(dt).date() == day
 
 
 def _build_legacy_payload(
@@ -105,11 +108,14 @@ def _build_legacy_payload(
         net_minutes = max(0, total_minutes - break_minutes)
         work_hours = round(net_minutes / 60.0, 2)
 
+    start_local = to_berlin(start_dt)
+    end_local = to_berlin(end_dt) if end_dt else None
+
     return {
         "mitarbeiter_id": mitarbeiter_id,
         "datum": day.isoformat(),
-        "start_zeit": start_dt.time().strftime("%H:%M:%S"),
-        "ende_zeit": end_dt.time().strftime("%H:%M:%S") if end_dt else None,
+        "start_zeit": start_local.time().strftime("%H:%M:%S"),
+        "ende_zeit": end_local.time().strftime("%H:%M:%S") if end_local else None,
         "pause_minuten": break_minutes,
         "arbeitsstunden": work_hours,
         "monat": day.month,
@@ -193,8 +199,11 @@ def get_event_state_for_day(
     """
     Liefert den aktuellen Schicht-/Pausenstatus für einen Tag.
     """
-    start = datetime.combine(day, time(0, 0)).isoformat()
-    end = datetime.combine(day + timedelta(days=1), time(0, 0)).isoformat()
+    tz_berlin = get_berlin_tz()
+    start_local = datetime.combine(day, time(0, 0), tzinfo=tz_berlin)
+    end_local = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=tz_berlin)
+    start = to_utc(start_local).isoformat()
+    end = to_utc(end_local).isoformat()
     ev_res = (
         supabase.table("zeit_eintraege")
         .select("aktion, zeitpunkt_utc")
@@ -266,9 +275,7 @@ def register_time_event(
     """
     Schreibt ein Zeit-Event und synchronisiert rückwärtskompatibel zeiterfassung.
     """
-    event_time = event_time_utc or now_utc()
-    if event_time.tzinfo is None:
-        event_time = event_time.replace(tzinfo=now_utc().tzinfo)
+    event_time = to_utc(event_time_utc or now_utc())
 
     # Wenn vorhanden, service_role bevorzugen, um RLS-bedingte Runtime-Fehler
     # im serverseitigen Streamlit-Prozess zu vermeiden.
@@ -335,7 +342,7 @@ def register_time_event(
     # Eventliste inkl. neuem Event.
     events.append({"aktion": action, "_ts": event_time, "zeitpunkt_utc": event_time})
     events.sort(key=lambda x: x["_ts"])
-    day = event_time.date()
+    day = to_berlin(event_time).date()
     daily = _collect_daily_events(events, day)
 
     # Legacy-Write nur bei clock_in/clock_out
@@ -362,7 +369,7 @@ def register_time_event(
                 on_conflict="mitarbeiter_id,datum,start_zeit",
             ).execute()
 
-    prev_end = _last_shift_end([ev for ev in events if ev["_ts"].date() < day])
+    prev_end = _last_shift_end([ev for ev in events if to_berlin(ev["_ts"]).date() < day])
     findings = evaluate_daily_compliance(events, day, previous_shift_end=prev_end)
     if findings:
         # Optional auf Legacy-Tabelle spiegeln, wenn Spalte vorhanden.

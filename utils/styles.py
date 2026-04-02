@@ -7,30 +7,30 @@ import streamlit as st
 
 # Edles Farbschema - Dunkelblau/Gold/Weiß
 COLORS = {
-    # Primärfarben
-    'primary': '#1e3a5f',      # Dunkles elegantes Blau
-    'primary_light': '#2c5282', # Helleres Blau
-    'primary_dark': '#0f1f3a',  # Sehr dunkles Blau
-    
+    # Primärfarben (Dark-Lux)
+    'primary': '#2563eb',
+    'primary_light': '#3b82f6',
+    'primary_dark': '#0b1220',
+
     # Akzentfarben
-    'accent': '#d4af37',        # Elegantes Gold
-    'accent_light': '#f4d03f',  # Helles Gold
-    
+    'accent': '#38bdf8',
+    'accent_light': '#7dd3fc',
+
     # Statusfarben
-    'success': '#2d6a4f',       # Dunkles Grün
-    'warning': '#b7791f',       # Dunkles Orange/Gold
-    'error': '#9b2c2c',         # Dunkles Rot
-    'info': '#2c5282',          # Blau
-    
+    'success': '#22c55e',
+    'warning': '#f59e0b',
+    'error': '#ef4444',
+    'info': '#38bdf8',
+
     # Neutrale Farben
-    'background': '#ffffff',    # Weiß
-    'surface': '#f8f9fa',       # Sehr helles Grau
-    'border': '#dee2e6',        # Helles Grau
-    
+    'background': '#000000',
+    'surface': '#111111',
+    'border': '#2a2a2a',
+
     # Textfarben
-    'text_primary': '#212529',  # Fast Schwarz
-    'text_secondary': '#6c757d', # Mittelgrau
-    'text_light': '#ffffff',    # Weiß
+    'text_primary': '#ffffff',
+    'text_secondary': '#d1d5db',
+    'text_light': '#ffffff',
 }
 
 
@@ -655,6 +655,88 @@ def apply_custom_css():
     ::-webkit-scrollbar-thumb:hover {{
         background: {COLORS['primary_light']};
     }}
+
+    /* ===== FINAL DARK OVERRIDE (highest priority) ===== */
+    html, body, [data-testid="stAppViewContainer"], .stApp {{
+        background: #000000 !important;
+        color: #ffffff !important;
+    }}
+
+    .block-container {{
+        background: transparent !important;
+    }}
+
+    [data-testid="stHeader"], [data-testid="stToolbar"] {{
+        background: #000000 !important;
+    }}
+
+    h1, h2, h3, h4, h5, h6,
+    p, span, div, label, small, li,
+    [data-testid="stMarkdownContainer"], [data-testid="stText"] {{
+        color: #ffffff !important;
+    }}
+
+    [data-testid="stSidebar"] {{
+        background: #050505 !important;
+        border-right: 1px solid #1f2937 !important;
+    }}
+
+    /* Inputs */
+    .stTextInput input,
+    .stNumberInput input,
+    .stDateInput input,
+    .stTimeInput input,
+    .stTextArea textarea,
+    [data-baseweb="input"] input,
+    [data-baseweb="textarea"] textarea,
+    [data-baseweb="select"] > div {{
+        background: #111111 !important;
+        color: #ffffff !important;
+        border: 1px solid #2a2a2a !important;
+    }}
+
+    /* Buttons */
+    .stButton > button,
+    .stDownloadButton > button,
+    button[data-baseweb="button"] {{
+        background: #111111 !important;
+        color: #ffffff !important;
+        border: 1px solid #334155 !important;
+        border-radius: 10px !important;
+    }}
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {{
+        border-color: #60a5fa !important;
+        box-shadow: 0 0 0 1px #60a5fa inset !important;
+    }}
+
+    /* Cards / Metrics / Expander / Tables */
+    .stMetric,
+    [data-testid="stMetric"],
+    [data-testid="stExpander"],
+    .streamlit-expanderHeader,
+    .streamlit-expanderContent,
+    [data-testid="stDataFrame"] {{
+        background: #0b0b0b !important;
+        color: #ffffff !important;
+        border: 1px solid #1f2937 !important;
+    }}
+
+    .stTabs [data-baseweb="tab-list"] {{
+        background: #0b0b0b !important;
+        border: 1px solid #1f2937 !important;
+    }}
+
+    .stTabs [data-baseweb="tab"] {{
+        color: #cbd5e1 !important;
+    }}
+
+    .stTabs [aria-selected="true"] {{
+        background: #111827 !important;
+        color: #ffffff !important;
+        border: 1px solid #334155 !important;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -695,45 +777,45 @@ def create_card(title: str, content: str, color: str = None):
 # Einheitliches Icon-System - Elegant und professionell
 ICONS = {
     # Navigation
-    'dashboard': '⭐',        # Stern - Übersicht
-    'mitarbeiter': '👥',     # Personen - Mitarbeiter
-    'urlaub': '🌴',          # Palme - Urlaub
-    'zeit': '⏱️',            # Stoppuhr - Zeiterfassung
-    'dienstplan': '📅',     # Kalender - Dienstplan
-    'lohn': '💰',           # Geldsack - Lohnabrechnung
-    'einstellungen': '⚙️',  # Zahnrad - Einstellungen
-    'chat': '💬',           # Sprechblase - Plauderecke
-    'mastergeraete': '📱', # Handy - Mastergeräte
-    
+    'dashboard': '🧭',
+    'mitarbeiter': '🧑‍💼',
+    'urlaub': '🏝️',
+    'zeit': '🕒',
+    'dienstplan': '🗓️',
+    'lohn': '💶',
+    'einstellungen': '🛠️',
+    'chat': '🗨️',
+    'mastergeraete': '📱',
+
     # Aktionen
-    'neu': '➕',              # Plus - Neu erstellen
-    'bearbeiten': '✏️',      # Stift - Bearbeiten
-    'loeschen': '🗑️',      # Mülleimer - Löschen
-    'speichern': '💾',      # Diskette - Speichern
-    'abbrechen': '❌',        # X - Abbrechen
-    'suchen': '🔍',         # Lupe - Suchen
-    'filter': '📊',         # Balkendiagramm - Filter
-    'download': '📥',       # Download - Herunterladen
-    'upload': '📤',         # Upload - Hochladen
-    
+    'neu': '✚',
+    'bearbeiten': '✎',
+    'loeschen': '🗑',
+    'speichern': '⬢',
+    'abbrechen': '✕',
+    'suchen': '⌕',
+    'filter': '⛃',
+    'download': '⬇',
+    'upload': '⬆',
+
     # Status
-    'erfolg': '✅',           # Häkchen - Erfolg
-    'warnung': '⚠️',        # Warnung - Warnung
-    'fehler': '❌',           # X - Fehler
-    'info': 'ℹ️',            # i - Information
-    'ausstehend': '⏳',       # Sanduhr - Ausstehend
-    'genehmigt': '✅',        # Häkchen - Genehmigt
-    'abgelehnt': '❌',        # X - Abgelehnt
-    
+    'erfolg': '✔',
+    'warnung': '⚠',
+    'fehler': '✖',
+    'info': 'ⓘ',
+    'ausstehend': '◴',
+    'genehmigt': '✔',
+    'abgelehnt': '✖',
+
     # Sonstiges
-    'benachrichtigung': '🔔', # Glocke - Benachrichtigung
-    'statistik': '📊',      # Balkendiagramm - Statistik
-    'dokument': '📄',       # Dokument - Dokument
-    'email': '✉️',           # Brief - E-Mail
-    'telefon': '📞',        # Telefon - Telefon
-    'adresse': '🏠',        # Haus - Adresse
-    'geburtstag': '🎂',     # Kuchen - Geburtstag
-    'vertrag': '📜',        # Scroll - Vertrag
+    'benachrichtigung': '🔔',
+    'statistik': '📈',
+    'dokument': '🧾',
+    'email': '✉',
+    'telefon': '☎',
+    'adresse': '⌂',
+    'geburtstag': '🎂',
+    'vertrag': '📜',
 }
 
 

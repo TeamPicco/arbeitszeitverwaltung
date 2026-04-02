@@ -82,6 +82,13 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         
         for z in zeiterfassungen.data:
             if z['ende_zeit']:
+                # Import-/Abwesenheitszeilen mit 00:00 -> 00:00 wurden historisch als
+                # Marker genutzt und dürfen nicht als 24h-Schicht gewertet werden.
+                if (
+                    str(z.get('start_zeit') or '')[:8] == '00:00:00'
+                    and str(z.get('ende_zeit') or '')[:8] == '00:00:00'
+                ):
+                    continue
                 # Konvertiere zu time-Objekten für berechne_arbeitsstunden
                 start_time, _ = parse_zeit(z['start_zeit'])
                 ende_time, naechster_tag = parse_zeit(z['ende_zeit'])

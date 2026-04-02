@@ -13,8 +13,105 @@ class WorkAccountSnapshot:
     urlaubstage_gesamt: float
     urlaubstage_genommen: float
     krankheitstage_gesamt: float
+    ueberstunden_vortrag: float = 0.0
     differenz_stunden: float = 0.0
     monat_abgeschlossen: bool = False
+
+
+def set_work_account_opening_balance(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+    opening_hours: float,
+    created_by: Optional[int] = None,
+) -> WorkAccountSnapshot:
+    """
+    Setzt einen festen Anfangsbestand für einen Monat (z. B. Neubeginn per 01.04).
+
+    Umsetzung über einen unveränderlichen Monatsabschluss mit 0 Soll/0 Ist und
+    Saldo-Ende = Anfangsbestand. Nachfolgende Monate bauen darauf auf.
+    """
+    opening = round(float(opening_hours or 0.0), 2)
+
+    try:
+        existing = (
+            supabase.table("azk_monatsabschluesse")
+            .select("id")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("monat", monat)
+            .eq("jahr", jahr)
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            # Bereits gesetzt -> nur synchronisierten Snapshot zurückgeben.
+            return sync_work_account_for_month(
+                supabase,
+                betrieb_id=betrieb_id,
+                mitarbeiter_id=mitarbeiter_id,
+                monat=monat,
+                jahr=jahr,
+            )
+    except Exception:
+        # Wenn Tabelle/Schema nicht vorhanden ist, fällt der spätere Insert ggf. auch aus.
+        pass
+
+    try:
+        supabase.table("azk_monatsabschluesse").insert(
+            {
+                "betrieb_id": betrieb_id,
+                "mitarbeiter_id": mitarbeiter_id,
+                "monat": int(monat),
+                "jahr": int(jahr),
+                "soll_stunden": 0.0,
+                "ist_stunden": 0.0,
+                "differenz_stunden": 0.0,
+                "ueberstunden_saldo_start": opening,
+                "ueberstunden_saldo_ende": opening,
+                "urlaubstage_gesamt": 0.0,
+                "urlaubstage_genommen": 0.0,
+                "krankheitstage_gesamt": 0.0,
+                "created_by": created_by,
+            }
+        ).execute()
+    except Exception:
+        # Fallback ohne Snapshot-Tabelle: live Konto direkt setzen.
+        _upsert_live_account(
+            supabase,
+            betrieb_id=betrieb_id,
+            mitarbeiter_id=mitarbeiter_id,
+            snapshot=WorkAccountSnapshot(
+                soll_stunden=0.0,
+                ist_stunden=0.0,
+                ueberstunden_saldo=opening,
+                urlaubstage_gesamt=0.0,
+                urlaubstage_genommen=0.0,
+                krankheitstage_gesamt=0.0,
+                differenz_stunden=0.0,
+                monat_abgeschlossen=False,
+            ),
+        )
+        return WorkAccountSnapshot(
+            soll_stunden=0.0,
+            ist_stunden=0.0,
+            ueberstunden_saldo=opening,
+            urlaubstage_gesamt=0.0,
+            urlaubstage_genommen=0.0,
+            krankheitstage_gesamt=0.0,
+            differenz_stunden=0.0,
+            monat_abgeschlossen=False,
+        )
+
+    return sync_work_account_for_month(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        monat=monat,
+        jahr=jahr,
+    )
 
 
 def _daterange(start: date, end: date):
@@ -34,6 +131,11 @@ def _to_float(value) -> float:
         return float(value or 0.0)
     except Exception:
         return 0.0
+
+
+def _is_on_conflict_constraint_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return "42p10" in msg or "no unique or exclusion constraint matching the on conflict" in msg
 
 
 def _month_bounds(monat: int, jahr: int) -> tuple[date, date]:
@@ -157,13 +259,19 @@ def _resolve_month_soll_and_vacation(
 def _load_month_ist_hours(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> float:
     zeit_res = (
         supabase.table("zeiterfassung")
-        .select("arbeitsstunden, stunden")
+        .select("arbeitsstunden, stunden, quelle")
         .eq("mitarbeiter_id", mitarbeiter_id)
         .gte("datum", month_start.isoformat())
         .lte("datum", month_end.isoformat())
         .execute()
     )
-    return round(sum(_to_float(row.get("arbeitsstunden") or row.get("stunden")) for row in (zeit_res.data or [])), 2)
+    total = 0.0
+    for row in (zeit_res.data or []):
+        if str(row.get("quelle") or "").lower() == "historischer_saldo":
+            # Reiner Startsaldo-Übertrag, darf nie als Arbeitszeit zählen.
+            continue
+        total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
+    return round(total, 2)
 
 
 def _load_month_absence_counters(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> tuple[float, float]:
@@ -193,12 +301,191 @@ def _load_month_absence_counters(supabase, mitarbeiter_id: int, month_start: dat
         if overlap_end < overlap_start:
             continue
         tage = calculate_absence_days(overlap_start, overlap_end)
-        if row.get("typ") == "urlaub":
+        typ = str(row.get("typ") or "").lower()
+        if typ == "urlaub":
             urlaub_genommen += tage
-        elif row.get("typ") == "krankheit":
+        elif typ in ("krankheit", "krank"):
             krank_tage += tage
 
     return round(urlaub_genommen, 2), round(krank_tage, 2)
+
+
+def compute_work_account_snapshot(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+) -> WorkAccountSnapshot:
+    """
+    Liefert den deterministischen Monats-Snapshot aus den Quelltabellen.
+    """
+    return _build_month_snapshot(
+        supabase,
+        monat=monat,
+        jahr=jahr,
+        mitarbeiter_id=mitarbeiter_id,
+    )
+
+
+def build_work_account_payload(
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    snapshot: WorkAccountSnapshot,
+) -> Dict[str, float | int]:
+    """
+    Baut das einheitliche Persistenz-Payload für arbeitszeit_konten.
+    """
+    return {
+        "betrieb_id": int(betrieb_id),
+        "mitarbeiter_id": int(mitarbeiter_id),
+        "soll_stunden": round(snapshot.soll_stunden, 2),
+        "ist_stunden": round(snapshot.ist_stunden, 2),
+        "ueberstunden_saldo": round(snapshot.ueberstunden_saldo, 2),
+        "urlaubstage_gesamt": round(snapshot.urlaubstage_gesamt, 2),
+        "urlaubstage_genommen": round(snapshot.urlaubstage_genommen, 2),
+        "krankheitstage_gesamt": round(snapshot.krankheitstage_gesamt, 2),
+    }
+
+
+def validate_work_account_cycle(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+    tolerance_hours: float = 0.05,
+) -> dict:
+    """
+    Prüft den geschlossenen Kreislauf:
+    Quelle (Zeiterfassung/Abwesenheit/Vertrag) -> Snapshot -> Persistierter Kontostand.
+    """
+    expected = compute_work_account_snapshot(
+        supabase,
+        mitarbeiter_id=mitarbeiter_id,
+        monat=monat,
+        jahr=jahr,
+    )
+    expected_payload = build_work_account_payload(
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        snapshot=expected,
+    )
+
+    persisted = None
+    try:
+        persisted_res = (
+            supabase.table("arbeitszeit_konten")
+            .select("*")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .limit(1)
+            .execute()
+        )
+        if persisted_res.data:
+            persisted = persisted_res.data[0]
+    except Exception:
+        persisted = None
+
+    issues: list[str] = []
+    if not persisted:
+        issues.append("Kein persistierter Eintrag in arbeitszeit_konten vorhanden.")
+    else:
+        checks = [
+            ("soll_stunden", "Soll-Stunden"),
+            ("ist_stunden", "Ist-Stunden"),
+            ("ueberstunden_saldo", "Überstunden-Saldo"),
+            ("urlaubstage_gesamt", "Urlaub gesamt"),
+            ("urlaubstage_genommen", "Urlaub genommen"),
+            ("krankheitstage_gesamt", "Krankheitstage"),
+        ]
+        for key, label in checks:
+            expected_v = float(expected_payload.get(key) or 0.0)
+            persisted_v = float(persisted.get(key) or 0.0)
+            if abs(expected_v - persisted_v) > float(tolerance_hours):
+                issues.append(
+                    f"{label} abweichend: erwartet {expected_v:.2f}, gespeichert {persisted_v:.2f}"
+                )
+
+    # Quellklassifikation: Jede Zeile muss eine klar bekannte Quelle tragen.
+    allowed_sources = {
+        "stempeluhr",
+        "abwesenheit_system",
+        "historischer_import",
+        "historischer_saldo",
+        "manuell_admin",
+        "au_bescheinigung",
+    }
+    source_rows = []
+    try:
+        month_start, month_end = _month_bounds(monat, jahr)
+        source_rows = (
+            supabase.table("zeiterfassung")
+            .select("id,quelle")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("datum", month_start.isoformat())
+            .lte("datum", month_end.isoformat())
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        source_rows = []
+
+    unknown_sources = []
+    invalid_purpose_rows = []
+    for row in source_rows:
+        source = str(row.get("quelle") or "").strip().lower()
+        if not source or source not in allowed_sources:
+            unknown_sources.append({"id": row.get("id"), "quelle": row.get("quelle")})
+            continue
+        if source == "abwesenheit_system":
+            # Abwesenheitsspiegel muss neutrale 00:00-00:00 Markerzeilen sein.
+            start_zeit = str(row.get("start_zeit") or "")
+            ende_zeit = str(row.get("ende_zeit") or "")
+            if not (start_zeit.startswith("00:00") and ende_zeit.startswith("00:00")):
+                invalid_purpose_rows.append(
+                    {
+                        "id": row.get("id"),
+                        "quelle": row.get("quelle"),
+                        "grund": "abwesenheit_system ohne 00:00-00:00 Marker",
+                    }
+                )
+    if unknown_sources:
+        issues.append(f"Unklare Quellen in Zeiterfassung: {len(unknown_sources)}")
+    if invalid_purpose_rows:
+        issues.append(f"Zweckverletzung in Zeiterfassung: {len(invalid_purpose_rows)}")
+
+    return {
+        "ok": len(issues) == 0,
+        "issues": issues,
+        "expected": expected_payload,
+        "persisted": persisted,
+        "unknown_sources": unknown_sources[:20],
+        "invalid_purpose_rows": len(invalid_purpose_rows),
+        "invalid_purpose_details": invalid_purpose_rows[:20],
+    }
+
+
+# Backward-compatible alias used by dashboard imports.
+def validate_work_account_month(
+    supabase,
+    *,
+    betrieb_id: int,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+    tolerance_hours: float = 0.05,
+) -> dict:
+    return validate_work_account_cycle(
+        supabase,
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        monat=monat,
+        jahr=jahr,
+        tolerance_hours=tolerance_hours,
+    )
 
 
 def _load_closed_snapshot(supabase, mitarbeiter_id: int, monat: int, jahr: int) -> Optional[dict]:
@@ -243,17 +530,30 @@ def _upsert_live_account(
     mitarbeiter_id: int,
     snapshot: WorkAccountSnapshot,
 ) -> None:
-    payload: Dict[str, float | int | str] = {
-        "betrieb_id": betrieb_id,
-        "mitarbeiter_id": mitarbeiter_id,
-        "soll_stunden": round(snapshot.soll_stunden, 2),
-        "ist_stunden": round(snapshot.ist_stunden, 2),
-        "ueberstunden_saldo": round(snapshot.ueberstunden_saldo, 2),
-        "urlaubstage_gesamt": round(snapshot.urlaubstage_gesamt, 2),
-        "urlaubstage_genommen": round(snapshot.urlaubstage_genommen, 2),
-        "krankheitstage_gesamt": round(snapshot.krankheitstage_gesamt, 2),
-    }
-    supabase.table("arbeitszeit_konten").upsert(payload, on_conflict="mitarbeiter_id").execute()
+    payload = build_work_account_payload(
+        betrieb_id=betrieb_id,
+        mitarbeiter_id=mitarbeiter_id,
+        snapshot=snapshot,
+    )
+    try:
+        supabase.table("arbeitszeit_konten").upsert(payload, on_conflict="mitarbeiter_id").execute()
+        return
+    except Exception as exc:
+        if not _is_on_conflict_constraint_error(exc):
+            raise
+
+    # Legacy-Fallback: Instanzen ohne passenden UNIQUE-Index für ON CONFLICT.
+    existing = (
+        supabase.table("arbeitszeit_konten")
+        .select("id")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        supabase.table("arbeitszeit_konten").update(payload).eq("mitarbeiter_id", mitarbeiter_id).execute()
+    else:
+        supabase.table("arbeitszeit_konten").insert(payload).execute()
 
 
 def _build_month_snapshot(

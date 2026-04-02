@@ -13,9 +13,9 @@ hideTopBar = false
 hideSidebarNav = true
 
 [theme]
-base = "light"
-primaryColor = "#1a3a5c"
-backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#f0f4f8"
-textColor = "#1a1a2e"
+base = "dark"
+primaryColor = "#2563eb"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#111111"
+textColor = "#ffffff"
 font = "sans serif"

@@ -9,8 +9,12 @@ Keine sensiblen Daten (Lohn, Stunden-Summen) sichtbar.
 import streamlit as st
 from supabase import create_client
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import time
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from utils.time_utils import now_berlin
+
+LOGO_PATH = BRAND_LOGO_IMAGE
 
 # ─── Supabase-Verbindung ────────────────────────────────────────────────────
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
@@ -291,13 +295,7 @@ div[data-testid="stButton"] > button:hover {
 
 def get_jetzt_berlin():
     """Aktuelle Zeit in Europe/Berlin."""
-    from datetime import timezone, timedelta
-    try:
-        import zoneinfo
-        tz = zoneinfo.ZoneInfo("Europe/Berlin")
-        return datetime.now(tz)
-    except Exception:
-        return datetime.now(timezone(timedelta(hours=1)))
+    return now_berlin()
 
 
 def format_uhrzeit(dt):
@@ -576,6 +574,8 @@ KEYBOARD_JS = """
 
 def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     """Haupt-Einstiegspunkt für den Kiosk-Modus."""
+    if LOGO_PATH and os.path.exists(LOGO_PATH):
+        st.image(LOGO_PATH, width=240)
     st.markdown(KIOSK_CSS, unsafe_allow_html=True)
 
     # Session-State initialisieren
@@ -618,7 +618,7 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
     st.markdown(f"""
     <div class="kiosk-header-wrap">
         <div>
-            <div class="kiosk-brand">Stempeluhr</div>
+            <div class="kiosk-brand">{BRAND_APP_NAME} Stempeluhr</div>
             <div class="kiosk-geraet">{geraet_name}</div>
         </div>
         <div>{status_html}</div>
