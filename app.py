@@ -2,7 +2,7 @@ import streamlit as st
 import time
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
-from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE, BRAND_TAGLINE
 from utils.zeit_events import (
     EVENT_BREAK_END,
     EVENT_BREAK_START,
@@ -11,14 +11,18 @@ from utils.zeit_events import (
     get_event_state_for_day,
     register_time_event,
 )
-from pages import admin_dashboard
 
 st.set_page_config(
     page_title=BRAND_APP_NAME,
     page_icon=BRAND_LOGO_IMAGE,
     layout="wide",
 )
-supabase = init_supabase_client()
+@st.cache_resource(show_spinner=False)
+def _get_supabase_client():
+    return init_supabase_client()
+
+
+supabase = _get_supabase_client()
 
 # --- RESET LOGIK ---
 if st.session_state.get("trigger_reset"):
@@ -146,6 +150,7 @@ if not st.session_state.get('logged_in'):
 else:
     if BRAND_LOGO_IMAGE:
         st.sidebar.image(BRAND_LOGO_IMAGE, use_container_width=True)
+    from pages import admin_dashboard
     admin_dashboard.show_admin_dashboard()
     if st.sidebar.button("Abmelden"):
         st.session_state.clear(); st.rerun()

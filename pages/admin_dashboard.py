@@ -71,8 +71,20 @@ def _to_float(value, default: float = 0.0) -> float:
 
 def _safe_date_input_value(value) -> date:
     """Garantiert ein valides Datum für st.date_input."""
-    coerced = coerce_to_date(value)
-    return coerced if coerced else date.today()
+    try:
+        from datetime import datetime as _dt, date as _date
+        if isinstance(value, _dt):
+            return value.date()
+        if isinstance(value, _date):
+            return value
+        coerced = coerce_to_date(value)
+        if isinstance(coerced, _dt):
+            return coerced.date()
+        if isinstance(coerced, _date):
+            return coerced
+    except Exception:
+        pass
+    return date.today()
 
 
 def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
@@ -929,6 +941,12 @@ def _show_vertrag_generator_tab():
     )
     payload = build_default_contract_payload(ma, template_key=template_key)
     st.markdown("---")
+
+    # Alte Browser-Widgetzustände nach Deploys bereinigen (kann sonst date_input crashen).
+    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]))
+    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload["vertragsdatum"]))
+    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload["eintrittsdatum"]))
+    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload["gueltig_ab"]))
 
     # Stabilisiert Date-Widgets nach Hot-Deploys/alten Session-State-Werten.
     _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload.get("arbeitnehmer_geburtsdatum")))
