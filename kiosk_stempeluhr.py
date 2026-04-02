@@ -9,9 +9,10 @@ Keine sensiblen Daten (Lohn, Stunden-Summen) sichtbar.
 import streamlit as st
 from supabase import create_client
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 import time
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from utils.time_utils import now_berlin
 
 LOGO_PATH = BRAND_LOGO_IMAGE
 
@@ -294,13 +295,7 @@ div[data-testid="stButton"] > button:hover {
 
 def get_jetzt_berlin():
     """Aktuelle Zeit in Europe/Berlin."""
-    from datetime import timezone, timedelta
-    try:
-        import zoneinfo
-        tz = zoneinfo.ZoneInfo("Europe/Berlin")
-        return datetime.now(tz)
-    except Exception:
-        return datetime.now(timezone(timedelta(hours=1)))
+    return now_berlin()
 
 
 def format_uhrzeit(dt):
