@@ -21,6 +21,7 @@ from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 from utils.vertrag_templates import (
     VERTRAG_TEMPLATE_OPTIONS,
     build_default_contract_payload,
+    coerce_to_date,
     generate_contract_pdf,
 )
 
@@ -66,6 +67,12 @@ def _to_float(value, default: float = 0.0) -> float:
         return float(value if value is not None else default)
     except Exception:
         return default
+
+
+def _safe_date_input_value(value) -> date:
+    """Garantiert ein valides Datum für st.date_input."""
+    coerced = coerce_to_date(value)
+    return coerced if coerced else date.today()
 
 
 def _show_zeitauswertung_tab():
@@ -920,15 +927,35 @@ def _show_vertrag_generator_tab():
 
         st.markdown("#### Arbeitnehmer – persönliche Daten")
         an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key="v_an_name")
-        an_geburtsdatum = st.date_input("Geburtsdatum", value=payload["arbeitnehmer_geburtsdatum"], format="DD.MM.YYYY", key="v_an_geb")
+        an_geburtsdatum = st.date_input(
+            "Geburtsdatum",
+            value=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]),
+            format="DD.MM.YYYY",
+            key="v_an_geb",
+        )
         an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key="v_an_anschrift")
         an_personaldaten = st.text_area("Weitere persönliche Daten", value=payload["persoenliche_daten"], key="v_person_daten")
 
     with c2:
         st.markdown("#### Vertragsdaten")
-        vertragsdatum = st.date_input("Vertragsdatum", value=payload["vertragsdatum"], format="DD.MM.YYYY", key="v_vertragsdatum")
-        eintrittsdatum = st.date_input("Eintrittsdatum", value=payload["eintrittsdatum"], format="DD.MM.YYYY", key="v_eintritt")
-        gueltig_ab = st.date_input("Gültig ab", value=payload["gueltig_ab"], format="DD.MM.YYYY", key="v_gueltig_ab")
+        vertragsdatum = st.date_input(
+            "Vertragsdatum",
+            value=_safe_date_input_value(payload["vertragsdatum"]),
+            format="DD.MM.YYYY",
+            key="v_vertragsdatum",
+        )
+        eintrittsdatum = st.date_input(
+            "Eintrittsdatum",
+            value=_safe_date_input_value(payload["eintrittsdatum"]),
+            format="DD.MM.YYYY",
+            key="v_eintritt",
+        )
+        gueltig_ab = st.date_input(
+            "Gültig ab",
+            value=_safe_date_input_value(payload["gueltig_ab"]),
+            format="DD.MM.YYYY",
+            key="v_gueltig_ab",
+        )
         monatliche_arbeitszeit = st.number_input(
             "Monatliche Arbeitszeit (Stunden)",
             min_value=0.0,

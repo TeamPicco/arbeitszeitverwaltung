@@ -5,7 +5,7 @@ Editierbare Arbeitsvertrags-/Aenderungsvertrags-Templates mit PDF-Export.
 from __future__ import annotations
 
 import io
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from reportlab.lib.pagesizes import A4
@@ -35,6 +35,42 @@ def _format_date(value: Any) -> str:
     return s
 
 
+def _to_date(value: Any, fallback: date | None = None) -> date:
+    """Normalisiert verschiedene Datumsformate auf ein date-Objekt für Streamlit."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    s = _safe(value)
+    if not s:
+        return fallback or date.today()
+
+    # ISO-Format: YYYY-MM-DD
+    if len(s) >= 10 and s[4] == "-" and s[7] == "-":
+        try:
+            return date.fromisoformat(s[:10])
+        except Exception:
+            pass
+
+    # DE-Format: DD.MM.YYYY
+    if len(s) >= 10 and s[2] == "." and s[5] == ".":
+        try:
+            d = int(s[0:2])
+            m = int(s[3:5])
+            y = int(s[6:10])
+            return date(y, m, d)
+        except Exception:
+            pass
+
+    return fallback or date.today()
+
+
+def coerce_to_date(value: Any, fallback: date | None = None) -> date:
+    """Öffentlicher Helper für Streamlit date_input-Kompatibilität."""
+    return _to_date(value, fallback=fallback)
+
+
 def build_default_contract_payload(mitarbeiter: dict, template_key: str = "arbeitsvertrag_standard") -> dict:
     today = date.today()
     vorname = _safe(mitarbeiter.get("vorname"))
@@ -53,11 +89,11 @@ def build_default_contract_payload(mitarbeiter: dict, template_key: str = "arbei
         "arbeitgeber_strasse": "",
         "arbeitgeber_plz_ort": "",
         "arbeitnehmer_name": arbeitnehmer_name,
-        "arbeitnehmer_geburtsdatum": _format_date(mitarbeiter.get("geburtsdatum")) or today,
+        "arbeitnehmer_geburtsdatum": _to_date(mitarbeiter.get("geburtsdatum"), fallback=today),
         "arbeitnehmer_anschrift": anschrift,
         "persoenliche_daten": "",
         "vertragsdatum": today,
-        "eintrittsdatum": _format_date(mitarbeiter.get("eintrittsdatum")) or today,
+        "eintrittsdatum": _to_date(mitarbeiter.get("eintrittsdatum"), fallback=today),
         "gueltig_ab": today,
         "monatliche_arbeitszeit": float(mitarbeiter.get("monatliche_soll_stunden") or 160.0),
         "probezeit_monate": 6,
