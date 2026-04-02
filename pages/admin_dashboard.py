@@ -75,6 +75,19 @@ def _safe_date_input_value(value) -> date:
     return coerced if coerced else date.today()
 
 
+def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
+    """
+    Normalisiert bereits vorhandene Session-State-Werte für date_input-Widgets.
+    Schützt gegen alte/ungültige Browser-Widgetzustände nach Deploys.
+    """
+    if key not in st.session_state:
+        return
+    try:
+        st.session_state[key] = coerce_to_date(st.session_state.get(key), fallback=fallback or date.today())
+    except Exception:
+        st.session_state.pop(key, None)
+
+
 def _show_zeitauswertung_tab():
     st.subheader("📊 Zeitauswertung & Lohn")
     alle_ma = _load_admin_mitarbeiter()
@@ -916,6 +929,12 @@ def _show_vertrag_generator_tab():
     )
     payload = build_default_contract_payload(ma, template_key=template_key)
     st.markdown("---")
+
+    # Stabilisiert Date-Widgets nach Hot-Deploys/alten Session-State-Werten.
+    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload.get("arbeitnehmer_geburtsdatum")))
+    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload.get("vertragsdatum")))
+    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload.get("eintrittsdatum")))
+    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload.get("gueltig_ab")))
 
     c1, c2 = st.columns(2)
     with c1:
