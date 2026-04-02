@@ -1,5 +1,6 @@
 import os
 from datetime import date, datetime
+import json
 
 import streamlit as st
 
@@ -35,6 +36,12 @@ ADMIN_MITARBEITER_COLUMNS = (
 
 
 def _load_admin_mitarbeiter():
+    betrieb_id = st.session_state.get("betrieb_id")
+    return _cached_admin_mitarbeiter(betrieb_id)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_admin_mitarbeiter(betrieb_id):
     supabase = get_supabase_client()
     query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
     betrieb_id = st.session_state.get("betrieb_id")
@@ -98,6 +105,56 @@ def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
         st.session_state[key] = coerce_to_date(st.session_state.get(key), fallback=fallback or date.today())
     except Exception:
         st.session_state.pop(key, None)
+
+
+def _active_admin_tab_index() -> int:
+    """
+    Leichtgewichtige Tab-Auswahl über Query-Parameter, um alle schweren Tab-Queries
+    beim Erst-Render zu vermeiden.
+    """
+    qp = st.query_params
+    raw = qp.get("tab", "dienstplanung")
+    if isinstance(raw, list):
+        raw = raw[0] if raw else "dienstplanung"
+    key = str(raw or "dienstplanung").strip().lower()
+    mapping = {
+        "dienstplanung": 0,
+        "abwesenheiten": 1,
+        "mitarbeiter": 2,
+        "import": 3,
+        "zeitauswertung": 4,
+        "vertraege": 5,
+        "arbeitszeitkonten": 6,
+        "mastergeraete": 7,
+        "system": 8,
+    }
+    return mapping.get(key, 0)
+
+
+def _render_admin_tab_switcher(active_idx: int) -> None:
+    labels = [
+        ("📅 Dienstplanung", "dienstplanung"),
+        ("🏖️ Abwesenheiten", "abwesenheiten"),
+        ("👥 Mitarbeiter", "mitarbeiter"),
+        ("📁 Planovo-Import", "import"),
+        ("📊 Zeitauswertung", "zeitauswertung"),
+        ("🧾 Verträge", "vertraege"),
+        ("⏱️ Arbeitszeitkonten", "arbeitszeitkonten"),
+        ("🖥️ Mastergeräte", "mastergeraete"),
+        ("⚙️ System", "system"),
+    ]
+    cols = st.columns(3)
+    for i, (label, tab_key) in enumerate(labels):
+        col = cols[i % 3]
+        with col:
+            if st.button(
+                label,
+                key=f"admin_tab_btn_{tab_key}",
+                use_container_width=True,
+                type="primary" if i == active_idx else "secondary",
+            ):
+                st.query_params["tab"] = tab_key
+                st.rerun()
 
 
 def _show_zeitauswertung_tab():
@@ -948,12 +1005,6 @@ def _show_vertrag_generator_tab():
     _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload["eintrittsdatum"]))
     _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload["gueltig_ab"]))
 
-    # Stabilisiert Date-Widgets nach Hot-Deploys/alten Session-State-Werten.
-    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload.get("arbeitnehmer_geburtsdatum")))
-    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload.get("vertragsdatum")))
-    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload.get("eintrittsdatum")))
-    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload.get("gueltig_ab")))
-
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### Arbeitgeber")
@@ -1044,27 +1095,44 @@ def _show_vertrag_generator_tab():
         "template_name": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
     }
 
-    pdf_bytes = generate_contract_pdf(generated_payload)
+    payload_sig = json.dumps(generated_payload, sort_keys=True, default=str)
+    current_sig = st.session_state.get("vertrag_pdf_sig")
+    current_pdf = st.session_state.get("vertrag_pdf_bytes")
+
     file_suffix = ma.get("nachname") or "Mitarbeiter"
     file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
 
-    st.download_button(
-        "📥 Vertrag als PDF herunterladen",
-        data=pdf_bytes,
-        file_name=file_name,
-        mime="application/pdf",
-        use_container_width=True,
-        key="vertrag_pdf_download",
-    )
+    if st.button("📄 Vertrags-PDF erzeugen", type="primary", use_container_width=True, key="vertrag_pdf_generate"):
+        with st.spinner("PDF wird erzeugt..."):
+            st.session_state["vertrag_pdf_bytes"] = generate_contract_pdf(generated_payload)
+            st.session_state["vertrag_pdf_sig"] = payload_sig
+        current_sig = st.session_state.get("vertrag_pdf_sig")
+        current_pdf = st.session_state.get("vertrag_pdf_bytes")
+        st.success("PDF wurde erzeugt.")
+
+    if current_sig == payload_sig and current_pdf:
+        st.download_button(
+            "📥 Vertrag als PDF herunterladen",
+            data=current_pdf,
+            file_name=file_name,
+            mime="application/pdf",
+            use_container_width=True,
+            key="vertrag_pdf_download",
+        )
+    else:
+        st.info("Bitte zuerst auf „Vertrags-PDF erzeugen“ klicken.")
 
     if st.button("💾 Als Vertrags-Dokument beim Mitarbeiter speichern", use_container_width=True, key="vertrag_store_doc"):
+        if not (current_sig == payload_sig and current_pdf):
+            st.warning("Bitte zuerst „Vertrags-PDF erzeugen“ ausführen.")
+            return
         file_path = (
             f"vertraege/{ma['id']}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name.replace(' ', '_')}"
         )
         upload_result = upload_file_to_storage_result(
             "dokumente",
             file_path,
-            pdf_bytes,
+            current_pdf,
             fallback_buckets=["arbeitsvertraege"],
         )
         if not upload_result.get("ok"):
@@ -1435,37 +1503,42 @@ def show_admin_dashboard():
     with c_title:
         st.title(f"{BRAND_APP_NAME} – Admin")
 
-    tabs = st.tabs(
-        [
-            "📅 Dienstplanung",
-            "🏖️ Abwesenheiten",
-            "👥 Mitarbeiter",
-            "📁 Planovo-Import",
-            "📊 Zeitauswertung",
-            "🧾 Verträge",
-            "⏱️ Arbeitszeitkonten",
-            "🖥️ Mastergeräte",
-            "⚙️ System",
-        ]
+    section_options = [
+        "📅 Dienstplanung",
+        "🏖️ Abwesenheiten",
+        "👥 Mitarbeiter",
+        "📁 Planovo-Import",
+        "📊 Zeitauswertung",
+        "🧾 Verträge",
+        "⏱️ Arbeitszeitkonten",
+        "🖥️ Mastergeräte",
+        "⚙️ System",
+    ]
+    active_section = st.radio(
+        "Bereich",
+        section_options,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="admin_active_section",
     )
 
-    with tabs[0]:
+    if active_section == "📅 Dienstplanung":
         admin_dienstplan.show_dienstplanung()
-    with tabs[1]:
+    elif active_section == "🏖️ Abwesenheiten":
         _show_absenzen_tab()
-    with tabs[2]:
+    elif active_section == "👥 Mitarbeiter":
         _show_mitarbeiter_stammdaten_tab()
-    with tabs[3]:
+    elif active_section == "📁 Planovo-Import":
         _show_planovo_import_tab()
-    with tabs[4]:
+    elif active_section == "📊 Zeitauswertung":
         _show_zeitauswertung_tab()
-    with tabs[5]:
+    elif active_section == "🧾 Verträge":
         _show_vertrag_generator_tab()
-    with tabs[6]:
+    elif active_section == "⏱️ Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()
-    with tabs[7]:
+    elif active_section == "🖥️ Mastergeräte":
         admin_mastergeraete.show_mastergeraete()
-    with tabs[8]:
+    else:
         _show_system_tab()
 
 
