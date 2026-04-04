@@ -4,7 +4,7 @@ import json
 
 import streamlit as st
 
-from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
+from pages import admin_dienstplan, zeitauswertung
 from utils.absences import delete_absence, store_absence, update_absence
 from utils.cache_manager import clear_app_caches
 from utils.database import (
@@ -111,56 +111,8 @@ def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
         st.session_state.pop(key, None)
 
 
-def _active_admin_tab_index() -> int:
-    """
-    Leichtgewichtige Tab-Auswahl über Query-Parameter, um alle schweren Tab-Queries
-    beim Erst-Render zu vermeiden.
-    """
-    qp = st.query_params
-    raw = qp.get("tab", "dienstplanung")
-    if isinstance(raw, list):
-        raw = raw[0] if raw else "dienstplanung"
-    key = str(raw or "dienstplanung").strip().lower()
-    mapping = {
-        "dienstplanung": 0,
-        "abwesenheiten": 1,
-        "mitarbeiter": 2,
-        "zeitauswertung": 3,
-        "vertraege": 4,
-        "arbeitszeitkonten": 5,
-        "mastergeraete": 6,
-        "system": 7,
-    }
-    return mapping.get(key, 0)
-
-
-def _render_admin_tab_switcher(active_idx: int) -> None:
-    labels = [
-        ("📅 Dienstplanung", "dienstplanung"),
-        ("🏖️ Abwesenheiten", "abwesenheiten"),
-        ("👥 Mitarbeiter", "mitarbeiter"),
-        ("📊 Zeitauswertung", "zeitauswertung"),
-        ("🧾 Verträge", "vertraege"),
-        ("⏱️ Arbeitszeitkonten", "arbeitszeitkonten"),
-        ("🖥️ Mastergeräte", "mastergeraete"),
-        ("⚙️ System", "system"),
-    ]
-    cols = st.columns(3)
-    for i, (label, tab_key) in enumerate(labels):
-        col = cols[i % 3]
-        with col:
-            if st.button(
-                label,
-                key=f"admin_tab_btn_{tab_key}",
-                use_container_width=True,
-                type="primary" if i == active_idx else "secondary",
-            ):
-                st.query_params["tab"] = tab_key
-                st.rerun()
-
-
 def _show_zeitauswertung_tab():
-    st.subheader("📊 Zeitauswertung & Lohn")
+    st.subheader("Zeitauswertung und Lohn")
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
         st.info("Keine Mitarbeiter für die Auswertung gefunden.")
@@ -173,7 +125,7 @@ def _show_zeitauswertung_tab():
 
 
 def _show_absenzen_tab():
-    st.subheader("🏖️ Abwesenheiten & Atteste")
+    st.subheader("Abwesenheiten und Atteste")
     supabase = get_supabase_client()
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
@@ -214,7 +166,7 @@ def _show_absenzen_tab():
     )
     mitarbeiter = ma_options[selected_label]
 
-    with st.expander("➕ Neue Abwesenheit erfassen", expanded=True):
+    with st.expander("Neue Abwesenheit erfassen", expanded=True):
         with st.form("abwesenheit_form"):
             c1, c2, c3 = st.columns([1, 1, 1.2])
             with c1:
@@ -277,10 +229,10 @@ def _show_absenzen_tab():
         return
 
     typ_labels = {
-        "urlaub": "🏖️ Urlaub",
-        "krankheit": "🤒 Krankheit",
-        "krank": "🤒 Krankheit",
-        "sonderurlaub": "🎗️ Sonderurlaub",
+        "urlaub": "Urlaub",
+        "krankheit": "Krankheit",
+        "krank": "Krankheit",
+        "sonderurlaub": "Sonderurlaub",
     }
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     rows = []
@@ -298,7 +250,7 @@ def _show_absenzen_tab():
         )
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    st.markdown("#### ✏️ Abwesenheit ändern / 🗑️ löschen (mit Begründung)")
+    st.markdown("#### Abwesenheit aendern oder loeschen (mit Begruendung)")
     select_options = {}
     for a in abwesenheiten[:200]:
         a_id = a.get("id")
@@ -373,7 +325,7 @@ def _show_absenzen_tab():
                 key=f"abwesen_update_reason_{selected_id}",
             )
             save_edit = st.form_submit_button(
-                "✅ Änderung speichern",
+                "Aenderung speichern",
                 type="primary",
                 use_container_width=True,
             )
@@ -438,7 +390,7 @@ def _show_absenzen_tab():
                 key=f"abwesen_delete_confirm_{selected_id}",
             )
             do_delete = st.form_submit_button(
-                "🗑️ Eintrag löschen",
+                "Eintrag loeschen",
                 use_container_width=True,
             )
             if do_delete:
@@ -462,11 +414,11 @@ def _show_absenzen_tab():
 
 
 def _show_mitarbeiter_stammdaten_tab():
-    st.subheader("👥 Mitarbeiter-Stammdaten & Dokumente")
+    st.subheader("Mitarbeiter-Stammdaten und Dokumente")
     supabase = get_supabase_client()
     alle_ma = _load_admin_mitarbeiter()
 
-    with st.expander("➕ Mitarbeiter neu anlegen", expanded=False):
+    with st.expander("Mitarbeiter neu anlegen", expanded=False):
         with st.form("neuer_mitarbeiter_form"):
             n1, n2, n3 = st.columns(3)
             with n1:
@@ -673,7 +625,7 @@ def _show_mitarbeiter_stammdaten_tab():
             else:
                 st.error("Speichern fehlgeschlagen. Bitte Felder/Schema prüfen.")
 
-    with st.expander("📎 Vertrag oder Dokument hochladen", expanded=True):
+    with st.expander("Vertrag oder Dokument hochladen", expanded=True):
         with st.form(f"dokument_upload_form_{ma['id']}"):
             u1, u2, u3 = st.columns(3)
             with u1:
@@ -977,7 +929,7 @@ def _show_mitarbeiter_stammdaten_tab():
 
 
 def _show_vertrag_generator_tab():
-    st.subheader("📄 Vertragsgenerator")
+    st.subheader("Vertragsgenerator")
     st.caption(
         "Vertrag individuell anpassen und als PDF direkt herunterladen. "
         "Änderbare Felder: Name, Anschrift, Geburtsdatum, Datum, Eintrittsdatum, "
@@ -1146,7 +1098,7 @@ def _show_vertrag_generator_tab():
     file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
 
     if st.button(
-        "📄 Vertrags-PDF erzeugen",
+        "Vertrags-PDF erzeugen",
         type="primary",
         use_container_width=True,
         key=scoped_key("vertrag_pdf_generate"),
@@ -1160,7 +1112,7 @@ def _show_vertrag_generator_tab():
 
     if current_sig == payload_sig and current_pdf:
         st.download_button(
-            "📥 Vertrag als PDF herunterladen",
+            "Vertrag als PDF herunterladen",
             data=current_pdf,
             file_name=file_name,
             mime="application/pdf",
@@ -1171,7 +1123,7 @@ def _show_vertrag_generator_tab():
         st.info("Bitte zuerst auf „Vertrags-PDF erzeugen“ klicken.")
 
     if st.button(
-        "💾 Als Vertrags-Dokument beim Mitarbeiter speichern",
+        "Als Vertrags-Dokument beim Mitarbeiter speichern",
         use_container_width=True,
         key=scoped_key("vertrag_store_doc"),
     ):
@@ -1236,7 +1188,7 @@ def _show_vertrag_generator_tab():
 
 
 def _show_system_tab():
-    st.subheader("🛠️ Systemstatus")
+    st.subheader("Systemstatus")
     supabase = get_supabase_client()
     betrieb_id = st.session_state.get("betrieb_id")
 
@@ -1266,7 +1218,7 @@ def _show_system_tab():
     st.caption(f"Berichtsdatum: {date.today().strftime('%d.%m.%Y')}")
 
     st.markdown("---")
-    st.markdown("### 🔄 Geschlossener Kreislauf – AZK Konsistenzcheck")
+    st.markdown("### Geschlossener Kreislauf – AZK Konsistenzcheck")
     st.caption(
         "Prüft, ob Zeiteinträge/Abwesenheiten und berechneter AZK-Snapshot zueinander passen. "
         "Abweichungen weisen auf Dateninkonsistenzen oder fehlerhafte Zweckzuordnung hin."
@@ -1290,7 +1242,7 @@ def _show_system_tab():
             key="sys_check_jahr",
         )
 
-    if st.button("🔍 Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
+    if st.button("Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
         ma_list = _load_admin_mitarbeiter()
         if not ma_list:
             st.info("Keine Mitarbeiter für den Konsistenzcheck gefunden.")
@@ -1336,7 +1288,7 @@ def _show_system_tab():
 
 
 def _show_arbeitszeitkonten_tab():
-    st.subheader("📅 Arbeitszeitkonten (neu)")
+    st.subheader("Arbeitszeitkonten")
     supabase = get_supabase_client()
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
@@ -1384,7 +1336,7 @@ def _show_arbeitszeitkonten_tab():
         st.success(f"Monat {int(monat):02d}/{int(jahr)} wurde abgeschlossen.")
 
     st.markdown("---")
-    with st.expander("🚀 Einmalige Initialisierung 2026 (Altdaten-Vorträge)", expanded=False):
+    with st.expander("Einmalige Initialisierung 2026 (Altdaten-Vorträge)", expanded=False):
         st.caption(
             "Erfasst den Startbestand für 2026 (Produktivstart April/Mai): "
             "Überstunden-Saldo, bereits genommene Urlaubstage und Krankheitstage."
@@ -1477,7 +1429,7 @@ def _show_arbeitszeitkonten_tab():
             )
 
         do_init = st.button(
-            "💾 Einmal-Initialisierung speichern",
+            "Einmal-Initialisierung speichern",
             type="primary",
             use_container_width=True,
             disabled=(not start_month_editable) or bool(existing_init),
@@ -1590,46 +1542,50 @@ def _show_arbeitszeitkonten_tab():
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
-    c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
-    with c_logo:
-        st.image(BRAND_LOGO_IMAGE, width=90)
-    with c_title:
-        st.title(f"{BRAND_APP_NAME} – Admin")
+    if st.session_state.get("admin_nav") is None:
+        st.session_state["admin_nav"] = "Dienstplanung"
 
-    section_options = [
-        "📅 Dienstplanung",
-        "🏖️ Abwesenheiten",
-        "👥 Mitarbeiter",
-        "📊 Zeitauswertung",
-        "🧾 Verträge",
-        "⏱️ Arbeitszeitkonten",
-        "🖥️ Mastergeräte",
-        "⚙️ System",
-    ]
-    active_section = st.radio(
-        "Bereich",
-        section_options,
-        horizontal=True,
-        label_visibility="collapsed",
-        key="admin_active_section",
-    )
+    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
+    top_logo, top_nav = st.columns([1.2, 5], vertical_alignment="center")
+    with top_logo:
+        st.image(BRAND_LOGO_IMAGE, width=230)
+    with top_nav:
+        selected = option_menu(
+            menu_title=None,
+            options=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Vertraege"],
+            icons=["calendar", "clock", "bar-chart-2", "file-text"],
+            orientation="horizontal",
+            default_index=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Vertraege"].index(
+                st.session_state.get("admin_nav", "Dienstplanung")
+            ),
+            key="admin_top_option_menu",
+            styles={
+                "container": {"padding": "0", "background-color": "transparent"},
+                "icon": {"color": "#334155", "font-size": "16px"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "font-weight": "600",
+                    "color": "#0f172a",
+                    "padding": "10px 14px",
+                    "margin": "0 4px 0 0",
+                    "border-radius": "10px",
+                },
+                "nav-link-selected": {"background-color": "#e2e8f0", "color": "#0f172a"},
+            },
+        )
+        st.session_state["admin_nav"] = selected
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    if active_section == "📅 Dienstplanung":
+    st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+    if selected == "Dienstplanung":
         admin_dienstplan.show_dienstplanung()
-    elif active_section == "🏖️ Abwesenheiten":
-        _show_absenzen_tab()
-    elif active_section == "👥 Mitarbeiter":
-        _show_mitarbeiter_stammdaten_tab()
-    elif active_section == "📊 Zeitauswertung":
-        _show_zeitauswertung_tab()
-    elif active_section == "🧾 Verträge":
-        _show_vertrag_generator_tab()
-    elif active_section == "⏱️ Arbeitszeitkonten":
+    elif selected == "Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()
-    elif active_section == "🖥️ Mastergeräte":
-        admin_mastergeraete.show_mastergeraete()
+    elif selected == "Zeitauswertung":
+        _show_zeitauswertung_tab()
     else:
-        _show_system_tab()
+        _show_vertrag_generator_tab()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

@@ -118,7 +118,7 @@ def _show_manual_account_adjustment(
     saldo: float,
 ) -> None:
     """Inline-Korrektur im Auswertungsflow mit Pflichtbegründung."""
-    with st.popover("🛠️ Manuelle Korrektur (Stunden/Urlaub/Krankheit)"):
+    with st.popover("Manuelle Korrektur (Stunden/Urlaub/Krankheit)"):
         st.caption("Jede manuelle Anpassung erfordert eine Begründung (Audit/GoBD).")
         supabase = get_supabase_client()
         ma_id = int(aktiver_ma.get("id") or 0)
@@ -145,7 +145,7 @@ def _show_manual_account_adjustment(
         st.caption(f"Aktueller Saldo: {saldo:+.2f} h")
 
         if st.button(
-            "💾 Korrektur speichern",
+            "Korrektur speichern",
             use_container_width=True,
             key=f"za_manual_corr_save_{ma_id}_{jahr}_{monat}",
             type="primary",
@@ -310,7 +310,7 @@ def _korrigiere_zeiterfassung_popup(
     monat: int,
     jahr: int,
 ) -> None:
-    @st.dialog("🕒 Zeiteintrag bearbeiten / löschen")
+    @st.dialog("Zeiteintrag bearbeiten oder loeschen")
     def _dialog():
         supabase = get_supabase_client()
         entry_id = int(entry.get("id"))
@@ -346,9 +346,9 @@ def _korrigiere_zeiterfassung_popup(
             )
             s1, s2 = st.columns(2)
             with s1:
-                do_save = st.form_submit_button("✅ Speichern", use_container_width=True, type="primary")
+                do_save = st.form_submit_button("Speichern", use_container_width=True, type="primary")
             with s2:
-                do_delete = st.form_submit_button("🗑️ Löschen", use_container_width=True)
+                do_delete = st.form_submit_button("Löschen", use_container_width=True)
 
             if do_save:
                 if not reason.strip():
@@ -647,7 +647,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     - filter_mitarbeiter_id: Für Admin-Filterung auf einen Mitarbeiter
     """
 
-    st.subheader("⏱️ Zeitauswertung / Lohn")
+    st.subheader("Zeitauswertung / Lohn")
 
     # ── Monat / Jahr Auswahl ──────────────────────────────────────────────────
     heute = date.today()
@@ -720,31 +720,34 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     if korrektur_count > 0:
         st.warning(
-            f"⚠️ **{korrektur_count} Eintrag/Einträge** in diesem Monat wurden vom Administrator "
+            f"**{korrektur_count} Eintrag/Einträge** in diesem Monat wurden vom Administrator "
             f"korrigiert und sind in der Tabelle **gelb markiert**."
         )
 
     # ── Kennzahlen-Kacheln ────────────────────────────────────────────────────
-    k1, k2, k3, k4 = st.columns(4)
-    with k1:
-        st.metric("📋 Soll-Stunden", f"{soll_stunden:.2f} h")
-    with k2:
-        st.metric("✅ Ist-Stunden", f"{ist_stunden:.2f} h")
-    with k3:
-        delta_color = "normal" if differenz >= 0 else "inverse"
-        st.metric(
-            "⚖️ Differenz",
-            f"{abs(differenz):.2f} h",
-            delta=f"{'Überstunden' if differenz >= 0 else 'Minusstunden'}",
-            delta_color=delta_color
-        )
-    with k4:
-        st.metric("💶 Bruttolohn (ges.)", f"{gesamtbrutto:.2f} €")
+    with st.container():
+        st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+        k1, k2, k3, k4 = st.columns(4)
+        with k1:
+            st.metric("Soll-Stunden", f"{soll_stunden:.2f} h")
+        with k2:
+            st.metric("Ist-Stunden", f"{ist_stunden:.2f} h")
+        with k3:
+            delta_color = "normal" if differenz >= 0 else "inverse"
+            st.metric(
+                "Differenz",
+                f"{abs(differenz):.2f} h",
+                delta=f"{'Überstunden' if differenz >= 0 else 'Minusstunden'}",
+                delta_color=delta_color
+            )
+        with k4:
+            st.metric("Bruttolohn gesamt", f"{gesamtbrutto:.2f} €")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("---")
 
     # ── Detailtabelle ─────────────────────────────────────────────────────────
-    st.markdown(f"### 📅 Zeiterfassungen – {MONATE[monat-1]} {jahr}")
+    st.markdown(f"### Zeiterfassungen – {MONATE[monat-1]} {jahr}")
 
     # Feiertage des Monats für Tooltip
     feiertage_monat = get_feiertage_monat(monat, jahr)
@@ -779,21 +782,21 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             # Typ
             if ist_krank_eintrag:
                 lfz_h = z.get("lfz_stunden", z.get("netto_stunden", 0))
-                typ_str = f"🤒 Krank (LFZ {lfz_h:.2f}h)"
+                typ_str = f"Krank (LFZ {lfz_h:.2f}h)"
             elif z.get("ist_feiertag"):
                 ft_name = z.get("feiertag_name", "Feiertag")
-                typ_str = f"🔴 {ft_name[:15]}"
+                typ_str = f"Feiertag {ft_name[:15]}"
             elif z.get("ist_sonntag"):
-                typ_str = "🟡 Sonntag"
+                typ_str = "Sonntag"
             else:
-                typ_str = "🔵 Arbeit"
+                typ_str = "Arbeit"
 
             if korrigiert:
-                typ_str += " ✏️"
+                typ_str += " Korrigiert"
 
             # Manuell angelegter Eintrag kennzeichnen
             if raw.get('quelle') == 'manuell_admin':
-                typ_str += " 🖊️"
+                typ_str += " Manuell"
 
             # Zuschlag-Info
             so_z = z.get("sonntagszuschlag", 0)
@@ -806,7 +809,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
             # Warnung
             if z.get("hat_zuschlag_aber_kein_haekchen"):
-                typ_str += " ⚠️"
+                typ_str += " Hinweis"
 
             # Offener Eintrag
             if z.get("fehler"):
@@ -848,7 +851,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         st.dataframe(df_rows, use_container_width=True, hide_index=True)
 
         if admin_modus:
-            st.markdown("#### ✏️ Zeiteinträge interaktiv korrigieren")
+            st.markdown("#### Zeiteinträge interaktiv korrigieren")
             st.caption("Klicken Sie auf einen Eintrag, um ihn in einem Popup zu bearbeiten oder zu löschen (mit Pflichtbegründung).")
             edit_options = {}
             for raw in zeiterfassungen:
@@ -867,7 +870,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                     options=list(edit_options.keys()),
                     key="za_edit_select",
                 )
-                if st.button("🛠️ Eintrag öffnen", use_container_width=True, key="za_edit_open_btn"):
+                if st.button("Eintrag öffnen", use_container_width=True, key="za_edit_open_btn"):
                     st.session_state["za_edit_entry"] = edit_options[selected_label]
                     st.rerun()
 
@@ -883,7 +886,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     st.markdown("---")
 
     # ── Lohnaufschlüsselung ───────────────────────────────────────────────────
-    st.markdown("### 💶 Lohnaufschlüsselung – Zuschlagsübersicht")
+    st.markdown("### Lohnaufschlüsselung – Zuschlagsübersicht")
 
     stundenlohn = aktiver_ma.get('stundenlohn_brutto', 0) or 0
     so_stunden = monat_ergebnis["sonntags_stunden"]
@@ -893,34 +896,37 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     so_zuschlag = monat_ergebnis["sonntagszuschlag"]
     ft_zuschlag = monat_ergebnis["feiertagszuschlag"]
 
-    lohn_cols = st.columns(3)
-    with lohn_cols[0]:
-        st.metric(
-            label="🔵 Normalstunden",
-            value=f"{normal_stunden:.2f} h",
-            help=f"× {stundenlohn:.2f} €/h"
-        )
-        st.caption(f"{grundlohn:.2f} € Grundlohn")
+    with st.container():
+        st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+        lohn_cols = st.columns(3)
+        with lohn_cols[0]:
+            st.metric(
+                label="Normalstunden",
+                value=f"{normal_stunden:.2f} h",
+                help=f"× {stundenlohn:.2f} €/h"
+            )
+            st.caption(f"{grundlohn:.2f} € Grundlohn")
 
-    with lohn_cols[1]:
-        so_aktiv = aktiver_ma.get("sonntagszuschlag_aktiv", False)
-        so_label = "🟡 Sonntagsstunden (+50%)" if so_aktiv else "🟡 Sonntagsstunden (inaktiv)"
-        st.metric(
-            label=so_label,
-            value=f"{so_stunden:.2f} h",
-            help="Sonntag 00:00–24:00 Uhr"
-        )
-        st.caption(f"+{so_zuschlag:.2f} € Zuschlag")
+        with lohn_cols[1]:
+            so_aktiv = aktiver_ma.get("sonntagszuschlag_aktiv", False)
+            so_label = "Sonntagsstunden (+50%)" if so_aktiv else "Sonntagsstunden (inaktiv)"
+            st.metric(
+                label=so_label,
+                value=f"{so_stunden:.2f} h",
+                help="Sonntag 00:00–24:00 Uhr"
+            )
+            st.caption(f"+{so_zuschlag:.2f} € Zuschlag")
 
-    with lohn_cols[2]:
-        ft_aktiv = aktiver_ma.get("feiertagszuschlag_aktiv", False)
-        ft_label = "🔴 Feiertagsstunden (+100%)" if ft_aktiv else "🔴 Feiertagsstunden (inaktiv)"
-        st.metric(
-            label=ft_label,
-            value=f"{ft_stunden:.2f} h",
-            help="Gesetzliche Feiertage Sachsen (SN)"
-        )
-        st.caption(f"+{ft_zuschlag:.2f} € Zuschlag")
+        with lohn_cols[2]:
+            ft_aktiv = aktiver_ma.get("feiertagszuschlag_aktiv", False)
+            ft_label = "Feiertagsstunden (+100%)" if ft_aktiv else "Feiertagsstunden (inaktiv)"
+            st.metric(
+                label=ft_label,
+                value=f"{ft_stunden:.2f} h",
+                help="Gesetzliche Feiertage Sachsen (SN)"
+            )
+            st.caption(f"+{ft_zuschlag:.2f} € Zuschlag")
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Gesamtlohn-Box als native Streamlit-Komponenten (kein HTML wegen Streamlit 1.40+ Bug)
     st.markdown("---")
@@ -934,12 +940,12 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         st.markdown(f"**Gesamt-Bruttolohn {MONATE[monat-1]} {jahr}**")
         st.caption(" • ".join(detail_parts))
     with gl_col2:
-        st.metric(label="💶 Bruttolohn gesamt", value=f"{gesamtbrutto:.2f} €")
+        st.metric(label="Bruttolohn gesamt", value=f"{gesamtbrutto:.2f} €")
 
     st.markdown("---")
 
     # ── Soll-Ist-Vergleich ────────────────────────────────────────────────────
-    st.markdown("### 📊 Soll-Ist-Vergleich")
+    st.markdown("### Soll-Ist-Vergleich")
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
@@ -961,7 +967,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Arbeitszeitkonto & Überstunden-Saldo ────────────────────────────────────────────────────
     if admin_modus:
-        st.markdown("### ⏱️ Arbeitszeitkonto")
+        st.markdown("### Arbeitszeitkonto")
         try:
             supabase_konto = get_supabase_client()
             snap = sync_work_account_for_month(
@@ -978,12 +984,11 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 
                 col_k1, col_k2, col_k3 = st.columns(3)
                 with col_k1:
-                    st.metric("⏪ Vortrag Vormonat", f"{vortrag:+.2f} h")
+                    st.metric("Vortrag Vormonat", f"{vortrag:+.2f} h")
                 with col_k2:
-                    st.metric("± Differenz diesen Monat", f"{diff_mon:+.2f} h")
+                    st.metric("Differenz diesen Monat", f"{diff_mon:+.2f} h")
                 with col_k3:
-                    saldo_farbe = "🟢" if saldo >= 0 else "🔴"
-                    st.metric(f"{saldo_farbe} Aktueller Saldo", f"{saldo:+.2f} h")
+                    st.metric("Aktueller Saldo", f"{saldo:+.2f} h")
                 st.caption(
                     f"Neuer Saldo = (Ist - Soll) + Saldenvortrag = "
                     f"({snap.ist_stunden:.2f} - {snap.soll_stunden:.2f}) + {vortrag:.2f}"
@@ -1001,8 +1006,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 # Korrekturbuchung: Überstunden auszahlen
                 if saldo > 0:
                     st.markdown("---")
-                    st.markdown("#### 💰 Überstunden auszahlen (Korrekturbuchung)")
-                    st.info(f"💡 Aktuelles Guthaben: **{saldo:.2f} Überstunden**. Sie können einen Teil oder alle Stunden zur Auszahlung freigeben.")
+                    st.markdown("#### Überstunden auszahlen (Korrekturbuchung)")
+                    st.info(f"Aktuelles Guthaben: **{saldo:.2f} Überstunden**. Sie können einen Teil oder alle Stunden zur Auszahlung freigeben.")
                     
                     col_korr1, col_korr2 = st.columns(2)
                     with col_korr1:
@@ -1018,7 +1023,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                     with col_korr2:
                         stundenlohn = float(aktiver_ma.get('stundenlohn') or 0)
                         auszahl_betrag = round(auszahl_stunden * stundenlohn, 2)
-                        st.metric("💵 Auszahlungsbetrag", f"{auszahl_betrag:.2f} €")
+                        st.metric("Auszahlungsbetrag", f"{auszahl_betrag:.2f} €")
                     
                     korr_grund = st.text_input(
                         "Begründung",
@@ -1026,11 +1031,11 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                         key=f"korr_grund_{monat}_{jahr}"
                     )
                     
-                    if st.button("💾 Korrekturbuchung speichern", type="primary", key=f"korr_save_{monat}_{jahr}"):
+                    if st.button("Korrekturbuchung speichern", type="primary", key=f"korr_save_{monat}_{jahr}"):
                         if auszahl_stunden <= 0:
-                            st.error("❌ Bitte Stunden > 0 eingeben!")
+                            st.error("Bitte Stunden > 0 eingeben.")
                         elif not korr_grund.strip():
-                            st.error("❌ Bitte eine Begründung angeben!")
+                            st.error("Bitte eine Begründung angeben.")
                         else:
                             try:
                                 supabase_k = get_supabase_client()
@@ -1044,19 +1049,19 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                                     'grund': korr_grund.strip(),
                                     'erstellt_am': datetime.now().isoformat()
                                 }).execute()
-                                st.success(f"✅ Korrekturbuchung gespeichert: {auszahl_stunden:.2f} h = {auszahl_betrag:.2f} € werden ausgezahlt. Saldo reduziert sich auf {saldo - auszahl_stunden:.2f} h.")
+                                st.success(f"Korrekturbuchung gespeichert: {auszahl_stunden:.2f} h = {auszahl_betrag:.2f} € werden ausgezahlt. Saldo reduziert sich auf {saldo - auszahl_stunden:.2f} h.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Fehler beim Speichern: {str(e)}")
+                                st.error(f"Fehler beim Speichern: {str(e)}")
         except Exception as e:
-            st.warning(f"⚠️ Arbeitszeitkonto konnte nicht geladen werden: {str(e)}")
+            st.warning(f"Arbeitszeitkonto konnte nicht geladen werden: {str(e)}")
         st.markdown("---")
 
     st.markdown("---")
 
     # ── Feiertage des Monats (Info) ─────────────────────────────────────────────────────
     if feiertage_monat:
-        st.markdown(f"### 🗓️ Feiertage in Sachsen – {MONATE[monat-1]} {jahr}")
+        st.markdown(f"### Feiertage in Sachsen – {MONATE[monat-1]} {jahr}")
         ft_html = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:1rem;">'
         for ft_datum, ft_name in sorted(feiertage_monat.items()):
             wt = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][ft_datum.weekday()]
@@ -1071,7 +1076,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Audit-Log (nur Admin) ─────────────────────────────────────────────────
     if admin_modus:
-        with st.expander("🔍 Audit-Log (Berechnungsprotokoll)", expanded=False):
+        with st.expander("Audit-Log (Berechnungsprotokoll)", expanded=False):
             st.markdown("""
             <div style="background:#f8f9fa;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;">
                 <small style="color:#1f2937;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
@@ -1084,18 +1089,18 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             # Download-Button für Audit-Log
             if audit_text:
                 st.download_button(
-                    label="⬇️ Audit-Log als TXT herunterladen",
+                    label="Audit-Log als TXT herunterladen",
                     data=audit_text.encode("utf-8"),
                     file_name=f"AuditLog_{aktiver_ma.get('nachname','MA')}_{jahr}_{monat:02d}.txt",
                     mime="text/plain"
                 )
 
     # ── PDF-Export ────────────────────────────────────────────────────────────
-    st.markdown("### 📥 Monatsauswertung exportieren")
+    st.markdown("### Monatsauswertung exportieren")
 
     col_pdf, col_info = st.columns([1, 2])
     with col_pdf:
-        if st.button("📄 PDF-Monatsauswertung erstellen", type="primary", use_container_width=True):
+        if st.button("PDF-Monatsauswertung erstellen", type="primary", use_container_width=True):
             try:
                 pdf_bytes = _erstelle_pdf(aktiver_ma, monat, jahr, monat_ergebnis, soll_stunden)
                 dateiname = (
@@ -1103,19 +1108,19 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                     f"{jahr}_{monat:02d}.pdf"
                 )
                 st.download_button(
-                    label="⬇️ PDF herunterladen",
+                    label="PDF herunterladen",
                     data=pdf_bytes,
                     file_name=dateiname,
                     mime="application/pdf",
                     use_container_width=True
                 )
-                st.success("✅ PDF erfolgreich erstellt!")
+                st.success("PDF erfolgreich erstellt.")
             except Exception as e:
                 st.error(f"Fehler beim Erstellen der PDF: {str(e)}")
 
     with col_info:
         st.info(
-            "📋 Die Monatsauswertung enthält alle Zeiterfassungen, den Soll-Ist-Vergleich, "
+            "Die Monatsauswertung enthält alle Zeiterfassungen, den Soll-Ist-Vergleich, "
             "Zuschlagsberechnungen nach Sachsen-Feiertagskalender und dient als Grundlage "
             "für die Lohnabrechnung."
         )
@@ -1123,7 +1128,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     if korrektur_count > 0:
         st.markdown(f"""
         <div style="background:#fff3cd;padding:0.8rem;border-radius:6px;border-left:4px solid #ffc107;margin-top:0.5rem;">
-            <strong>ℹ️ Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en)
+            <strong>Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en)
             wurden in diesem Monat durch den Administrator angepasst.
             Diese sind in der Tabelle gelb markiert.
         </div>
@@ -1132,6 +1137,6 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     # Offene Einträge
     if monat_ergebnis.get("offene_eintraege", 0) > 0:
         st.warning(
-            f"⚠️ **{monat_ergebnis['offene_eintraege']} offene Einträge** (kein Ende gestempelt) "
+            f"**{monat_ergebnis['offene_eintraege']} offene Einträge** (kein Ende gestempelt) "
             f"wurden nicht in die Lohnberechnung einbezogen."
         )

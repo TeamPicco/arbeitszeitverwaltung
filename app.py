@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import base64
 import mimetypes
+from streamlit_option_menu import option_menu
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
@@ -30,6 +31,48 @@ supabase = _get_supabase_client()
 apply_custom_css()
 
 
+def _render_top_header() -> str:
+    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
+    c_logo, c_menu = st.columns([1.3, 4.7], vertical_alignment="center")
+    with c_logo:
+        if BRAND_LOGO_IMAGE:
+            st.image(BRAND_LOGO_IMAGE, use_container_width=False, width=220)
+    with c_menu:
+        selected = option_menu(
+            menu_title=None,
+            options=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"],
+            icons=["calendar", "clock", "bar-chart-2", "file-text"],
+            orientation="horizontal",
+            key="top_nav_main",
+            styles={
+                "container": {"padding": "0.1rem 0", "background-color": "transparent"},
+                "icon": {"font-size": "16px"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "font-weight": "500",
+                    "padding": "10px 14px",
+                    "margin": "0px 4px",
+                    "border-radius": "8px",
+                    "--hover-color": "#f1f5f9",
+                },
+                "nav-link-selected": {
+                    "background-color": "#0f172a",
+                    "color": "#ffffff",
+                },
+            },
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
+    return selected
+
+
+def _wrap_card_start() -> None:
+    st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+
+
+def _wrap_card_end() -> None:
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
 def _render_login_branding() -> None:
     def _logo_data_uri(path: str) -> str:
         try:
@@ -44,48 +87,69 @@ def _render_login_branding() -> None:
     st.markdown(
         """
         <style>
+        [data-testid="stMainBlockContainer"] > div.block-container {
+            min-height: 92vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
         .coreo-login-root {
-            max-width: 620px;
-            margin: 0 auto 0.6rem auto;
+            width: min(760px, 96vw);
+            margin: 0 auto;
         }
         .coreo-logo-wrap {
             width: 100%;
             display: flex;
             justify-content: center;
-            margin: 0.1rem auto 0.9rem auto;
+            margin: 0 auto 1.25rem auto;
         }
         .coreo-logo-wrap img {
-            width: min(78vw, 430px);
-            max-width: 430px;
+            width: min(92vw, 560px);
+            max-width: 560px;
             height: auto;
             object-fit: contain;
             display: block;
         }
         div[data-testid="stTabs"] {
-            max-width: 620px !important;
+            max-width: 680px !important;
             margin: 0 auto !important;
         }
         div[data-testid="stForm"] {
-            border: 1px solid #1f2937 !important;
-            border-radius: 14px !important;
-            background: #050505 !important;
-            padding: 1rem 1rem 0.4rem 1rem !important;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
-            max-width: 620px !important;
+            border: 1px solid #e2e8f0 !important;
+            border-radius: 12px !important;
+            background: #ffffff !important;
+            padding: 1.2rem 1.2rem 0.6rem 1.2rem !important;
+            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+            max-width: 680px !important;
             margin: 0 auto !important;
         }
         div[data-testid="stTextInput"] input {
-            min-height: 46px !important;
+            min-height: 52px !important;
             font-size: 1rem !important;
             border-radius: 10px !important;
+            padding: 0 0.85rem !important;
+        }
+        .coreo-topbar {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+            margin-bottom: 1rem;
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+        }
+        .st-key-top_nav_main {
+            margin-top: 0.35rem;
         }
         @media (max-width: 768px) {
             .coreo-login-root {
                 max-width: 96vw;
             }
             .coreo-logo-wrap img {
-                width: min(92vw, 340px);
-                max-width: 340px;
+                width: min(94vw, 460px);
+                max-width: 460px;
             }
             div[data-testid="stTabs"],
             div[data-testid="stForm"] {
@@ -119,7 +183,8 @@ if st.session_state.get("trigger_reset"):
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
     _render_login_branding()
-    tab_stempel, tab_admin = st.tabs(["🕒 Mitarbeiter Stempeluhr", "🔐 Admin Login"])
+    _wrap_card_start()
+    tab_stempel, tab_admin = st.tabs(["Mitarbeiter Stempeluhr", "Admin Login"])
 
     with tab_stempel:
         pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
@@ -135,7 +200,7 @@ if not st.session_state.get('logged_in'):
                 )
 
                 c1, c2 = st.columns(2)
-                if c1.button("🟢 KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
+                if c1.button("KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
                     result = register_time_event(
                         supabase,
                         betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
@@ -151,7 +216,7 @@ if not st.session_state.get('logged_in'):
                     st.session_state["trigger_reset"] = True
                     time.sleep(1.5); st.rerun()
 
-                if c2.button("🔴 GEHEN", key=f"g_{ma['id']}", use_container_width=True):
+                if c2.button("GEHEN", key=f"g_{ma['id']}", use_container_width=True):
                     result = register_time_event(
                         supabase,
                         betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
@@ -169,7 +234,7 @@ if not st.session_state.get('logged_in'):
 
                 c3, c4 = st.columns(2)
                 if c3.button(
-                    "⏸️ PAUSE START",
+                    "PAUSE START",
                     key=f"bs_{ma['id']}",
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or state["pause_aktiv"]),
@@ -190,7 +255,7 @@ if not st.session_state.get('logged_in'):
                     time.sleep(1.5); st.rerun()
 
                 if c4.button(
-                    "▶️ PAUSE ENDE",
+                    "PAUSE ENDE",
                     key=f"be_{ma['id']}",
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or not state["pause_aktiv"]),
@@ -231,7 +296,9 @@ if not st.session_state.get('logged_in'):
                     )
                     update_last_login(str(user.get("id")))
                     st.rerun()
+    _wrap_card_end()
 else:
+    _render_top_header()
     st.markdown(
         """
         <style>
