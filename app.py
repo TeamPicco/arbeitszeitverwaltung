@@ -2,7 +2,6 @@ import streamlit as st
 import time
 import base64
 import mimetypes
-from streamlit_option_menu import option_menu
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
@@ -29,40 +28,6 @@ def _get_supabase_client():
 
 supabase = _get_supabase_client()
 apply_custom_css()
-
-
-def _render_top_header() -> str:
-    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
-    c_logo, c_menu = st.columns([1.3, 4.7], vertical_alignment="center")
-    with c_logo:
-        if BRAND_LOGO_IMAGE:
-            st.image(BRAND_LOGO_IMAGE, use_container_width=False, width=220)
-    with c_menu:
-        selected = option_menu(
-            menu_title=None,
-            options=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"],
-            icons=["calendar", "clock", "bar-chart-2", "file-text"],
-            orientation="horizontal",
-            key="top_nav_main",
-            styles={
-                "container": {"padding": "0.1rem 0", "background-color": "transparent"},
-                "icon": {"font-size": "16px"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "font-weight": "500",
-                    "padding": "10px 14px",
-                    "margin": "0px 4px",
-                    "border-radius": "8px",
-                    "--hover-color": "#f1f5f9",
-                },
-                "nav-link-selected": {
-                    "background-color": "#0f172a",
-                    "color": "#ffffff",
-                },
-            },
-        )
-    st.markdown("</div>", unsafe_allow_html=True)
-    return selected
 
 
 def _wrap_card_start() -> None:
@@ -298,7 +263,6 @@ if not st.session_state.get('logged_in'):
                     st.rerun()
     _wrap_card_end()
 else:
-    _render_top_header()
     st.markdown(
         """
         <style>
