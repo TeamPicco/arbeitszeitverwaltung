@@ -167,6 +167,14 @@ def apply_custom_css() -> None:
             margin-top: 0.35rem !important;
             margin-bottom: 0.35rem !important;
         }}
+
+        .coreo-form-group {{
+            background: {COLORS["surface"]};
+            border: 1px solid {COLORS["border"]};
+            border-radius: 10px;
+            padding: 0.85rem 0.95rem 0.65rem 0.95rem;
+            margin: 0.5rem 0 0.9rem 0;
+        }}
         </style>
         """,
         unsafe_allow_html=True,
