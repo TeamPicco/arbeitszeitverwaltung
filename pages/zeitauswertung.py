@@ -674,12 +674,27 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     # ── Mitarbeiter-Auswahl (nur Admin) ──────────────────────────────────────
     if admin_modus:
         supabase = get_supabase_client()
-        alle_ma = supabase.table('mitarbeiter').select(
-            'id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung,'
-            'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
-        ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
-
-        ma_liste = alle_ma.data or []
+        try:
+            alle_ma = supabase.table('mitarbeiter').select(
+                'id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung,'
+                'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
+            ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
+            ma_liste = alle_ma.data or []
+        except Exception:
+            # Rückwärtskompatibilität: ältere DBs mit stundenlohn_brutto statt Monatsbrutto.
+            alle_ma = supabase.table('mitarbeiter').select(
+                'id,vorname,nachname,monatliche_soll_stunden,stundenlohn_brutto,'
+                'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
+            ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
+            ma_liste = alle_ma.data or []
+            for m in ma_liste:
+                try:
+                    m["monatliche_brutto_verguetung"] = round(
+                        float(m.get("monatliche_soll_stunden") or 0.0) * float(m.get("stundenlohn_brutto") or 0.0),
+                        2,
+                    )
+                except Exception:
+                    m["monatliche_brutto_verguetung"] = 0.0
         ma_optionen = {f"{m['vorname']} {m['nachname']}": m for m in ma_liste}
 
         ausgewaehlter_name = st.selectbox(
