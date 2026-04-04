@@ -15,7 +15,7 @@ from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.audit_log import log_zeitkorrektur, log_zeitloeschung
 from utils.lohnberechnung import (
-    berechne_monat,
+    berechne_monat_cached,
     berechne_eintrag,
     pruefe_feiertag_warnungen,
     get_feiertage_sachsen,
@@ -86,18 +86,28 @@ def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -
     return start_map
 
 
-def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
-    """Lädt alle Dienstplan-Einträge (Soll) für einen Mitarbeiter in einem Monat."""
-    supabase = get_supabase_client()
-    planning_table = resolve_planning_table(supabase)
-    erster = date(jahr, monat, 1).isoformat()
-    letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table(planning_table).select(
-        'datum,schichttyp,start_zeit,ende_zeit,pause_minuten,urlaub_stunden'
-    ).eq(
-        'mitarbeiter_id', mitarbeiter_id
-    ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
-    return r.data or []
+def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
+    """Erzeugt einen stabilen Hash als Cache-Key für die Monatsberechnung."""
+    relevant = []
+    for z in zeiterfassungen:
+        relevant.append(
+            {
+                "id": z.get("id"),
+                "datum": z.get("datum"),
+                "start_zeit": z.get("start_zeit"),
+                "ende_zeit": z.get("ende_zeit"),
+                "pause_minuten": z.get("pause_minuten"),
+                "quelle": z.get("quelle"),
+                "ist_krank": z.get("ist_krank"),
+                "updated_at": z.get("updated_at"),
+            }
+        )
+    payload = {"zeiterfassung": relevant, "dienstplan_start_map": dienstplan_start_map or {}}
+    import json
+    import hashlib
+
+    canonical = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def _korrigiere_zeiterfassung_popup(
@@ -474,11 +484,13 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     dienstplan_start_map = _cached_dienstplan_startzeiten(aktiver_ma['id'], monat, jahr)
 
     # ── Lohnberechnung mit neuem Modul ───────────────────────────────────────
-    monat_ergebnis = berechne_monat(
+    data_hash = _build_data_hash(zeiterfassungen, dienstplan_start_map)
+    monat_ergebnis = berechne_monat_cached(
         zeiterfassungen,
         aktiver_ma,
         auto_pause=False,
         dienstplan_start_map=dienstplan_start_map,
+        data_hash=data_hash,
     )
 
     # ── Soll-Stunden ─────────────────────────────────────────────────────────
@@ -728,8 +740,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
-        <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid #0d6efd;">
-            <div style="font-size:0.85rem;color:#6c757d;">Soll-Stunden (Dienstplan/Profil)</div>
+        <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid #1f2937;">
+            <div style="font-size:0.85rem;color:#1f2937;">Soll-Stunden (Dienstplan/Profil)</div>
             <div style="font-size:1.5rem;font-weight:700;">{soll_stunden:.2f} h</div>
         </div>
         """, unsafe_allow_html=True)
@@ -738,9 +750,9 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         diff_icon = "▲" if differenz >= 0 else "▼"
         st.markdown(f"""
         <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid {diff_color};">
-            <div style="font-size:0.85rem;color:#6c757d;">Ist-Stunden vs. Soll</div>
+            <div style="font-size:0.85rem;color:#1f2937;">Ist-Stunden vs. Soll</div>
             <div style="font-size:1.5rem;font-weight:700;color:{diff_color};">{diff_icon} {abs(differenz):.2f} h</div>
-            <div style="font-size:0.8rem;color:#6c757d;">{'Überstunden' if differenz >= 0 else 'Minusstunden'}</div>
+            <div style="font-size:0.8rem;color:#1f2937;">{'Überstunden' if differenz >= 0 else 'Minusstunden'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -846,7 +858,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         with st.expander("🔍 Audit-Log (Berechnungsprotokoll)", expanded=False):
             st.markdown("""
             <div style="background:#f8f9fa;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;">
-                <small style="color:#6c757d;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
+                <small style="color:#1f2937;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
                 Es zeigt welcher Zuschlag an welchem Tag durch welche Regel ausgelöst wurde.</small>
             </div>
             """, unsafe_allow_html=True)

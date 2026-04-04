@@ -20,6 +20,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Any, Optional, Tuple
 import calendar
 import holidays
+import streamlit as st
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -636,6 +637,7 @@ def berechne_monat(
     mitarbeiter: Dict[str, Any],
     auto_pause: bool = False,  # Pausen werden ausschließlich manuell eingetragen
     dienstplan_start_map: Optional[Dict[str, str]] = None,
+    data_hash: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Berechnet alle Stunden und Lohnsummen für einen Monat.
@@ -663,6 +665,8 @@ def berechne_monat(
             'audit_log_gesamt': List[str], # Vollständiges Audit-Log
         }
     """
+    # data_hash dient als expliziter Cache-Buster im Funktions-Signature-Key.
+    _ = data_hash
     zeilen = []
     gesamt_stunden = 0.0
     sonntags_stunden = 0.0
@@ -735,6 +739,28 @@ def berechne_monat(
         "warnungen": warnungen,
         "audit_log_gesamt": audit_log_gesamt,
     }
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def berechne_monat_cached(
+    eintraege: List[Dict[str, Any]],
+    mitarbeiter: Dict[str, Any],
+    auto_pause: bool = False,
+    dienstplan_start_map: Optional[Dict[str, str]] = None,
+    data_hash: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Gecachte Variante der Monatsberechnung.
+    data_hash muss aus Rohdaten erzeugt und übergeben werden, damit Änderungen
+    sofort zu einem neuen Cache-Key führen.
+    """
+    return berechne_monat(
+        eintraege=eintraege,
+        mitarbeiter=mitarbeiter,
+        auto_pause=auto_pause,
+        dienstplan_start_map=dienstplan_start_map,
+        data_hash=data_hash,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

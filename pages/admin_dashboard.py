@@ -6,6 +6,7 @@ import streamlit as st
 
 from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
 from utils.absences import delete_absence, store_absence, update_absence
+from utils.cache_manager import clear_app_caches
 from utils.database import (
     get_supabase_client,
     update_mitarbeiter,
@@ -48,6 +49,10 @@ def _cached_admin_mitarbeiter(betrieb_id):
         query = query.eq("betrieb_id", betrieb_id)
     res = query.execute()
     return res.data or []
+
+
+def _refresh_after_write() -> None:
+    clear_app_caches()
 
 
 def _safe_date(value):
@@ -265,6 +270,7 @@ def _show_absenzen_tab():
                         f"Abwesenheit gespeichert: {result['tage']:.1f} Tage, "
                         f"{result['stunden_gutschrift']:.2f}h Gutschrift."
                     )
+                    _refresh_after_write()
                     st.rerun()
 
     st.markdown("#### Letzte Abwesenheiten")
@@ -415,6 +421,7 @@ def _show_absenzen_tab():
                             grund=new_grund or None,
                         )
                         st.success("Abwesenheit wurde aktualisiert.")
+                        _refresh_after_write()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Änderung fehlgeschlagen: {e}")
@@ -450,6 +457,7 @@ def _show_absenzen_tab():
                             deleted_by=st.session_state.get("user_id"),
                         )
                         st.success("Abwesenheit wurde gelöscht.")
+                        _refresh_after_write()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Löschen fehlgeschlagen: {e}")
@@ -529,6 +537,7 @@ def _show_mitarbeiter_stammdaten_tab():
                     }
                     try:
                         supabase.table("mitarbeiter").insert(payload).execute()
+                        _refresh_after_write()
                         st.success("Mitarbeiter erfolgreich angelegt.")
                         st.rerun()
                     except Exception as e:
@@ -660,6 +669,7 @@ def _show_mitarbeiter_stammdaten_tab():
             }
             ok = update_mitarbeiter(ma["id"], payload)
             if ok:
+                _refresh_after_write()
                 st.success("Stammdaten gespeichert.")
                 st.rerun()
             else:
@@ -794,6 +804,7 @@ def _show_mitarbeiter_stammdaten_tab():
                             except Exception:
                                 pass
 
+                        _refresh_after_write()
                         st.success("Dokument erfolgreich hochgeladen.")
                         st.rerun()
 
@@ -917,6 +928,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                     "stundenlohn_brutto": float(vg_lohn),
                                 }
                             ).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
                             st.success("Vertrag aktualisiert.")
                             st.rerun()
                         except Exception as e:
@@ -925,6 +937,7 @@ def _show_mitarbeiter_stammdaten_tab():
                     if delete_vertrag:
                         try:
                             supabase.table("vertraege").delete().eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
                             st.success("Vertrag gelöscht.")
                             st.rerun()
                         except Exception as e:
@@ -998,30 +1011,53 @@ def _show_vertrag_generator_tab():
     payload = build_default_contract_payload(ma, template_key=template_key)
     st.markdown("---")
 
+    ma_id = int(ma.get("id") or 0)
+    template_id = str(template_key)
+
+    def scoped_key(base: str) -> str:
+        return f"key_{base}_{ma_id}_{template_id}"
+
+    k_an_geb = scoped_key("v_an_geb")
+    k_vertragsdatum = scoped_key("v_vertragsdatum")
+    k_eintritt = scoped_key("v_eintritt")
+    k_gueltig_ab = scoped_key("v_gueltig_ab")
+
     # Alte Browser-Widgetzustände nach Deploys bereinigen (kann sonst date_input crashen).
-    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]))
-    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload["vertragsdatum"]))
-    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload["eintrittsdatum"]))
-    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload["gueltig_ab"]))
+    _sanitize_date_widget_state(k_an_geb, fallback=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]))
+    _sanitize_date_widget_state(k_vertragsdatum, fallback=_safe_date_input_value(payload["vertragsdatum"]))
+    _sanitize_date_widget_state(k_eintritt, fallback=_safe_date_input_value(payload["eintrittsdatum"]))
+    _sanitize_date_widget_state(k_gueltig_ab, fallback=_safe_date_input_value(payload["gueltig_ab"]))
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### Arbeitgeber")
-        ag_name = st.text_input("Firmenname", value=payload["arbeitgeber_name"], key="v_ag_name")
-        ag_vertretung = st.text_input("Vertreten durch", value=payload["arbeitgeber_vertreten_durch"], key="v_ag_vertreter")
-        ag_strasse = st.text_input("Straße / Hausnummer", value=payload["arbeitgeber_strasse"], key="v_ag_strasse")
-        ag_plz_ort = st.text_input("PLZ / Ort", value=payload["arbeitgeber_plz_ort"], key="v_ag_plz_ort")
+        ag_name = st.text_input("Firmenname", value=payload["arbeitgeber_name"], key=scoped_key("v_ag_name"))
+        ag_vertretung = st.text_input(
+            "Vertreten durch",
+            value=payload["arbeitgeber_vertreten_durch"],
+            key=scoped_key("v_ag_vertreter"),
+        )
+        ag_strasse = st.text_input(
+            "Straße / Hausnummer",
+            value=payload["arbeitgeber_strasse"],
+            key=scoped_key("v_ag_strasse"),
+        )
+        ag_plz_ort = st.text_input("PLZ / Ort", value=payload["arbeitgeber_plz_ort"], key=scoped_key("v_ag_plz_ort"))
 
         st.markdown("#### Arbeitnehmer – persönliche Daten")
-        an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key="v_an_name")
+        an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key=scoped_key("v_an_name"))
         an_geburtsdatum = st.date_input(
             "Geburtsdatum",
             value=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]),
             format="DD.MM.YYYY",
-            key="v_an_geb",
+            key=k_an_geb,
         )
-        an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key="v_an_anschrift")
-        an_personaldaten = st.text_area("Weitere persönliche Daten", value=payload["persoenliche_daten"], key="v_person_daten")
+        an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key=scoped_key("v_an_anschrift"))
+        an_personaldaten = st.text_area(
+            "Weitere persönliche Daten",
+            value=payload["persoenliche_daten"],
+            key=scoped_key("v_person_daten"),
+        )
 
     with c2:
         st.markdown("#### Vertragsdaten")
@@ -1029,26 +1065,26 @@ def _show_vertrag_generator_tab():
             "Vertragsdatum",
             value=_safe_date_input_value(payload["vertragsdatum"]),
             format="DD.MM.YYYY",
-            key="v_vertragsdatum",
+            key=k_vertragsdatum,
         )
         eintrittsdatum = st.date_input(
             "Eintrittsdatum",
             value=_safe_date_input_value(payload["eintrittsdatum"]),
             format="DD.MM.YYYY",
-            key="v_eintritt",
+            key=k_eintritt,
         )
         gueltig_ab = st.date_input(
             "Gültig ab",
             value=_safe_date_input_value(payload["gueltig_ab"]),
             format="DD.MM.YYYY",
-            key="v_gueltig_ab",
+            key=k_gueltig_ab,
         )
         monatliche_arbeitszeit = st.number_input(
             "Monatliche Arbeitszeit (Stunden)",
             min_value=0.0,
             value=float(payload["monatliche_arbeitszeit"]),
             step=0.5,
-            key="v_monatszeit",
+            key=scoped_key("v_monatszeit"),
         )
         probezeit_monate = st.number_input(
             "Probezeit (Monate)",
@@ -1056,21 +1092,29 @@ def _show_vertrag_generator_tab():
             max_value=24,
             value=int(payload["probezeit_monate"]),
             step=1,
-            key="v_probezeit",
+            key=scoped_key("v_probezeit"),
         )
-        wochenarbeitstage = st.text_input("Arbeitstage pro Woche", value=payload["wochenarbeitstage"], key="v_arbeitstage")
+        wochenarbeitstage = st.text_input(
+            "Arbeitstage pro Woche",
+            value=payload["wochenarbeitstage"],
+            key=scoped_key("v_arbeitstage"),
+        )
         stundenlohn_brutto = st.number_input(
             "Stundenlohn (brutto)",
             min_value=0.0,
             value=float(payload["stundenlohn_brutto"]),
             step=0.5,
-            key="v_stundenlohn",
+            key=scoped_key("v_stundenlohn"),
         )
-        zuschlaege = st.text_area("Zuschläge / Vergütungsdetails", value=payload["zuschlaege"], key="v_zuschlaege")
+        zuschlaege = st.text_area(
+            "Zuschläge / Vergütungsdetails",
+            value=payload["zuschlaege"],
+            key=scoped_key("v_zuschlaege"),
+        )
         zusatzvereinbarungen = st.text_area(
             "Zusatzvereinbarungen",
             value=payload["zusatzvereinbarungen"],
-            key="v_zusatz",
+            key=scoped_key("v_zusatz"),
         )
 
     generated_payload = {
@@ -1095,18 +1139,25 @@ def _show_vertrag_generator_tab():
     }
 
     payload_sig = json.dumps(generated_payload, sort_keys=True, default=str)
-    current_sig = st.session_state.get("vertrag_pdf_sig")
-    current_pdf = st.session_state.get("vertrag_pdf_bytes")
+    sig_key = scoped_key("vertrag_pdf_sig")
+    pdf_key = scoped_key("vertrag_pdf_bytes")
+    current_sig = st.session_state.get(sig_key)
+    current_pdf = st.session_state.get(pdf_key)
 
     file_suffix = ma.get("nachname") or "Mitarbeiter"
     file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
 
-    if st.button("📄 Vertrags-PDF erzeugen", type="primary", use_container_width=True, key="vertrag_pdf_generate"):
+    if st.button(
+        "📄 Vertrags-PDF erzeugen",
+        type="primary",
+        use_container_width=True,
+        key=scoped_key("vertrag_pdf_generate"),
+    ):
         with st.spinner("PDF wird erzeugt..."):
-            st.session_state["vertrag_pdf_bytes"] = generate_contract_pdf(generated_payload)
-            st.session_state["vertrag_pdf_sig"] = payload_sig
-        current_sig = st.session_state.get("vertrag_pdf_sig")
-        current_pdf = st.session_state.get("vertrag_pdf_bytes")
+            st.session_state[pdf_key] = generate_contract_pdf(generated_payload)
+            st.session_state[sig_key] = payload_sig
+        current_sig = st.session_state.get(sig_key)
+        current_pdf = st.session_state.get(pdf_key)
         st.success("PDF wurde erzeugt.")
 
     if current_sig == payload_sig and current_pdf:
@@ -1116,12 +1167,16 @@ def _show_vertrag_generator_tab():
             file_name=file_name,
             mime="application/pdf",
             use_container_width=True,
-            key="vertrag_pdf_download",
+            key=scoped_key("vertrag_pdf_download"),
         )
     else:
         st.info("Bitte zuerst auf „Vertrags-PDF erzeugen“ klicken.")
 
-    if st.button("💾 Als Vertrags-Dokument beim Mitarbeiter speichern", use_container_width=True, key="vertrag_store_doc"):
+    if st.button(
+        "💾 Als Vertrags-Dokument beim Mitarbeiter speichern",
+        use_container_width=True,
+        key=scoped_key("vertrag_store_doc"),
+    ):
         if not (current_sig == payload_sig and current_pdf):
             st.warning("Bitte zuerst „Vertrags-PDF erzeugen“ ausführen.")
             return
@@ -1178,6 +1233,7 @@ def _show_vertrag_generator_tab():
             ).execute()
         except Exception as e:
             st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
+        _refresh_after_write()
         st.success("Vertrag als Dokument gespeichert.")
 
 
