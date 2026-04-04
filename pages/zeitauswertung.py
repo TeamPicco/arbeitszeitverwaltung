@@ -39,6 +39,18 @@ MONATE = [
 ]
 
 
+def _effective_hourly_rate(ma: dict) -> float:
+    """Leitet den Stundenwert aus Monatsbrutto und Sollstunden ab."""
+    try:
+        monat_brutto = float(ma.get("monatliche_brutto_verguetung") or 0.0)
+        monat_soll = float(ma.get("monatliche_soll_stunden") or 0.0)
+    except Exception:
+        return 0.0
+    if monat_brutto > 0 and monat_soll > 0:
+        return round(monat_brutto / monat_soll, 4)
+    return 0.0
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # DATEN LADEN
 # ─────────────────────────────────────────────────────────────────────────────
@@ -497,7 +509,7 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     story.append(Paragraph(
         f"<b>Mitarbeiter:</b> {safe_str(mitarbeiter['vorname'])} {safe_str(mitarbeiter['nachname'])} &nbsp;&nbsp; "
         f"<b>Personal-Nr.:</b> {safe_str(mitarbeiter.get('personalnummer', '-'))} &nbsp;&nbsp; "
-        f"<b>Stundenlohn:</b> {mitarbeiter.get('stundenlohn_brutto', 0):.2f} EUR",
+        f"<b>Abgeleiteter Stundenwert:</b> {_effective_hourly_rate(mitarbeiter):.2f} EUR",
         info_style))
     story.append(Spacer(1, 0.5*cm))
 
@@ -588,7 +600,6 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     # Zusammenfassung mit Zuschlagsaufschlüsselung
     diff = ist_stunden - soll_stunden
     diff_str = f"+{diff:.2f} h" if diff >= 0 else f"{diff:.2f} h"
-    stundenlohn = mitarbeiter.get("stundenlohn_brutto", 0) or 0
 
     zusammen = [
         ['Soll-Stunden:', f"{soll_stunden:.2f} h"],
@@ -664,7 +675,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     if admin_modus:
         supabase = get_supabase_client()
         alle_ma = supabase.table('mitarbeiter').select(
-            'id,vorname,nachname,monatliche_soll_stunden,stundenlohn_brutto,'
+            'id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung,'
             'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
         ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
 
@@ -888,7 +899,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     # ── Lohnaufschlüsselung ───────────────────────────────────────────────────
     st.markdown("### Lohnaufschlüsselung – Zuschlagsübersicht")
 
-    stundenlohn = aktiver_ma.get('stundenlohn_brutto', 0) or 0
+    effective_rate = _effective_hourly_rate(aktiver_ma)
     so_stunden = monat_ergebnis["sonntags_stunden"]
     ft_stunden = monat_ergebnis["feiertags_stunden"]
     normal_stunden = max(0, ist_stunden - so_stunden - ft_stunden)
@@ -903,7 +914,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             st.metric(
                 label="Normalstunden",
                 value=f"{normal_stunden:.2f} h",
-                help=f"× {stundenlohn:.2f} €/h"
+                help=f"× {effective_rate:.2f} €/h"
             )
             st.caption(f"{grundlohn:.2f} € Grundlohn")
 
@@ -1021,8 +1032,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                             key=f"auszahl_stunden_{monat}_{jahr}"
                         )
                     with col_korr2:
-                        stundenlohn = float(aktiver_ma.get('stundenlohn') or 0)
-                        auszahl_betrag = round(auszahl_stunden * stundenlohn, 2)
+                        effective_rate = _effective_hourly_rate(aktiver_ma)
+                        auszahl_betrag = round(auszahl_stunden * effective_rate, 2)
                         st.metric("Auszahlungsbetrag", f"{auszahl_betrag:.2f} €")
                     
                     korr_grund = st.text_input(

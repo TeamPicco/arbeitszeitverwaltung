@@ -11,6 +11,8 @@ from utils.compliance import (
 )
 from utils.time_utils import get_berlin_tz, now_utc, to_berlin, to_utc
 
+MAX_AUTO_SHIFT_HOURS = 14.0
+
 EVENT_CLOCK_IN = "clock_in"
 EVENT_CLOCK_OUT = "clock_out"
 EVENT_BREAK_START = "break_start"
@@ -122,6 +124,13 @@ def _build_legacy_payload(
         "jahr": day.year,
         "quelle": source,
     }
+
+
+def _shift_duration_hours(start_dt: datetime, end_dt: Optional[datetime]) -> float:
+    if end_dt is None:
+        return 0.0
+    minutes = max(0, int((end_dt - start_dt).total_seconds() // 60))
+    return round(minutes / 60.0, 4)
 
 
 def _compute_break_minutes(events: List[Dict[str, Any]]) -> int:

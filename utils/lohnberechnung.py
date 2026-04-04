@@ -468,7 +468,9 @@ def berechne_eintrag(
         except (ValueError, TypeError):
             return default
 
-    stundenlohn = safe_float(mitarbeiter.get("stundenlohn_brutto"), 0.0)
+    monat_brutto = safe_float(mitarbeiter.get("monatliche_brutto_verguetung"), 0.0)
+    monat_soll = safe_float(mitarbeiter.get("monatliche_soll_stunden"), 0.0)
+    stundenlohn = round(monat_brutto / monat_soll, 4) if monat_brutto > 0 and monat_soll > 0 else 0.0
     datum_str = eintrag.get("datum", "")
     start_zeit = eintrag.get("start_zeit")
     ende_zeit = eintrag.get("ende_zeit")
@@ -586,6 +588,41 @@ def berechne_eintrag(
         except Exception:
             # Falls eine Legacy-Instanz inkonsistente Zeitwerte enthält, nicht hard-failen.
             start_zeit_fuer_berechnung = start_zeit
+
+    # Sicherheitsgrenze: Arbeitszeit über 14h nur bei expliziter Admin-Freigabe zulassen.
+    # So verhindern wir Phantom-Schichten durch fehlendes Ausstempeln.
+    try:
+        start_guard = _parse_zeit_zu_datetime(start_zeit_fuer_berechnung, datum)
+        end_guard = _parse_zeit_zu_datetime(ende_zeit, datum)
+        if end_guard <= start_guard:
+            end_guard += timedelta(days=1)
+        planned_minutes = int((end_guard - start_guard).total_seconds() // 60)
+        if planned_minutes > (14 * 60):
+            override = bool(eintrag.get("admin_override_long_shift"))
+            if not override:
+                return {
+                    "id": eintrag.get("id"),
+                    "datum": datum,
+                    "netto_stunden": 0.0,
+                    "pause_minuten": int(eintrag.get("pause_minuten") or 0),
+                    "grundlohn": 0.0,
+                    "sonntags_stunden": 0.0,
+                    "feiertags_stunden": 0.0,
+                    "sonntagszuschlag": 0.0,
+                    "feiertagszuschlag": 0.0,
+                    "gesamt_zuschlag": 0.0,
+                    "gesamtlohn": 0.0,
+                    "ist_sonntag": ist_so,
+                    "ist_feiertag": ist_ft,
+                    "feiertag_name": ft_name,
+                    "hat_zuschlag_aber_kein_haekchen": False,
+                    "audit_log": audit_log + [
+                        f"Sicherheitsstopp: Schichtdauer {planned_minutes/60:.2f}h > 14h ohne Admin-Freigabe."
+                    ],
+                    "fehler": "Schicht über 14h erkannt – Admin-Freigabe erforderlich",
+                }
+    except Exception:
+        pass
 
     # Netto-Stunden berechnen
     pause_manuell = eintrag.get("pause_minuten")
@@ -999,7 +1036,8 @@ def fuehre_testrechnung_durch() -> str:
         "id": 999,
         "vorname": "Test",
         "nachname": "Mitarbeiter",
-        "stundenlohn_brutto": 15.00,
+        "monatliche_soll_stunden": 160.0,
+        "monatliche_brutto_verguetung": 2400.0,
         "sonntagszuschlag_aktiv": True,
         "feiertagszuschlag_aktiv": True,
     }

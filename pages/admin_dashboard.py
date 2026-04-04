@@ -25,7 +25,7 @@ from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 ADMIN_MITARBEITER_COLUMNS = (
     "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
     "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
-    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage, resturlaub_vorjahr, "
+    "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage, resturlaub_vorjahr, "
     "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
 )
 
@@ -413,7 +413,7 @@ def _show_mitarbeiter_stammdaten_tab():
             with n11:
                 new_soll = st.number_input("Monatliche Sollstunden", min_value=0.0, value=160.0, step=0.5)
             with n12:
-                new_lohn = st.number_input("Stundenlohn (brutto)", min_value=0.0, value=0.0, step=0.5)
+                new_monatsbrutto = st.number_input("Monatliche Brutto-Vergütung", min_value=0.0, value=0.0, step=50.0)
 
             n13, n14, n15 = st.columns(3)
             with n13:
@@ -442,7 +442,7 @@ def _show_mitarbeiter_stammdaten_tab():
                         "eintrittsdatum": new_eintritt.isoformat(),
                         "geburtsdatum": new_geburtsdatum.isoformat(),
                         "monatliche_soll_stunden": float(new_soll),
-                        "stundenlohn_brutto": float(new_lohn),
+                        "monatliche_brutto_verguetung": float(new_monatsbrutto),
                         "jahres_urlaubstage": float(new_urlaub),
                         "resturlaub_vorjahr": float(new_resturlaub),
                         "sonntagszuschlag_aktiv": False,
@@ -472,7 +472,7 @@ def _show_mitarbeiter_stammdaten_tab():
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Personalnummer", ma.get("personalnummer") or "-")
     c2.metric("Soll (Monat)", f"{_to_float(ma.get('monatliche_soll_stunden')):.2f} h")
-    c3.metric("Stundenlohn", f"{_to_float(ma.get('stundenlohn_brutto')):.2f} EUR")
+    c3.metric("Monatsbrutto", f"{_to_float(ma.get('monatliche_brutto_verguetung')):.2f} EUR")
     c4.metric("Urlaub/Jahr", f"{_to_float(ma.get('jahres_urlaubstage')):.1f} Tg")
 
     eintritt_default = _safe_date(ma.get("eintrittsdatum")) or date.today()
@@ -526,11 +526,11 @@ def _show_mitarbeiter_stammdaten_tab():
                 step=0.5,
             )
         with l2:
-            stundenlohn_brutto = st.number_input(
-                "Stundenlohn (brutto)",
+            monatliche_brutto_verguetung = st.number_input(
+                "Monatliche Brutto-Vergütung",
                 min_value=0.0,
-                value=_to_float(ma.get("stundenlohn_brutto")),
-                step=0.5,
+                value=_to_float(ma.get("monatliche_brutto_verguetung")),
+                step=50.0,
             )
         with l3:
             jahres_urlaubstage = st.number_input(
@@ -574,7 +574,7 @@ def _show_mitarbeiter_stammdaten_tab():
                 "eintrittsdatum": eintrittsdatum.isoformat(),
                 "austrittsdatum": austrittsdatum.isoformat() if hat_austritt else None,
                 "monatliche_soll_stunden": float(monatliche_soll_stunden),
-                "stundenlohn_brutto": float(stundenlohn_brutto),
+                "monatliche_brutto_verguetung": float(monatliche_brutto_verguetung),
                 "jahres_urlaubstage": float(jahres_urlaubstage),
                 "resturlaub_vorjahr": float(resturlaub_vorjahr),
                 "sonntagszuschlag_aktiv": bool(sonntagszuschlag_aktiv),
@@ -628,11 +628,11 @@ def _show_mitarbeiter_stammdaten_tab():
                     step=0.5,
                 )
             with u8:
-                vertrag_lohn = st.number_input(
-                    "Stundenlohn (Vertrag)",
+                vertrag_monatsbrutto = st.number_input(
+                    "Monatliche Brutto-Vergütung (Vertrag)",
                     min_value=0.0,
-                    value=float(ma.get("stundenlohn_brutto") or 0.0),
-                    step=0.5,
+                    value=float(ma.get("monatliche_brutto_verguetung") or 0.0),
+                    step=50.0,
                 )
             with u9:
                 dokument_status = st.selectbox("Status", ["aktiv", "abgelaufen", "fehlend"])
@@ -700,7 +700,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                         "wochenstunden": float(vertrag_wochenstunden or 0.0),
                                         "soll_stunden_monat": float(vertrag_soll_monat or 0.0),
                                         "urlaubstage_jahr": float(vertrag_urlaub or 0.0),
-                                        "stundenlohn_brutto": float(vertrag_lohn or 0.0),
+                                        "monatsbrutto_verguetung": float(vertrag_monatsbrutto or 0.0),
                                         "vertrag_dokument_pfad": file_path,
                                     }
                                 ).execute()
@@ -727,7 +727,7 @@ def _show_mitarbeiter_stammdaten_tab():
             supabase.table("vertraege")
             .select(
                 "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
-                "wochenstunden, urlaubstage_jahr, stundenlohn_brutto"
+                "wochenstunden, urlaubstage_jahr, monatsbrutto_verguetung"
             )
             .eq("mitarbeiter_id", ma["id"])
             .order("gueltig_ab", desc=True)
@@ -748,7 +748,7 @@ def _show_mitarbeiter_stammdaten_tab():
                     "Soll (Monat)": float(v.get("soll_stunden_monat") or 0.0),
                     "Wochenstunden": float(v.get("wochenstunden") or 0.0),
                     "Urlaub/Jahr": float(v.get("urlaubstage_jahr") or 0.0),
-                    "Stundenlohn": float(v.get("stundenlohn_brutto") or 0.0),
+                    "Monatsbrutto": float(v.get("monatsbrutto_verguetung") or 0.0),
                 }
                 for v in vertraege
             ],
@@ -815,12 +815,12 @@ def _show_mitarbeiter_stammdaten_tab():
                             key=f"vg_urlaub_{vid}",
                         )
 
-                    vg_lohn = st.number_input(
-                        "Stundenlohn",
+                    vg_monatsbrutto = st.number_input(
+                        "Monatliche Brutto-Vergütung",
                         min_value=0.0,
-                        value=float(v.get("stundenlohn_brutto") or 0.0),
-                        step=0.5,
-                        key=f"vg_lohn_{vid}",
+                        value=float(v.get("monatsbrutto_verguetung") or 0.0),
+                        step=50.0,
+                        key=f"vg_monatsbrutto_{vid}",
                     )
 
                     s_col, d_col = st.columns(2)
@@ -838,7 +838,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                     "wochenstunden": float(vg_wochen),
                                     "soll_stunden_monat": float(vg_soll),
                                     "urlaubstage_jahr": float(vg_urlaub),
-                                    "stundenlohn_brutto": float(vg_lohn),
+                                    "monatsbrutto_verguetung": float(vg_monatsbrutto),
                                 }
                             ).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
                             _refresh_after_write()

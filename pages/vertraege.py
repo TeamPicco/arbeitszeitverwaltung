@@ -16,7 +16,7 @@ from utils.database import get_supabase_client
 MITARBEITER_SELECT_COLUMNS = (
     "id, betrieb_id, vorname, nachname, personalnummer, "
     "strasse, plz, ort, geburtsdatum, eintrittsdatum, "
-    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage"
+    "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage"
 )
 
 
@@ -90,7 +90,9 @@ def _build_prefill(ma: dict) -> ContractData:
     today = date.today()
     start_date = _to_date(ma.get("eintrittsdatum"), fallback=today)
     monthly_hours = _safe_float(ma.get("monatliche_soll_stunden"), 130.0)
-    monthly_gross = round(_safe_float(ma.get("stundenlohn_brutto"), 15.0) * monthly_hours, 2)
+    monthly_gross = _safe_float(ma.get("monatliche_brutto_verguetung"), 0.0)
+    if monthly_gross <= 0:
+        monthly_gross = round(monthly_hours * 15.0, 2)
     annual_vacation = _safe_float(ma.get("jahres_urlaubstage"), 20.0)
 
     return ContractData(
