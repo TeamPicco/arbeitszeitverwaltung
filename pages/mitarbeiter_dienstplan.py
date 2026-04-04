@@ -13,6 +13,7 @@ import io
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
+from utils.dienstplan_stats import summarize_employee_month
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -315,22 +316,19 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
 
     st.markdown("---")
 
-    if not dienstplaene_resp.data:
+    dienste = dienstplaene_resp.data or []
+    counts = summarize_employee_month(year=jahr, month=monat, entries=dienste)
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    col_a.metric("Geplant", counts.geplant)
+    col_b.metric("Urlaub", counts.urlaub)
+    col_c.metric("Frei", counts.frei)
+    col_d.metric("Krank", counts.krank)
+
+    if not dienste:
         st.info(f"Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
-        st.caption("Ihr Administrator hat noch keine Dienste für Sie eingetragen.")
+        st.caption("Tage ohne Eintrag (inkl. Ruhetage) werden in der Statistik als Frei gezählt.")
         return
-
-    dienste = dienstplaene_resp.data
-
-    # Zähler (nur Anzahl, keine Stunden)
-    arbeit_n = sum(1 for d in dienste if d.get('schichttyp', 'arbeit') == 'arbeit')
-    urlaub_n = sum(1 for d in dienste if d.get('schichttyp') == 'urlaub')
-    frei_n   = sum(1 for d in dienste if d.get('schichttyp') == 'frei')
-
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Arbeitstage", arbeit_n)
-    col_b.metric("Urlaub", urlaub_n)
-    col_c.metric("Frei", frei_n)
 
     # PDF-Download
     try:
@@ -373,7 +371,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
             typ = dienst.get('schichttyp', 'arbeit')
             zeit = _format_zeit(dienst)
 
-            badge_label = {"arbeit": "Arbeit", "urlaub": "Urlaub", "frei": "Frei"}.get(typ, typ.capitalize())
+            badge_label = {"arbeit": "Geplant", "urlaub": "Urlaub", "frei": "Frei", "krank": "Krank"}.get(typ, typ.capitalize())
 
             st.markdown(f"""
             <div class="dp-card {typ}">

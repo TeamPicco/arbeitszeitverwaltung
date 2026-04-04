@@ -14,6 +14,7 @@ from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
 from utils.audit_log import log_aktion
+from utils.dienstplan_stats import summarize_employee_month
 from utils.calculations import (
     parse_zeit,
 )
@@ -868,31 +869,40 @@ def show_monatsplan(supabase):
 
     # ── MITARBEITER-ÜBERSICHT ─────────────────────────────────
     for mitarbeiter in mitarbeiter_liste:
-        # Zähle Typen (alle Einträge aus der Listen-Map zusammenführen)
+        # Zähle Typen (einheitliche Monatslogik, inkl. Ruhetage als Frei ohne Eintrag)
         ma_dienste_flat = []
         for key, eintraege in dienste_map.items():
             if key[0] == mitarbeiter['id']:
                 ma_dienste_flat.extend(eintraege)
         ma_dienste = ma_dienste_flat
-        arbeit_tage = sum(1 for d in ma_dienste if d.get('schichttyp', 'arbeit') == 'arbeit')
-        urlaub_tage = sum(1 for d in ma_dienste if d.get('schichttyp') == 'urlaub')
-        krank_tage  = sum(1 for d in ma_dienste if d.get('schichttyp') == 'krank')
-        frei_tage   = sum(1 for d in ma_dienste if d.get('schichttyp') == 'frei')
+        genehmigt_urlaub_dates = {
+            datum_iso
+            for (ma_id, datum_iso), _ in urlaub_map.items()
+            if ma_id == mitarbeiter['id']
+        }
+        counts = summarize_employee_month(
+            year=jahr,
+            month=monat,
+            entries=ma_dienste,
+            extra_urlaub_dates=genehmigt_urlaub_dates,
+        )
 
         # Ausstehende Urlaube für diesen MA im Monat
-        ausstehend = sum(1 for (ma_id, _) in urlaub_map if ma_id == mitarbeiter['id'])
+        ausstehend = len(genehmigt_urlaub_dates)
         bereits_im_plan = len(set(d['datum'] for d in ma_dienste if d.get('schichttyp') == 'urlaub'))
-        nicht_eingetragen = ausstehend - bereits_im_plan
+        nicht_eingetragen = max(0, ausstehend - bereits_im_plan)
 
-        badge = ""
+        summary_line = (
+            f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}: "
+            f"{counts.geplant} Geplant | "
+            f"{counts.urlaub} Urlaub | "
+            f"{counts.frei} Frei | "
+            f"{counts.krank} Krank"
+        )
         if nicht_eingetragen > 0:
-            badge = f" | {nicht_eingetragen} Urlaub(e) fehlen im Plan"
-
-        krank_badge = f" | {krank_tage} Krank" if krank_tage > 0 else ""
+            summary_line += f" | {nicht_eingetragen} Urlaub Offen"
         with st.expander(
-            f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} "
-            f"| {arbeit_tage} Arbeit | {urlaub_tage} Urlaub | {frei_tage} Frei"
-            + krank_badge + badge
+            summary_line
         ):
             if nicht_eingetragen > 0:
                 st.warning(
@@ -1089,7 +1099,7 @@ def show_monatsuebersicht_tabelle(supabase):
     planning_table = resolve_planning_table(supabase)
 
     st.subheader("Monatsübersicht (Tabelle)")
-    st.info("Übersicht aller Mitarbeiter – Arbeit, Urlaub, Frei, Ruhetag.")
+    st.info("Übersicht aller Mitarbeiter – Geplant, Urlaub, Frei, Krank (Ruhetage ohne Eintrag zählen als Frei).")
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
