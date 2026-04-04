@@ -1,11 +1,10 @@
 import os
 from datetime import date, datetime
-import json
 
 import streamlit as st
 from streamlit_option_menu import option_menu
 
-from pages import admin_dienstplan, zeitauswertung
+from pages import admin_dienstplan, zeitauswertung, vertraege
 from utils.absences import delete_absence, store_absence, update_absence
 from utils.cache_manager import clear_app_caches
 from utils.database import (
@@ -21,12 +20,6 @@ from utils.work_accounts import (
     validate_work_account_month,
 )
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
-from utils.vertrag_templates import (
-    VERTRAG_TEMPLATE_OPTIONS,
-    build_default_contract_payload,
-    coerce_to_date,
-    generate_contract_pdf,
-)
 
 
 ADMIN_MITARBEITER_COLUMNS = (
@@ -79,37 +72,6 @@ def _to_float(value, default: float = 0.0) -> float:
         return float(value if value is not None else default)
     except Exception:
         return default
-
-
-def _safe_date_input_value(value) -> date:
-    """Garantiert ein valides Datum für st.date_input."""
-    try:
-        from datetime import datetime as _dt, date as _date
-        if isinstance(value, _dt):
-            return value.date()
-        if isinstance(value, _date):
-            return value
-        coerced = coerce_to_date(value)
-        if isinstance(coerced, _dt):
-            return coerced.date()
-        if isinstance(coerced, _date):
-            return coerced
-    except Exception:
-        pass
-    return date.today()
-
-
-def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
-    """
-    Normalisiert bereits vorhandene Session-State-Werte für date_input-Widgets.
-    Schützt gegen alte/ungültige Browser-Widgetzustände nach Deploys.
-    """
-    if key not in st.session_state:
-        return
-    try:
-        st.session_state[key] = coerce_to_date(st.session_state.get(key), fallback=fallback or date.today())
-    except Exception:
-        st.session_state.pop(key, None)
 
 
 def _show_zeitauswertung_tab():
@@ -930,262 +892,7 @@ def _show_mitarbeiter_stammdaten_tab():
 
 
 def _show_vertrag_generator_tab():
-    st.subheader("Vertragsgenerator")
-    st.caption(
-        "Vertrag individuell anpassen und als PDF direkt herunterladen. "
-        "Änderbare Felder: Name, Anschrift, Geburtsdatum, Datum, Eintrittsdatum, "
-        "monatliche Arbeitszeit, Probezeit, Zusatzvereinbarungen, gültig ab und weitere vertragsrelevante Angaben."
-    )
-    supabase = get_supabase_client()
-    alle_ma = _load_admin_mitarbeiter()
-    if not alle_ma:
-        st.info("Keine Mitarbeiter vorhanden.")
-        return
-
-    ma_options = {
-        f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
-        for m in alle_ma
-    }
-    selected_label = st.selectbox(
-        "Mitarbeiter",
-        list(ma_options.keys()),
-        key="vertrag_ma_select",
-    )
-    ma = ma_options[selected_label]
-
-    template_key = st.selectbox(
-        "Vertragsvorlage",
-        list(VERTRAG_TEMPLATE_OPTIONS.keys()),
-        format_func=lambda x: VERTRAG_TEMPLATE_OPTIONS.get(x, x),
-        key="vertrag_template_select",
-    )
-    payload = build_default_contract_payload(ma, template_key=template_key)
-    st.markdown("---")
-
-    ma_id = int(ma.get("id") or 0)
-    template_id = str(template_key)
-
-    def scoped_key(base: str) -> str:
-        return f"key_{base}_{ma_id}_{template_id}"
-
-    k_an_geb = scoped_key("v_an_geb")
-    k_vertragsdatum = scoped_key("v_vertragsdatum")
-    k_eintritt = scoped_key("v_eintritt")
-    k_gueltig_ab = scoped_key("v_gueltig_ab")
-
-    # Alte Browser-Widgetzustände nach Deploys bereinigen (kann sonst date_input crashen).
-    _sanitize_date_widget_state(k_an_geb, fallback=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]))
-    _sanitize_date_widget_state(k_vertragsdatum, fallback=_safe_date_input_value(payload["vertragsdatum"]))
-    _sanitize_date_widget_state(k_eintritt, fallback=_safe_date_input_value(payload["eintrittsdatum"]))
-    _sanitize_date_widget_state(k_gueltig_ab, fallback=_safe_date_input_value(payload["gueltig_ab"]))
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### Arbeitgeber")
-        ag_name = st.text_input("Firmenname", value=payload["arbeitgeber_name"], key=scoped_key("v_ag_name"))
-        ag_vertretung = st.text_input(
-            "Vertreten durch",
-            value=payload["arbeitgeber_vertreten_durch"],
-            key=scoped_key("v_ag_vertreter"),
-        )
-        ag_strasse = st.text_input(
-            "Straße / Hausnummer",
-            value=payload["arbeitgeber_strasse"],
-            key=scoped_key("v_ag_strasse"),
-        )
-        ag_plz_ort = st.text_input("PLZ / Ort", value=payload["arbeitgeber_plz_ort"], key=scoped_key("v_ag_plz_ort"))
-
-        st.markdown("#### Arbeitnehmer – persönliche Daten")
-        an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key=scoped_key("v_an_name"))
-        an_geburtsdatum = st.date_input(
-            "Geburtsdatum",
-            value=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]),
-            format="DD.MM.YYYY",
-            key=k_an_geb,
-        )
-        an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key=scoped_key("v_an_anschrift"))
-        an_personaldaten = st.text_area(
-            "Weitere persönliche Daten",
-            value=payload["persoenliche_daten"],
-            key=scoped_key("v_person_daten"),
-        )
-
-    with c2:
-        st.markdown("#### Vertragsdaten")
-        vertragsdatum = st.date_input(
-            "Vertragsdatum",
-            value=_safe_date_input_value(payload["vertragsdatum"]),
-            format="DD.MM.YYYY",
-            key=k_vertragsdatum,
-        )
-        eintrittsdatum = st.date_input(
-            "Eintrittsdatum",
-            value=_safe_date_input_value(payload["eintrittsdatum"]),
-            format="DD.MM.YYYY",
-            key=k_eintritt,
-        )
-        gueltig_ab = st.date_input(
-            "Gültig ab",
-            value=_safe_date_input_value(payload["gueltig_ab"]),
-            format="DD.MM.YYYY",
-            key=k_gueltig_ab,
-        )
-        monatliche_arbeitszeit = st.number_input(
-            "Monatliche Arbeitszeit (Stunden)",
-            min_value=0.0,
-            value=float(payload["monatliche_arbeitszeit"]),
-            step=0.5,
-            key=scoped_key("v_monatszeit"),
-        )
-        probezeit_monate = st.number_input(
-            "Probezeit (Monate)",
-            min_value=0,
-            max_value=24,
-            value=int(payload["probezeit_monate"]),
-            step=1,
-            key=scoped_key("v_probezeit"),
-        )
-        wochenarbeitstage = st.text_input(
-            "Arbeitstage pro Woche",
-            value=payload["wochenarbeitstage"],
-            key=scoped_key("v_arbeitstage"),
-        )
-        stundenlohn_brutto = st.number_input(
-            "Stundenlohn (brutto)",
-            min_value=0.0,
-            value=float(payload["stundenlohn_brutto"]),
-            step=0.5,
-            key=scoped_key("v_stundenlohn"),
-        )
-        zuschlaege = st.text_area(
-            "Zuschläge / Vergütungsdetails",
-            value=payload["zuschlaege"],
-            key=scoped_key("v_zuschlaege"),
-        )
-        zusatzvereinbarungen = st.text_area(
-            "Zusatzvereinbarungen",
-            value=payload["zusatzvereinbarungen"],
-            key=scoped_key("v_zusatz"),
-        )
-
-    generated_payload = {
-        "arbeitgeber_name": ag_name.strip(),
-        "arbeitgeber_vertreten_durch": ag_vertretung.strip(),
-        "arbeitgeber_strasse": ag_strasse.strip(),
-        "arbeitgeber_plz_ort": ag_plz_ort.strip(),
-        "arbeitnehmer_name": an_name.strip(),
-        "arbeitnehmer_geburtsdatum": an_geburtsdatum,
-        "arbeitnehmer_anschrift": an_anschrift.strip(),
-        "persoenliche_daten": an_personaldaten.strip(),
-        "vertragsdatum": vertragsdatum,
-        "eintrittsdatum": eintrittsdatum,
-        "gueltig_ab": gueltig_ab,
-        "monatliche_arbeitszeit": float(monatliche_arbeitszeit),
-        "probezeit_monate": int(probezeit_monate),
-        "wochenarbeitstage": wochenarbeitstage.strip(),
-        "stundenlohn_brutto": float(stundenlohn_brutto),
-        "zuschlaege": zuschlaege.strip(),
-        "zusatzvereinbarungen": zusatzvereinbarungen.strip(),
-        "template_name": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
-    }
-
-    payload_sig = json.dumps(generated_payload, sort_keys=True, default=str)
-    sig_key = scoped_key("vertrag_pdf_sig")
-    pdf_key = scoped_key("vertrag_pdf_bytes")
-    current_sig = st.session_state.get(sig_key)
-    current_pdf = st.session_state.get(pdf_key)
-
-    file_suffix = ma.get("nachname") or "Mitarbeiter"
-    file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
-
-    if st.button(
-        "Vertrags-PDF erzeugen",
-        type="primary",
-        use_container_width=True,
-        key=scoped_key("vertrag_pdf_generate"),
-    ):
-        with st.spinner("PDF wird erzeugt..."):
-            st.session_state[pdf_key] = generate_contract_pdf(generated_payload)
-            st.session_state[sig_key] = payload_sig
-        current_sig = st.session_state.get(sig_key)
-        current_pdf = st.session_state.get(pdf_key)
-        st.success("PDF wurde erzeugt.")
-
-    if current_sig == payload_sig and current_pdf:
-        st.download_button(
-            "Vertrag als PDF herunterladen",
-            data=current_pdf,
-            file_name=file_name,
-            mime="application/pdf",
-            use_container_width=True,
-            key=scoped_key("vertrag_pdf_download"),
-        )
-    else:
-        st.info("Bitte zuerst auf „Vertrags-PDF erzeugen“ klicken.")
-
-    if st.button(
-        "Als Vertrags-Dokument beim Mitarbeiter speichern",
-        use_container_width=True,
-        key=scoped_key("vertrag_store_doc"),
-    ):
-        if not (current_sig == payload_sig and current_pdf):
-            st.warning("Bitte zuerst „Vertrags-PDF erzeugen“ ausführen.")
-            return
-        file_path = (
-            f"vertraege/{ma['id']}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name.replace(' ', '_')}"
-        )
-        upload_result = upload_file_to_storage_result(
-            "dokumente",
-            file_path,
-            current_pdf,
-            fallback_buckets=["arbeitsvertraege"],
-        )
-        if not upload_result.get("ok"):
-            st.error(
-                "PDF-Upload fehlgeschlagen. "
-                f"Details: {upload_result.get('status_code') or '-'} {upload_result.get('error') or ''}"
-            )
-            return
-        used_bucket = upload_result.get("bucket") or "dokumente"
-        file_url = _storage_public_url(used_bucket, file_path)
-        try:
-            supabase.table("mitarbeiter_dokumente").insert(
-                {
-                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                    "mitarbeiter_id": ma["id"],
-                    "name": f"Vertrag {gueltig_ab.strftime('%d.%m.%Y')}",
-                    "typ": "arbeitsvertrag",
-                    "file_path": file_path,
-                    "file_url": file_url,
-                    "status": "aktiv",
-                    "gueltig_bis": None,
-                    "metadaten": {
-                        "generated_by": "vertrag_generator",
-                        "template": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
-                    },
-                    "erstellt_von": st.session_state.get("user_id"),
-                }
-            ).execute()
-        except Exception as e:
-            st.warning(f"Dokument-Metadaten konnten nicht gespeichert werden: {e}")
-        try:
-            supabase.table("vertraege").insert(
-                {
-                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                    "mitarbeiter_id": ma["id"],
-                    "gueltig_ab": gueltig_ab.isoformat(),
-                    "gueltig_bis": None,
-                    "wochenstunden": 0.0,
-                    "soll_stunden_monat": float(monatliche_arbeitszeit),
-                    "urlaubstage_jahr": float(ma.get("jahres_urlaubstage") or 0.0),
-                    "stundenlohn_brutto": float(stundenlohn_brutto),
-                    "vertrag_dokument_pfad": file_path,
-                }
-            ).execute()
-        except Exception as e:
-            st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
-        _refresh_after_write()
-        st.success("Vertrag als Dokument gespeichert.")
+    vertraege.show_vertraege_page()
 
 
 def _show_system_tab():
@@ -1551,14 +1258,17 @@ def show_admin_dashboard():
     with top_logo:
         st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
+        nav_options = ["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
+        current_nav = st.session_state.get("admin_nav", "Dienstplanung")
+        if current_nav == "Vertraege":
+            current_nav = "Verträge"
+        default_idx = nav_options.index(current_nav) if current_nav in nav_options else 0
         selected = option_menu(
             menu_title=None,
-            options=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Vertraege"],
+            options=nav_options,
             icons=["calendar", "clock", "bar-chart-2", "file-text"],
             orientation="horizontal",
-            default_index=["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Vertraege"].index(
-                st.session_state.get("admin_nav", "Dienstplanung")
-            ),
+            default_index=default_idx,
             key="admin_top_option_menu",
             styles={
                 "container": {"padding": "0", "background-color": "transparent"},
