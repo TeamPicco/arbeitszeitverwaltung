@@ -4,13 +4,13 @@ from datetime import date
 
 import streamlit as st
 
-from utils.database import get_supabase_client
 from utils.contract_pdf_generator import (
     ContractData,
     as_download_filename,
     generate_contract_pdf,
     preview_pdf_html,
 )
+from utils.database import get_supabase_client
 
 
 MITARBEITER_SELECT_COLUMNS = (
@@ -61,6 +61,23 @@ def _load_mitarbeiter_for_contracts(betrieb_id: int | None):
     return res.data or []
 
 
+def _resolve_logo_path() -> str:
+    root = st.session_state.get("_workspace_root", "/workspace")
+    candidates = [
+        f"{root}/assets/Piccolo Logo.jpeg",
+        f"{root}/assets/Piccolo Logo.jpg",
+        f"{root}/assets/piccolo_logo.jpeg",
+        f"{root}/assets/piccolo_logo.jpg",
+    ]
+    for path in candidates:
+        try:
+            with open(path, "rb"):
+                return path
+        except Exception:
+            continue
+    return ""
+
+
 def _build_prefill(ma: dict) -> ContractData:
     first_name = _safe_text(ma.get("vorname"))
     last_name = _safe_text(ma.get("nachname"))
@@ -72,13 +89,13 @@ def _build_prefill(ma: dict) -> ContractData:
 
     today = date.today()
     start_date = _to_date(ma.get("eintrittsdatum"), fallback=today)
-    hourly_wage = _safe_float(ma.get("stundenlohn_brutto"), 15.00)
     monthly_hours = _safe_float(ma.get("monatliche_soll_stunden"), 130.0)
+    monthly_gross = round(_safe_float(ma.get("stundenlohn_brutto"), 15.0) * monthly_hours, 2)
     annual_vacation = _safe_float(ma.get("jahres_urlaubstage"), 20.0)
 
     return ContractData(
         contract_title="Änderungsvertrag",
-        prior_contract_date="15. Oktober 2025",
+        prior_contract_date_text="15. Oktober 2025",
         employer_name="Steakhouse Piccolo",
         employer_represented_by="Silvana Lasinski",
         employer_street="Gustav-Adolf-Straße 17",
@@ -87,63 +104,52 @@ def _build_prefill(ma: dict) -> ContractData:
         employee_birth_date=_to_date(ma.get("geburtsdatum"), fallback=today),
         employee_street=street,
         employee_city_line=city_line,
-        effective_date=start_date,
-        start_of_employment=start_date,
-        probation_months=6,
+        employment_start_date=start_date,
+        amendment_effective_date=start_date,
         monthly_target_hours=monthly_hours,
-        gross_hourly_wage=hourly_wage,
+        monthly_gross_salary=monthly_gross,
         annual_vacation_days=annual_vacation,
         additional_agreements="",
+        logo_path=_resolve_logo_path(),
     )
 
 
 def _render_form(prefill: ContractData) -> ContractData:
-    st.markdown("### Arbeitnehmer-Daten")
+    st.markdown("### Mitarbeiter-Sync")
+    st.caption("Name, Anschrift und Geburtsdatum werden automatisch aus der Datenbank vorgeladen und können angepasst werden.")
+
     c1, c2 = st.columns(2)
     with c1:
-        employee_name = st.text_input("Name", value=prefill.employee_name, key="v2_employee_name")
+        employee_name = st.text_input("Name", value=prefill.employee_name, key="v4_employee_name")
         employee_birth_date = st.date_input(
             "Geburtsdatum",
             value=_to_date(prefill.employee_birth_date),
             format="DD.MM.YYYY",
-            key="v2_birth_date",
+            key="v4_birth_date",
         )
     with c2:
-        employee_street = st.text_input("Straße", value=prefill.employee_street, key="v2_employee_street")
+        employee_street = st.text_input("Straße", value=prefill.employee_street, key="v4_employee_street")
         employee_city_line = st.text_input(
             "PLZ / Ort",
             value=prefill.employee_city_line,
-            key="v2_employee_city",
+            key="v4_employee_city",
             placeholder="z. B. 04105 Leipzig",
         )
 
     st.markdown("### Vertragsdetails")
     d1, d2, d3 = st.columns(3)
     with d1:
-        contract_title = st.selectbox(
-            "Vertragsart",
-            options=["Änderungsvertrag", "Arbeitsvertrag"],
-            index=0 if prefill.contract_title == "Änderungsvertrag" else 1,
-            key="v2_contract_title",
+        prior_contract_date_text = st.text_input(
+            "Datum ursprünglicher Arbeitsvertrag",
+            value=prefill.prior_contract_date_text,
+            key="v4_prior_contract_date_text",
+            help="Default: 15. Oktober 2025",
         )
-        prior_contract_date = st.text_input(
-            "Bezugsvertrag vom",
-            value=prefill.prior_contract_date,
-            key="v2_prior_contract_date",
-        )
-        effective_date = st.date_input(
-            "Beginn des AV / Wirksam ab",
-            value=_to_date(prefill.effective_date),
+        amendment_effective_date = st.date_input(
+            "Inkrafttreten der Änderung",
+            value=_to_date(prefill.amendment_effective_date),
             format="DD.MM.YYYY",
-            key="v2_effective_date",
-        )
-        probation_months = st.number_input(
-            "Dauer der Probezeit (Monate)",
-            min_value=0,
-            max_value=24,
-            value=int(prefill.probation_months),
-            step=1,
-            key="v2_probation_months",
+            key="v4_effective_date",
         )
     with d2:
         monthly_target_hours = st.number_input(
@@ -152,15 +158,15 @@ def _render_form(prefill: ContractData) -> ContractData:
             value=float(prefill.monthly_target_hours),
             step=0.5,
             format="%.2f",
-            key="v2_monthly_hours",
+            key="v4_monthly_hours",
         )
-        gross_hourly_wage = st.number_input(
-            "Brutto-Vergütung je Stunde (€)",
+        monthly_gross_salary = st.number_input(
+            "Monatliche Brutto-Vergütung (€)",
             min_value=0.0,
-            value=float(prefill.gross_hourly_wage),
-            step=0.5,
+            value=float(prefill.monthly_gross_salary),
+            step=50.0,
             format="%.2f",
-            key="v2_hourly_wage",
+            key="v4_monthly_gross",
         )
     with d3:
         annual_vacation_days = st.number_input(
@@ -169,26 +175,26 @@ def _render_form(prefill: ContractData) -> ContractData:
             value=float(prefill.annual_vacation_days),
             step=0.5,
             format="%.1f",
-            key="v2_vacation_days",
+            key="v4_vacation_days",
         )
-        start_of_employment = st.date_input(
-            "Beginn Beschäftigung",
-            value=_to_date(prefill.start_of_employment),
+        employment_start_date = st.date_input(
+            "Eintrittsdatum",
+            value=_to_date(prefill.employment_start_date),
             format="DD.MM.YYYY",
-            key="v2_start_employment",
+            key="v4_start_employment",
         )
 
     additional_agreements = st.text_area(
-        "Sonstige Vereinbarungen",
+        "Sonstige Vereinbarungen (§ 8)",
         value=prefill.additional_agreements,
-        key="v2_additional_agreements",
+        key="v4_additional_agreements",
         height=130,
-        placeholder="Weitere individuelle Regelungen, Ergänzungen, Hinweise...",
+        placeholder="Freitext für individuelle Vereinbarungen...",
     )
 
     return ContractData(
-        contract_title=contract_title,
-        prior_contract_date=prior_contract_date,
+        contract_title="Änderungsvertrag",
+        prior_contract_date_text=prior_contract_date_text,
         employer_name=prefill.employer_name,
         employer_represented_by=prefill.employer_represented_by,
         employer_street=prefill.employer_street,
@@ -197,13 +203,16 @@ def _render_form(prefill: ContractData) -> ContractData:
         employee_birth_date=employee_birth_date,
         employee_street=employee_street,
         employee_city_line=employee_city_line,
-        effective_date=effective_date,
-        start_of_employment=start_of_employment,
-        probation_months=int(probation_months),
+        employment_start_date=employment_start_date,
+        amendment_effective_date=amendment_effective_date,
         monthly_target_hours=float(monthly_target_hours),
-        gross_hourly_wage=float(gross_hourly_wage),
+        monthly_gross_salary=float(monthly_gross_salary),
         annual_vacation_days=float(annual_vacation_days),
         additional_agreements=additional_agreements,
+        employer_signatory="Silvana Lasinski",
+        signing_city="Leipzig",
+        signing_date=date.today(),
+        logo_path=prefill.logo_path,
     )
 
 
@@ -216,7 +225,7 @@ def _try_embed_pdf(pdf_bytes: bytes) -> None:
 
 def show_vertraege_page() -> None:
     st.subheader("Verträge")
-    st.caption("Arbeitsvertrag-Generator nach Musterlayout mit PDF-Vorschau und Download.")
+    st.caption("Rechtssicheres Änderungsvertrags-Modul mit Vorschau und Download.")
 
     betrieb_id = st.session_state.get("betrieb_id")
     ma_list = _load_mitarbeiter_for_contracts(betrieb_id)
@@ -228,30 +237,30 @@ def show_vertraege_page() -> None:
         f"{_safe_text(m.get('vorname'))} {_safe_text(m.get('nachname'))} ({_safe_text(m.get('personalnummer') or '-')})": m
         for m in ma_list
     }
-    selected_label = st.selectbox("Mitarbeiter auswählen", list(options.keys()), key="v2_selected_mitarbeiter")
+    selected_label = st.selectbox("Mitarbeiter auswählen", list(options.keys()), key="v4_selected_mitarbeiter")
     selected_employee = options[selected_label]
 
     prefill = _build_prefill(selected_employee)
     contract_data = _render_form(prefill)
 
-    if st.button("PDF erzeugen", type="primary", use_container_width=True, key="v2_generate_pdf_btn"):
+    if st.button("PDF erzeugen", type="primary", use_container_width=True, key="v4_generate_pdf_btn"):
         try:
             pdf_bytes = generate_contract_pdf(contract_data)
-            st.session_state["v2_contract_pdf"] = pdf_bytes
+            st.session_state["v4_contract_pdf"] = pdf_bytes
             st.success("Vertrag-PDF wurde erzeugt.")
         except Exception as exc:
             st.error(f"PDF-Erzeugung fehlgeschlagen: {exc}")
             return
 
-    pdf_bytes = st.session_state.get("v2_contract_pdf")
+    pdf_bytes = st.session_state.get("v4_contract_pdf")
     if pdf_bytes:
         st.markdown("### PDF-Vorschau")
         _try_embed_pdf(pdf_bytes)
         st.download_button(
-            label="PDF herunterladen",
+            label="Vertrag herunterladen",
             data=pdf_bytes,
-            file_name=as_download_filename(contract_data.employee_name, contract_data.effective_date),
+            file_name=as_download_filename(contract_data.employee_name, contract_data.amendment_effective_date),
             mime="application/pdf",
             use_container_width=True,
-            key="v2_contract_pdf_download",
+            key="v4_contract_pdf_download",
         )
