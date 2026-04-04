@@ -284,7 +284,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     """Zeigt den Dienstplan für den eingeloggten Mitarbeiter – clean & minimalistisch."""
 
     st.markdown(DIENSTPLAN_CSS, unsafe_allow_html=True)
-    st.subheader("📅 Mein Dienstplan")
+    st.subheader("Mein Dienstplan")
 
     supabase = get_supabase_client()
     planning_table = resolve_planning_table(supabase)
@@ -300,7 +300,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
                              format_func=lambda x: MONATE_DE[x],
                              key="mitarbeiter_dienstplan_monat")
     with col3:
-        if st.button("🔄", use_container_width=True, key="mitarbeiter_dienstplan_refresh",
+        if st.button("Aktualisieren", use_container_width=True, key="mitarbeiter_dienstplan_refresh",
                      help="Aktualisieren"):
             st.rerun()
 
@@ -316,7 +316,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.markdown("---")
 
     if not dienstplaene_resp.data:
-        st.info(f"ℹ️ Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
+        st.info(f"Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
         st.caption("Ihr Administrator hat noch keine Dienste für Sie eingetragen.")
         return
 
@@ -337,7 +337,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
         pdf_bytes = erstelle_dienstplan_pdf(mitarbeiter, dienste, jahr, monat)
         dateiname = f"Dienstplan_{mitarbeiter.get('nachname', 'Mitarbeiter')}_{MONATE_DE[monat]}_{jahr}.pdf"
         st.download_button(
-            label="📥 Dienstplan als PDF herunterladen",
+            label="Dienstplan als PDF herunterladen",
             data=pdf_bytes,
             file_name=dateiname,
             mime="application/pdf",
@@ -355,7 +355,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.markdown("---")
 
     # ── LISTEN-ANSICHT (clean) ────────────────────────────────
-    st.markdown(f'<div class="dp-month-header">📋 {MONATE_DE[monat]} {jahr}</div>',
+    st.markdown(f'<div class="dp-month-header">{MONATE_DE[monat]} {jahr}</div>',
                 unsafe_allow_html=True)
 
     # Gruppiere nach Datum (mehrere Schichten pro Tag möglich)
@@ -393,7 +393,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
 def _show_kalender(dienstplaene: list, jahr: int, monat: int):
     """Zeigt eine kompakte Kalender-Ansicht – nur Tage und Startzeiten, keine Stunden."""
 
-    st.markdown("### 📆 Kalender")
+    st.markdown("### Kalender")
 
     # Dienste-Dict aufbauen (mehrere Einträge pro Tag)
     dienste_dict: dict = {}

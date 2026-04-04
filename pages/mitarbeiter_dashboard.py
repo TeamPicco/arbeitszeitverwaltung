@@ -12,9 +12,9 @@ def show_mitarbeiter_dashboard():
     m_id = st.session_state.get('mitarbeiter_id')
 
     st.image(BRAND_LOGO_IMAGE, width=140)
-    st.title(f"Hallo {st.session_state.get('vorname')}! 👋")
+    st.title(f"Hallo {st.session_state.get('vorname')}!")
     
-    t1, t2, t3 = st.tabs(["🕒 Stempeln", "📅 Zeitkonto", "📄 Dokumente"])
+    t1, t2, t3 = st.tabs(["Stempeln", "Zeitkonto", "Dokumente"])
 
     with t1:
         st.header("Zeiterfassung")
@@ -57,7 +57,7 @@ def show_mitarbeiter_dashboard():
 
 def render_my_documents(m_id, supabase):
     # Wichtig: Die Einrückung hier löst den IndentationError!
-    st.header("📄 Meine Dokumente")
+    st.header("Meine Dokumente")
     docs = supabase.table("mitarbeiter_dokumente").select("*").eq("mitarbeiter_id", m_id).execute()
     if not docs.data:
         st.write("Keine Dokumente gefunden.")

@@ -29,10 +29,39 @@ def apply_custom_css() -> None:
             display: none !important;
         }}
 
+        [data-testid="stSidebarNav"] {{
+            display: none !important;
+        }}
+
         .block-container {{
             max-width: 1280px !important;
             padding-top: 1.2rem !important;
             padding-bottom: 1.2rem !important;
+        }}
+
+        .coreo-topbar {{
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            background: {COLORS["app_bg"]};
+            border-bottom: 1px solid {COLORS["border"]};
+            padding: 0.25rem 0 0.5rem 0;
+            margin-bottom: 1rem;
+        }}
+
+        .coreo-card {{
+            background: {COLORS["surface"]};
+            border: 1px solid {COLORS["border"]};
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }}
+
+        .st-key-header_logo img {{
+            height: 92px !important;
+            width: auto !important;
+            object-fit: contain !important;
         }}
 
         h1, h2, h3, h4, h5, h6, p, span, label, div {{
