@@ -763,6 +763,22 @@ def berechne_monat_cached(
     )
 
 
+def berechne_arbeitszeitkonto_saldo(
+    *,
+    ist_stunden: float,
+    soll_stunden: float,
+    saldenvortrag: float,
+) -> float:
+    """
+    Rechts- und fachlich eindeutige Saldoformel für das Arbeitszeitkonto:
+    Neuer Saldo = (Ist - Soll) + Saldenvortrag
+    """
+    ist_v = float(ist_stunden or 0.0)
+    soll_v = float(soll_stunden or 0.0)
+    vortrag_v = float(saldenvortrag or 0.0)
+    return round((ist_v - soll_v) + vortrag_v, 2)
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # VALIDIERUNGSFUNKTIONEN
 # ─────────────────────────────────────────────────────────────────────────────

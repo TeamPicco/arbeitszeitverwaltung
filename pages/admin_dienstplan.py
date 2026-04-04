@@ -13,6 +13,7 @@ import os
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
+from utils.audit_log import log_aktion
 from utils.calculations import (
     parse_zeit,
 )
@@ -111,6 +112,33 @@ def _clear_dienstplan_cache():
 def _refresh_after_write() -> None:
     _clear_dienstplan_cache()
     clear_app_caches()
+
+
+def _audit_dienstplan_change(
+    *,
+    action: str,
+    dienst_id: int,
+    mitarbeiter_id: int,
+    alter_wert: dict | None,
+    neuer_wert: dict | None,
+    begruendung: str,
+) -> None:
+    try:
+        log_aktion(
+            admin_user_id=int(st.session_state.get("user_id") or 0),
+            admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
+            aktion=action,
+            tabelle="dienstplan",
+            datensatz_id=int(dienst_id),
+            mitarbeiter_id=int(mitarbeiter_id),
+            mitarbeiter_name=None,
+            alter_wert=alter_wert,
+            neuer_wert=neuer_wert,
+            begruendung=begruendung,
+            betrieb_id=int(st.session_state.get("betrieb_id") or 0),
+        )
+    except Exception:
+        pass
 
 
 def _build_urlaub_map_from_rows(urlaub_rows: list, erster_tag: date, letzter_tag: date) -> dict:
@@ -761,55 +789,79 @@ def show_monatsplan(supabase):
             urlaub_stunden = 0.0
             krank_stunden = 0.0
 
-        if st.button("✅ Eintragen", use_container_width=True, type="primary"):
-            try:
-                eintrag = {
-                    'betrieb_id': st.session_state.betrieb_id,
-                    'mitarbeiter_id': mitarbeiter_id,
-                    'datum': dienst_datum.isoformat(),
-                    'schichttyp': schichttyp,
-                    'start_zeit': start_z.strftime('%H:%M:%S'),
-                    'ende_zeit': ende_z.strftime('%H:%M:%S'),
-                    'pause_minuten': pause_m,
-                }
-                if vorlage_id:
-                    eintrag['schichtvorlage_id'] = vorlage_id
-                if schichttyp == 'urlaub':
-                    eintrag['urlaub_stunden'] = urlaub_stunden
-                    # Verknüpfe mit Urlaubsantrag wenn vorhanden
-                    urlaub_key = (mitarbeiter_id, dienst_datum.isoformat())
-                    if urlaub_key in urlaub_map:
-                        eintrag['urlaubsantrag_id'] = urlaub_map[urlaub_key]['id']
-                elif schichttyp == 'krank':
-                    eintrag['urlaub_stunden'] = krank_stunden  # LFZ-Stunden im urlaub_stunden-Feld speichern
+        with st.popover("✅ Eintragen", use_container_width=True):
+            quick_add_reason = st.text_area(
+                "Begründung (manuelle Anpassung) *",
+                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                key=f"quick_add_reason_{monat}_{jahr}",
+            )
+            confirm_quick_add = st.button(
+                "Eintrag speichern",
+                type="primary",
+                use_container_width=True,
+                key=f"quick_add_confirm_{monat}_{jahr}",
+            )
+            if confirm_quick_add:
+                if not (quick_add_reason or "").strip():
+                    st.error("Bitte eine Begründung eingeben.")
+                else:
+                    try:
+                        eintrag = {
+                            'betrieb_id': st.session_state.betrieb_id,
+                            'mitarbeiter_id': mitarbeiter_id,
+                            'datum': dienst_datum.isoformat(),
+                            'schichttyp': schichttyp,
+                            'start_zeit': start_z.strftime('%H:%M:%S'),
+                            'ende_zeit': ende_z.strftime('%H:%M:%S'),
+                            'pause_minuten': pause_m,
+                        }
+                        if vorlage_id:
+                            eintrag['schichtvorlage_id'] = vorlage_id
+                        if schichttyp == 'urlaub':
+                            eintrag['urlaub_stunden'] = urlaub_stunden
+                            # Verknüpfe mit Urlaubsantrag wenn vorhanden
+                            urlaub_key = (mitarbeiter_id, dienst_datum.isoformat())
+                            if urlaub_key in urlaub_map:
+                                eintrag['urlaubsantrag_id'] = urlaub_map[urlaub_key]['id']
+                        elif schichttyp == 'krank':
+                            eintrag['urlaub_stunden'] = krank_stunden  # LFZ-Stunden im urlaub_stunden-Feld speichern
 
-                supabase.table(planning_table).insert(eintrag).execute()
-                _refresh_after_write()
-                st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
-                # E-Mail-Benachrichtigung an Mitarbeiter
-                try:
-                    from utils.email_service import send_dienstplan_email
-                    ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
-                    ma_email = ma_data.get('email', '')
-                    ma_name = f"{ma_data.get('vorname', '')} {ma_data.get('nachname', '')}".strip()
-                    if ma_email:
-                        send_dienstplan_email(
-                            empfaenger_email=ma_email,
-                            empfaenger_name=ma_name,
-                            monat=MONATE_DE[monat],
-                            jahr=str(jahr),
-                            schichten=[{
-                                'datum': dienst_datum.strftime('%d.%m.%Y'),
-                                'typ': SCHICHTTYPEN[schichttyp]['label'],
-                                'start': start_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
-                                'ende': ende_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
-                            }]
+                        resp = supabase.table(planning_table).insert(eintrag).execute()
+                        inserted = (resp.data or [{}])[0]
+                        _audit_dienstplan_change(
+                            action="dienstplan_anlage",
+                            dienst_id=int(inserted.get("id") or 0),
+                            mitarbeiter_id=int(mitarbeiter_id),
+                            alter_wert=None,
+                            neuer_wert=eintrag,
+                            begruendung=quick_add_reason.strip(),
                         )
-                except Exception:
-                    pass  # E-Mail-Fehler sollen den Hauptworkflow nicht blockieren
-                st.rerun()
-            except Exception as e:
-                st.error(f"Fehler: {str(e)}")
+                        _refresh_after_write()
+                        st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
+                        # E-Mail-Benachrichtigung an Mitarbeiter
+                        try:
+                            from utils.email_service import send_dienstplan_email
+                            ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
+                            ma_email = ma_data.get('email', '')
+                            ma_name = f"{ma_data.get('vorname', '')} {ma_data.get('nachname', '')}".strip()
+                            if ma_email:
+                                send_dienstplan_email(
+                                    empfaenger_email=ma_email,
+                                    empfaenger_name=ma_name,
+                                    monat=MONATE_DE[monat],
+                                    jahr=str(jahr),
+                                    schichten=[{
+                                        'datum': dienst_datum.strftime('%d.%m.%Y'),
+                                        'typ': SCHICHTTYPEN[schichttyp]['label'],
+                                        'start': start_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
+                                        'ende': ende_z.strftime('%H:%M') if schichttyp == 'arbeit' else '',
+                                    }]
+                                )
+                        except Exception:
+                            pass  # E-Mail-Fehler sollen den Hauptworkflow nicht blockieren
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Fehler: {str(e)}")
 
     st.markdown("---")
     st.markdown(f"### {MONATE_DE[monat]} {jahr}")
@@ -905,14 +957,44 @@ def show_monatsplan(supabase):
                             st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
                     with col5:
-                        if st.button("🗑️", key=f"del_{dienst['id']}", help="Löschen"):
-                            try:
-                                supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
-                                _refresh_after_write()
-                                st.success("✅ Gelöscht!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Fehler: {str(e)}")
+                        with st.popover("🗑️", use_container_width=True):
+                            del_reason_direct = st.text_area(
+                                "Begründung (Löschen) *",
+                                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                                key=f"del_reason_direct_{dienst['id']}",
+                            )
+                            do_delete_direct = st.button(
+                                "Eintrag löschen",
+                                key=f"del_confirm_direct_{dienst['id']}",
+                                use_container_width=True,
+                            )
+                            if do_delete_direct:
+                                if not (del_reason_direct or "").strip():
+                                    st.error("Bitte eine Begründung eingeben.")
+                                else:
+                                    try:
+                                        old_data = {
+                                            "datum": dienst.get("datum"),
+                                            "schichttyp": dienst.get("schichttyp"),
+                                            "start_zeit": dienst.get("start_zeit"),
+                                            "ende_zeit": dienst.get("ende_zeit"),
+                                            "pause_minuten": dienst.get("pause_minuten"),
+                                            "urlaub_stunden": dienst.get("urlaub_stunden"),
+                                        }
+                                        supabase.table(planning_table).delete().eq('id', dienst['id']).execute()
+                                        _audit_dienstplan_change(
+                                            action="dienstplan_loeschung",
+                                            dienst_id=int(dienst["id"]),
+                                            mitarbeiter_id=int(mitarbeiter["id"]),
+                                            alter_wert=old_data,
+                                            neuer_wert=None,
+                                            begruendung=del_reason_direct.strip(),
+                                        )
+                                        _refresh_after_write()
+                                        st.success("✅ Gelöscht!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Fehler: {str(e)}")
 
                     # Inline-Bearbeitungsformular
                     if st.session_state.get(edit_key, False):
@@ -946,26 +1028,50 @@ def show_monatsplan(supabase):
                                 with ec4:
                                     ende_val = dienst.get('ende_zeit', '16:00')[:5] if dienst.get('ende_zeit') else '16:00'
                                     neue_ende = st.text_input("Endzeit (HH:MM)", value=ende_val, key=f"ende_edit_{dienst['id']}")
+                                edit_reason = st.text_area(
+                                    "Begründung der manuellen Korrektur *",
+                                    placeholder="Pflichtfeld für Audit/GoBD",
+                                    key=f"edit_reason_{dienst['id']}",
+                                )
                                 sb1, sb2 = st.columns(2)
                                 with sb1:
                                     speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
                                 with sb2:
                                     abbrechen = st.form_submit_button("❌ Abbrechen", use_container_width=True)
                                 if speichern:
-                                    try:
-                                        update_data = {
-                                            'datum': neues_datum.isoformat(),
-                                            'schichttyp': neuer_typ,
-                                            'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
-                                            'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
-                                        }
-                                        supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
-                                        _refresh_after_write()
-                                        st.session_state[edit_key] = False
-                                        st.success("✅ Dienst aktualisiert!")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Fehler beim Speichern: {str(e)}")
+                                    if not (edit_reason or "").strip():
+                                        st.error("Bitte eine Begründung eingeben.")
+                                    else:
+                                        try:
+                                            update_data = {
+                                                'datum': neues_datum.isoformat(),
+                                                'schichttyp': neuer_typ,
+                                                'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
+                                                'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
+                                            }
+                                            old_data = {
+                                                "datum": dienst.get("datum"),
+                                                "schichttyp": dienst.get("schichttyp"),
+                                                "start_zeit": dienst.get("start_zeit"),
+                                                "ende_zeit": dienst.get("ende_zeit"),
+                                                "pause_minuten": dienst.get("pause_minuten"),
+                                                "urlaub_stunden": dienst.get("urlaub_stunden"),
+                                            }
+                                            supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
+                                            _audit_dienstplan_change(
+                                                action="dienstplan_korrektur",
+                                                dienst_id=int(dienst["id"]),
+                                                mitarbeiter_id=int(mitarbeiter["id"]),
+                                                alter_wert=old_data,
+                                                neuer_wert=update_data,
+                                                begruendung=edit_reason.strip(),
+                                            )
+                                            _refresh_after_write()
+                                            st.session_state[edit_key] = False
+                                            st.success("✅ Dienst aktualisiert!")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Fehler beim Speichern: {str(e)}")
                                 if abbrechen:
                                     st.session_state[edit_key] = False
                                     st.rerun()
@@ -1214,6 +1320,11 @@ def show_monatsuebersicht_tabelle(supabase):
                                 key=f"cell_stunden_{dienst['id']}",
                             )
 
+                        edit_reason_cell = st.text_area(
+                            "Begründung der manuellen Korrektur *",
+                            placeholder="Pflichtfeld für Audit/GoBD",
+                            key=f"cell_edit_reason_{dienst['id']}",
+                        )
                         s1, s2 = st.columns(2)
                         with s1:
                             speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
@@ -1221,48 +1332,86 @@ def show_monatsuebersicht_tabelle(supabase):
                             loeschen = st.form_submit_button("🗑️ Löschen", use_container_width=True)
 
                         if speichern:
-                            try:
-                                if neuer_typ == "arbeit":
-                                    update_data = {
-                                        "schichttyp": neuer_typ,
-                                        "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
-                                        "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
-                                        "pause_minuten": int(pause_minuten),
-                                        "urlaub_stunden": 0.0,
+                            if not (edit_reason_cell or "").strip():
+                                st.error("Bitte eine Begründung eingeben.")
+                            else:
+                                try:
+                                    if neuer_typ == "arbeit":
+                                        update_data = {
+                                            "schichttyp": neuer_typ,
+                                            "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
+                                            "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
+                                            "pause_minuten": int(pause_minuten),
+                                            "urlaub_stunden": 0.0,
+                                        }
+                                    elif neuer_typ in ("urlaub", "krank"):
+                                        update_data = {
+                                            "schichttyp": neuer_typ,
+                                            "start_zeit": "00:00:00",
+                                            "ende_zeit": "00:00:00",
+                                            "pause_minuten": 0,
+                                            "urlaub_stunden": float(stunden_sonder),
+                                        }
+                                    else:
+                                        update_data = {
+                                            "schichttyp": neuer_typ,
+                                            "start_zeit": "00:00:00",
+                                            "ende_zeit": "00:00:00",
+                                            "pause_minuten": 0,
+                                            "urlaub_stunden": 0.0,
+                                        }
+                                    old_data = {
+                                        "datum": dienst.get("datum"),
+                                        "schichttyp": dienst.get("schichttyp"),
+                                        "start_zeit": dienst.get("start_zeit"),
+                                        "ende_zeit": dienst.get("ende_zeit"),
+                                        "pause_minuten": dienst.get("pause_minuten"),
+                                        "urlaub_stunden": dienst.get("urlaub_stunden"),
                                     }
-                                elif neuer_typ in ("urlaub", "krank"):
-                                    update_data = {
-                                        "schichttyp": neuer_typ,
-                                        "start_zeit": "00:00:00",
-                                        "ende_zeit": "00:00:00",
-                                        "pause_minuten": 0,
-                                        "urlaub_stunden": float(stunden_sonder),
-                                    }
-                                else:
-                                    update_data = {
-                                        "schichttyp": neuer_typ,
-                                        "start_zeit": "00:00:00",
-                                        "ende_zeit": "00:00:00",
-                                        "pause_minuten": 0,
-                                        "urlaub_stunden": 0.0,
-                                    }
-                                supabase.table(planning_table).update(update_data).eq("id", dienst["id"]).execute()
-                                _refresh_after_write()
-                                st.session_state["tabelle_cell_editor"] = None
-                                st.success("✅ Dienst gespeichert.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Fehler beim Speichern: {str(e)}")
+                                    supabase.table(planning_table).update(update_data).eq("id", dienst["id"]).execute()
+                                    _audit_dienstplan_change(
+                                        action="dienstplan_korrektur",
+                                        dienst_id=int(dienst["id"]),
+                                        mitarbeiter_id=int(ma_id),
+                                        alter_wert=old_data,
+                                        neuer_wert=update_data,
+                                        begruendung=edit_reason_cell.strip(),
+                                    )
+                                    _refresh_after_write()
+                                    st.session_state["tabelle_cell_editor"] = None
+                                    st.success("✅ Dienst gespeichert.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Fehler beim Speichern: {str(e)}")
 
                         if loeschen:
-                            try:
-                                supabase.table(planning_table).delete().eq("id", dienst["id"]).execute()
-                                _refresh_after_write()
-                                st.session_state["tabelle_cell_editor"] = None
-                                st.success("✅ Dienst gelöscht.")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Fehler beim Löschen: {str(e)}")
+                            if not (edit_reason_cell or "").strip():
+                                st.error("Bitte eine Begründung eingeben.")
+                            else:
+                                try:
+                                    old_data = {
+                                        "datum": dienst.get("datum"),
+                                        "schichttyp": dienst.get("schichttyp"),
+                                        "start_zeit": dienst.get("start_zeit"),
+                                        "ende_zeit": dienst.get("ende_zeit"),
+                                        "pause_minuten": dienst.get("pause_minuten"),
+                                        "urlaub_stunden": dienst.get("urlaub_stunden"),
+                                    }
+                                    supabase.table(planning_table).delete().eq("id", dienst["id"]).execute()
+                                    _audit_dienstplan_change(
+                                        action="dienstplan_loeschung",
+                                        dienst_id=int(dienst["id"]),
+                                        mitarbeiter_id=int(ma_id),
+                                        alter_wert=old_data,
+                                        neuer_wert=None,
+                                        begruendung=edit_reason_cell.strip(),
+                                    )
+                                    _refresh_after_write()
+                                    st.session_state["tabelle_cell_editor"] = None
+                                    st.success("✅ Dienst gelöscht.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Fehler beim Löschen: {str(e)}")
 
                 st.markdown("---")
                 st.markdown("**➕ Zusätzlichen Dienst anlegen**")
@@ -1302,49 +1451,67 @@ def show_monatsuebersicht_tabelle(supabase):
                         key=f"cell_new_stunden_{ma_id}_{datum_iso}",
                     )
 
+                new_reason_cell = st.text_area(
+                    "Begründung der manuellen Anlage *",
+                    placeholder="Pflichtfeld für Audit/GoBD",
+                    key=f"cell_new_reason_{ma_id}_{datum_iso}",
+                )
                 anlegen = st.form_submit_button("➕ Anlegen", use_container_width=True, type="primary")
                 if anlegen:
-                    try:
-                        if neuer_typ == "arbeit":
-                            payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
-                                "mitarbeiter_id": ma_id,
-                                "datum": datum_iso,
-                                "schichttyp": neuer_typ,
-                                "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
-                                "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
-                                "pause_minuten": int(neue_pause),
-                                "urlaub_stunden": 0.0,
-                            }
-                        elif neuer_typ in ("urlaub", "krank"):
-                            payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
-                                "mitarbeiter_id": ma_id,
-                                "datum": datum_iso,
-                                "schichttyp": neuer_typ,
-                                "start_zeit": "00:00:00",
-                                "ende_zeit": "00:00:00",
-                                "pause_minuten": 0,
-                                "urlaub_stunden": float(neue_stunden),
-                            }
-                        else:
-                            payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
-                                "mitarbeiter_id": ma_id,
-                                "datum": datum_iso,
-                                "schichttyp": neuer_typ,
-                                "start_zeit": "00:00:00",
-                                "ende_zeit": "00:00:00",
-                                "pause_minuten": 0,
-                                "urlaub_stunden": 0.0,
-                            }
-                        supabase.table(planning_table).insert(payload).execute()
-                        _refresh_after_write()
-                        st.session_state["tabelle_cell_editor"] = None
-                        st.success("✅ Dienst angelegt.")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Fehler beim Anlegen: {str(e)}")
+                    if not (new_reason_cell or "").strip():
+                        st.error("Bitte eine Begründung eingeben.")
+                    else:
+                        try:
+                            if neuer_typ == "arbeit":
+                                payload = {
+                                    "betrieb_id": st.session_state.betrieb_id,
+                                    "mitarbeiter_id": ma_id,
+                                    "datum": datum_iso,
+                                    "schichttyp": neuer_typ,
+                                    "start_zeit": neue_start + ":00" if len(neue_start) == 5 else neue_start,
+                                    "ende_zeit": neue_ende + ":00" if len(neue_ende) == 5 else neue_ende,
+                                    "pause_minuten": int(neue_pause),
+                                    "urlaub_stunden": 0.0,
+                                }
+                            elif neuer_typ in ("urlaub", "krank"):
+                                payload = {
+                                    "betrieb_id": st.session_state.betrieb_id,
+                                    "mitarbeiter_id": ma_id,
+                                    "datum": datum_iso,
+                                    "schichttyp": neuer_typ,
+                                    "start_zeit": "00:00:00",
+                                    "ende_zeit": "00:00:00",
+                                    "pause_minuten": 0,
+                                    "urlaub_stunden": float(neue_stunden),
+                                }
+                            else:
+                                payload = {
+                                    "betrieb_id": st.session_state.betrieb_id,
+                                    "mitarbeiter_id": ma_id,
+                                    "datum": datum_iso,
+                                    "schichttyp": neuer_typ,
+                                    "start_zeit": "00:00:00",
+                                    "ende_zeit": "00:00:00",
+                                    "pause_minuten": 0,
+                                    "urlaub_stunden": 0.0,
+                                }
+                            insert_res = supabase.table(planning_table).insert(payload).execute()
+                            new_id = (insert_res.data or [{}])[0].get("id") if hasattr(insert_res, "data") else None
+                            if new_id is not None:
+                                _audit_dienstplan_change(
+                                    action="dienstplan_anlage",
+                                    dienst_id=int(new_id),
+                                    mitarbeiter_id=int(ma_id),
+                                    alter_wert=None,
+                                    neuer_wert=payload,
+                                    begruendung=new_reason_cell.strip(),
+                                )
+                            _refresh_after_write()
+                            st.session_state["tabelle_cell_editor"] = None
+                            st.success("✅ Dienst angelegt.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Fehler beim Anlegen: {str(e)}")
 
             if st.button("Schließen", key=f"cell_editor_close_{ma_id}_{datum_iso}", use_container_width=True):
                 st.session_state["tabelle_cell_editor"] = None

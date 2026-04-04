@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Dict, Iterable, Optional
 
+from utils.lohnberechnung import berechne_arbeitszeitkonto_saldo
+
 
 @dataclass
 class WorkAccountSnapshot:
@@ -16,6 +18,8 @@ class WorkAccountSnapshot:
     ueberstunden_vortrag: float = 0.0
     differenz_stunden: float = 0.0
     monat_abgeschlossen: bool = False
+    manuelle_korrektur_saldo: float = 0.0
+    korrektur_grund: str | None = None
 
 
 def set_work_account_opening_balance(
@@ -26,28 +30,37 @@ def set_work_account_opening_balance(
     monat: int,
     jahr: int,
     opening_hours: float,
+    opening_vacation_taken: float = 0.0,
+    opening_sick_days: float = 0.0,
+    correction_reason: str = "",
+    is_initialization: bool = False,
     created_by: Optional[int] = None,
 ) -> WorkAccountSnapshot:
     """
-    Setzt einen festen Anfangsbestand für einen Monat (z. B. Neubeginn per 01.04).
-
-    Umsetzung über einen unveränderlichen Monatsabschluss mit 0 Soll/0 Ist und
-    Saldo-Ende = Anfangsbestand. Nachfolgende Monate bauen darauf auf.
+    Setzt einen festen Anfangsbestand für einen Startmonat (z. B. 04/2026).
+    Dafür wird ein Snapshot auf dem Vormonat erzeugt, damit im Startmonat gilt:
+    Neuer Saldo = (Ist - Soll) + Saldenvortrag.
     """
     opening = round(float(opening_hours or 0.0), 2)
+    opening_vac = round(float(opening_vacation_taken or 0.0), 2)
+    opening_sick = round(float(opening_sick_days or 0.0), 2)
+    reason = str(correction_reason or "").strip() or "Initialisierung Vorträge"
+
+    prev_monat = 12 if int(monat) == 1 else int(monat) - 1
+    prev_jahr = int(jahr) - 1 if int(monat) == 1 else int(jahr)
 
     try:
         existing = (
             supabase.table("azk_monatsabschluesse")
             .select("id")
             .eq("mitarbeiter_id", mitarbeiter_id)
-            .eq("monat", monat)
-            .eq("jahr", jahr)
+            .eq("monat", prev_monat)
+            .eq("jahr", prev_jahr)
             .limit(1)
             .execute()
         )
         if existing.data:
-            # Bereits gesetzt -> nur synchronisierten Snapshot zurückgeben.
+            # Bereits vorhanden -> nur Snapshot des Startmonats synchronisieren.
             return sync_work_account_for_month(
                 supabase,
                 betrieb_id=betrieb_id,
@@ -59,24 +72,46 @@ def set_work_account_opening_balance(
         # Wenn Tabelle/Schema nicht vorhanden ist, fällt der spätere Insert ggf. auch aus.
         pass
 
+    extended_payload = {
+        "betrieb_id": betrieb_id,
+        "mitarbeiter_id": mitarbeiter_id,
+        "monat": int(prev_monat),
+        "jahr": int(prev_jahr),
+        "soll_stunden": 0.0,
+        "ist_stunden": 0.0,
+        "differenz_stunden": 0.0,
+        "ueberstunden_saldo_start": opening,
+        "ueberstunden_saldo_ende": opening,
+        "urlaubstage_gesamt": 0.0,
+        "urlaubstage_genommen": opening_vac,
+        "krankheitstage_gesamt": opening_sick,
+        "manuelle_korrektur_saldo": opening,
+        "korrektur_grund": reason,
+        "ist_initialisierung": bool(is_initialization),
+        "initialisierungs_monat": int(monat),
+        "initialisierungs_jahr": int(jahr),
+        "created_by": created_by,
+    }
+    legacy_payload = {
+        "betrieb_id": betrieb_id,
+        "mitarbeiter_id": mitarbeiter_id,
+        "monat": int(prev_monat),
+        "jahr": int(prev_jahr),
+        "soll_stunden": 0.0,
+        "ist_stunden": 0.0,
+        "differenz_stunden": 0.0,
+        "ueberstunden_saldo_start": opening,
+        "ueberstunden_saldo_ende": opening,
+        "urlaubstage_gesamt": 0.0,
+        "urlaubstage_genommen": opening_vac,
+        "krankheitstage_gesamt": opening_sick,
+        "created_by": created_by,
+    }
     try:
-        supabase.table("azk_monatsabschluesse").insert(
-            {
-                "betrieb_id": betrieb_id,
-                "mitarbeiter_id": mitarbeiter_id,
-                "monat": int(monat),
-                "jahr": int(jahr),
-                "soll_stunden": 0.0,
-                "ist_stunden": 0.0,
-                "differenz_stunden": 0.0,
-                "ueberstunden_saldo_start": opening,
-                "ueberstunden_saldo_ende": opening,
-                "urlaubstage_gesamt": 0.0,
-                "urlaubstage_genommen": 0.0,
-                "krankheitstage_gesamt": 0.0,
-                "created_by": created_by,
-            }
-        ).execute()
+        try:
+            supabase.table("azk_monatsabschluesse").insert(extended_payload).execute()
+        except Exception:
+            supabase.table("azk_monatsabschluesse").insert(legacy_payload).execute()
     except Exception:
         # Fallback ohne Snapshot-Tabelle: live Konto direkt setzen.
         _upsert_live_account(
@@ -88,10 +123,12 @@ def set_work_account_opening_balance(
                 ist_stunden=0.0,
                 ueberstunden_saldo=opening,
                 urlaubstage_gesamt=0.0,
-                urlaubstage_genommen=0.0,
-                krankheitstage_gesamt=0.0,
+                urlaubstage_genommen=opening_vac,
+                krankheitstage_gesamt=opening_sick,
                 differenz_stunden=0.0,
                 monat_abgeschlossen=False,
+                manuelle_korrektur_saldo=opening,
+                korrektur_grund=reason,
             ),
         )
         return WorkAccountSnapshot(
@@ -99,10 +136,12 @@ def set_work_account_opening_balance(
             ist_stunden=0.0,
             ueberstunden_saldo=opening,
             urlaubstage_gesamt=0.0,
-            urlaubstage_genommen=0.0,
-            krankheitstage_gesamt=0.0,
+            urlaubstage_genommen=opening_vac,
+            krankheitstage_gesamt=opening_sick,
             differenz_stunden=0.0,
             monat_abgeschlossen=False,
+            manuelle_korrektur_saldo=opening,
+            korrektur_grund=reason,
         )
 
     return sync_work_account_for_month(
@@ -306,6 +345,35 @@ def _load_month_absence_counters(supabase, mitarbeiter_id: int, month_start: dat
             urlaub_genommen += tage
         elif typ in ("krankheit", "krank"):
             krank_tage += tage
+
+    # Manuelle Korrekturmarker aus Zeiterfassung (mit Pflichtbegründung) addieren.
+    # Format in manuell_kommentar:
+    # - manuelle_korrektur_urlaub:<tage>
+    # - manuelle_korrektur_krank:<tage>
+    try:
+        marker_res = (
+            supabase.table("zeiterfassung")
+            .select("manuell_kommentar, quelle")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("quelle", "manuell_admin")
+            .gte("datum", month_start.isoformat())
+            .lte("datum", month_end.isoformat())
+            .execute()
+        )
+        for mr in marker_res.data or []:
+            marker = str(mr.get("manuell_kommentar") or "").strip()
+            if marker.startswith("manuelle_korrektur_urlaub:"):
+                try:
+                    urlaub_genommen += float(marker.split(":", 1)[1])
+                except Exception:
+                    pass
+            elif marker.startswith("manuelle_korrektur_krank:"):
+                try:
+                    krank_tage += float(marker.split(":", 1)[1])
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
     return round(urlaub_genommen, 2), round(krank_tage, 2)
 
@@ -578,7 +646,11 @@ def _build_month_snapshot(
 
     diff = round(ist_stunden - soll_stunden, 2)
     saldo_vormonat = _load_previous_balance(supabase, mitarbeiter_id, monat, jahr)
-    neuer_saldo = round(saldo_vormonat + diff, 2)
+    neuer_saldo = berechne_arbeitszeitkonto_saldo(
+        ist_stunden=ist_stunden,
+        soll_stunden=soll_stunden,
+        saldenvortrag=saldo_vormonat,
+    )
 
     return WorkAccountSnapshot(
         soll_stunden=round(soll_stunden, 2),
@@ -589,6 +661,7 @@ def _build_month_snapshot(
         krankheitstage_gesamt=round(krank_tage, 2),
         differenz_stunden=diff,
         monat_abgeschlossen=False,
+        manuelle_korrektur_saldo=round(saldo_vormonat, 2),
     )
 
 
@@ -611,6 +684,15 @@ def sync_work_account_for_month(
             krankheitstage_gesamt=round(_to_float(closed.get("krankheitstage_gesamt")), 2),
             differenz_stunden=round(_to_float(closed.get("differenz_stunden")), 2),
             monat_abgeschlossen=True,
+            manuelle_korrektur_saldo=round(
+                _to_float(
+                    closed.get("manuelle_korrektur_saldo")
+                    if closed.get("manuelle_korrektur_saldo") is not None
+                    else closed.get("ueberstunden_saldo_start")
+                ),
+                2,
+            ),
+            korrektur_grund=(str(closed.get("korrektur_grund") or "").strip() or None),
         )
         _upsert_live_account(
             supabase,

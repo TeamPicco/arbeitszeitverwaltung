@@ -12,13 +12,13 @@ from utils.database import (
     update_mitarbeiter,
     upload_file_to_storage_result,
 )
-from utils.historischer_import import (
-    dry_run_import_summary,
-    importiere_in_crewbase,
-    lese_upload_datei,
-)
 from utils.styles import apply_custom_css
-from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
+from utils.work_accounts import (
+    close_work_account_month,
+    set_work_account_opening_balance,
+    sync_work_account_for_month,
+    validate_work_account_month,
+)
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 from utils.vertrag_templates import (
     VERTRAG_TEMPLATE_OPTIONS,
@@ -125,12 +125,11 @@ def _active_admin_tab_index() -> int:
         "dienstplanung": 0,
         "abwesenheiten": 1,
         "mitarbeiter": 2,
-        "import": 3,
-        "zeitauswertung": 4,
-        "vertraege": 5,
-        "arbeitszeitkonten": 6,
-        "mastergeraete": 7,
-        "system": 8,
+        "zeitauswertung": 3,
+        "vertraege": 4,
+        "arbeitszeitkonten": 5,
+        "mastergeraete": 6,
+        "system": 7,
     }
     return mapping.get(key, 0)
 
@@ -140,7 +139,6 @@ def _render_admin_tab_switcher(active_idx: int) -> None:
         ("📅 Dienstplanung", "dienstplanung"),
         ("🏖️ Abwesenheiten", "abwesenheiten"),
         ("👥 Mitarbeiter", "mitarbeiter"),
-        ("📁 Planovo-Import", "import"),
         ("📊 Zeitauswertung", "zeitauswertung"),
         ("🧾 Verträge", "vertraege"),
         ("⏱️ Arbeitszeitkonten", "arbeitszeitkonten"),
@@ -1237,114 +1235,6 @@ def _show_vertrag_generator_tab():
         st.success("Vertrag als Dokument gespeichert.")
 
 
-def _show_planovo_import_tab():
-    st.subheader("📥 Planovo-Import (historische Daten)")
-    supabase = get_supabase_client()
-    alle_ma = _load_admin_mitarbeiter()
-    if not alle_ma:
-        st.info("Keine Mitarbeiter vorhanden.")
-        return
-
-    ma_options = {f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m for m in alle_ma}
-    selected_label = st.selectbox(
-        "Ziel-Mitarbeiter",
-        list(ma_options.keys()),
-        key="planovo_target_ma",
-        help="Importierte Planovo-Daten werden diesem Mitarbeiter zugeordnet.",
-    )
-    ma = ma_options[selected_label]
-    ueberschreiben = st.checkbox(
-        "Import-Monat vollständig überschreiben (empfohlen)",
-        value=True,
-        help="Löscht bestehende Importdaten im Zielmonat und schreibt den Monat neu, damit keine Doppeleinträge entstehen.",
-    )
-    upload = st.file_uploader(
-        "Planovo Datei (.xlsx oder .csv)",
-        type=["xlsx", "csv"],
-        key="planovo_import_upload",
-    )
-
-    if upload is None:
-        st.info("Bitte eine Planovo-Exportdatei hochladen.")
-        return
-
-    parsed = lese_upload_datei(upload)
-    fehler = parsed.get("fehler") or []
-    if fehler:
-        st.error("Datei konnte nicht verarbeitet werden.")
-        for f in fehler:
-            st.write(f"- {f}")
-        return
-
-    zeitraum = parsed.get("zeitraum", {})
-    tage = parsed.get("tage", [])
-    startsaldo = float(parsed.get("startsaldo") or 0.0)
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Tage erkannt", len(tage))
-    k2.metric("Zeitraum", f"{zeitraum.get('monat', '-')}/{zeitraum.get('jahr', '-')}")
-    k3.metric("Startsaldo", f"{startsaldo:+.2f} h")
-
-    if tage:
-        preview_rows = []
-        for row in tage[:20]:
-            preview_rows.append(
-                {
-                    "Datum": row.get("datum").strftime("%d.%m.%Y") if row.get("datum") else "-",
-                    "Ist": float(row.get("ist") or 0.0),
-                    "Soll": float(row.get("soll") or 0.0),
-                    "Saldo": float(row.get("saldo") or 0.0),
-                    "Notiz": row.get("korrektur_notiz") or "",
-                }
-            )
-        st.markdown("#### Vorschau (erste 20 Zeilen)")
-        st.dataframe(preview_rows, use_container_width=True, hide_index=True)
-
-    st.markdown("#### Trockenlauf (vor Import)")
-    dryrun = dry_run_import_summary(
-        parsed,
-        mitarbeiter_id=ma["id"],
-        supabase_client=supabase,
-    )
-    if dryrun.get("ok"):
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Würde importieren", int(dryrun.get("would_import") or 0))
-        d2.metric("Würde überspringen", int(dryrun.get("would_skip") or 0))
-        d3.metric("Würde löschen (Zeit)", int(dryrun.get("would_delete_zeiterfassung") or 0))
-        d4.metric("Würde löschen (Krank)", int(dryrun.get("would_delete_krankheitstage") or 0))
-        st.caption(
-            f"Zeitraum: {dryrun.get('range_start')} bis {dryrun.get('range_end')} | "
-            f"Legacy-Konto-Löschung: {int(dryrun.get('would_delete_arbeitszeitkonto') or 0)}"
-        )
-    else:
-        for err in dryrun.get("fehler", []):
-            st.warning(err)
-
-    if st.button("Planovo-Daten importieren", type="primary", use_container_width=True):
-        with st.spinner("Import läuft..."):
-            result = importiere_in_crewbase(
-                parsed,
-                mitarbeiter_id=ma["id"],
-                betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
-                supabase_client=supabase,
-                ueberschreiben=ueberschreiben,
-            )
-        if result.get("ok"):
-            st.success("Import abgeschlossen.")
-        else:
-            st.warning("Import mit Fehlern abgeschlossen.")
-
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Importiert", int(result.get("importiert") or 0))
-        r2.metric("Übersprungen", int(result.get("uebersprungen") or 0))
-        r3.metric("Kranktage", int(result.get("kranktage_importiert") or 0))
-        r4.metric("AZK Sync-Monate", int(result.get("azk_sync_monate") or 0))
-
-        if result.get("fehler"):
-            st.markdown("#### Fehlerdetails")
-            for err in result["fehler"]:
-                st.write(f"- {err}")
-
-
 def _show_system_tab():
     st.subheader("🛠️ Systemstatus")
     supabase = get_supabase_client()
@@ -1493,6 +1383,130 @@ def _show_arbeitszeitkonten_tab():
                 pass
         st.success(f"Monat {int(monat):02d}/{int(jahr)} wurde abgeschlossen.")
 
+    st.markdown("---")
+    with st.expander("🚀 Einmalige Initialisierung 2026 (Altdaten-Vorträge)", expanded=False):
+        st.caption(
+            "Erfasst den Startbestand für 2026 (Produktivstart April/Mai): "
+            "Überstunden-Saldo, bereits genommene Urlaubstage und Krankheitstage."
+        )
+        init_ma_options = {
+            f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
+            for m in alle_ma
+        }
+        init_label = st.selectbox(
+            "Mitarbeiter für Initialisierung",
+            list(init_ma_options.keys()),
+            key="azk_init_ma",
+        )
+        init_ma = init_ma_options[init_label]
+        c_init_1, c_init_2 = st.columns(2)
+        with c_init_1:
+            init_monat = st.selectbox(
+                "Startmonat 2026",
+                options=[4, 5],
+                format_func=lambda m: f"{m:02d}/2026",
+                key="azk_init_monat_2026",
+            )
+        with c_init_2:
+            init_jahr = st.number_input(
+                "Startjahr",
+                min_value=2026,
+                max_value=2026,
+                value=2026,
+                step=1,
+                key="azk_init_jahr_2026",
+            )
+
+        k_i1, k_i2, k_i3 = st.columns(3)
+        with k_i1:
+            init_saldo = st.number_input(
+                "Übertrag Überstunden (+/-)",
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_saldo",
+            )
+        with k_i2:
+            init_urlaub_genommen = st.number_input(
+                "Urlaubstage bereits genommen (Jan-Startmonat)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_urlaub_genommen",
+            )
+        with k_i3:
+            init_krank_tage = st.number_input(
+                "Krankheitstage bisher",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_krank_tage",
+            )
+
+        init_reason = st.text_area(
+            "Begründung / Nachweis *",
+            placeholder="Pflichtfeld: z.B. Übernahme Planungsstand bis 31.03.2026 aus Vorzeitsystem",
+            key="azk_init_reason",
+        )
+
+        existing_init = None
+        try:
+            existing_init_res = (
+                supabase.table("azk_monatsabschluesse")
+                .select("id, monat, jahr")
+                .eq("mitarbeiter_id", int(init_ma["id"]))
+                .eq("jahr", 2026)
+                .eq("ist_initialisierung", True)
+                .limit(1)
+                .execute()
+            )
+            existing_init = (existing_init_res.data or [None])[0]
+        except Exception:
+            existing_init = None
+
+        start_month_editable = int(init_jahr) == 2026 and int(init_monat) in (4, 5)
+        if not start_month_editable:
+            st.warning("Initialisierung ist nur für den Startmonat 04/2026 oder 05/2026 erlaubt.")
+        if existing_init:
+            st.info(
+                f"Für diesen Mitarbeiter existiert bereits eine Initialisierung "
+                f"({int(existing_init.get('monat') or 0):02d}/{int(existing_init.get('jahr') or 0)}). "
+                "Die Einmal-Initialisierung ist damit gesperrt."
+            )
+
+        do_init = st.button(
+            "💾 Einmal-Initialisierung speichern",
+            type="primary",
+            use_container_width=True,
+            disabled=(not start_month_editable) or bool(existing_init),
+            key="azk_init_save_btn",
+        )
+        if do_init:
+            if not (init_reason or "").strip():
+                st.error("Bitte eine Begründung eintragen (Pflicht für Audit/GoBD).")
+            else:
+                try:
+                    set_work_account_opening_balance(
+                        supabase,
+                        betrieb_id=int(init_ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1),
+                        mitarbeiter_id=int(init_ma["id"]),
+                        monat=int(init_monat),
+                        jahr=int(init_jahr),
+                        opening_hours=float(init_saldo),
+                        opening_vacation_taken=float(init_urlaub_genommen),
+                        opening_sick_days=float(init_krank_tage),
+                        correction_reason=init_reason.strip(),
+                        created_by=st.session_state.get("user_id"),
+                        is_initialization=True,
+                    )
+                    _refresh_after_write()
+                    st.success("Einmal-Initialisierung gespeichert.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Initialisierung fehlgeschlagen: {exc}")
+
     konto_res = (
         supabase.table("arbeitszeit_konten")
         .select(
@@ -1520,27 +1534,51 @@ def _show_arbeitszeitkonten_tab():
     st.markdown("---")
 
     closed_ids = set()
+    closed_meta = {}
     try:
-        closed_q = supabase.table("azk_monatsabschluesse").select("mitarbeiter_id").eq("monat", int(monat)).eq("jahr", int(jahr))
+        closed_q = (
+            supabase.table("azk_monatsabschluesse")
+            .select("mitarbeiter_id, ueberstunden_saldo_start, korrektur_grund, manuelle_korrektur_saldo")
+            .eq("monat", int(monat))
+            .eq("jahr", int(jahr))
+        )
         betrieb_id = st.session_state.get("betrieb_id")
         if betrieb_id is not None:
             closed_q = closed_q.eq("betrieb_id", betrieb_id)
         closed_rows = closed_q.execute().data or []
         closed_ids = {int(r.get("mitarbeiter_id")) for r in closed_rows if r.get("mitarbeiter_id") is not None}
+        for r in closed_rows:
+            ma_id = r.get("mitarbeiter_id")
+            if ma_id is not None:
+                closed_meta[int(ma_id)] = r
     except Exception:
         closed_ids = set()
+        closed_meta = {}
 
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     view_rows = []
     for row in rows:
         ma_id = row.get("mitarbeiter_id")
+        ist_h = float(row.get("ist_stunden") or 0.0)
+        soll_h = float(row.get("soll_stunden") or 0.0)
+        saldo_h = float(row.get("ueberstunden_saldo") or 0.0)
+        differenz_h = round(ist_h - soll_h, 2)
+        saldenvortrag = round(saldo_h - differenz_h, 2)
+        meta_row = closed_meta.get(int(ma_id)) if ma_id is not None else None
+        manuelle_korr = saldenvortrag
+        if meta_row is not None and meta_row.get("manuelle_korrektur_saldo") is not None:
+            try:
+                manuelle_korr = float(meta_row.get("manuelle_korrektur_saldo") or 0.0)
+            except Exception:
+                manuelle_korr = saldenvortrag
         view_rows.append(
             {
                 "Mitarbeiter": ma_lookup.get(ma_id, str(ma_id)),
                 "Monat fixiert": "Ja" if ma_id in closed_ids else "Nein",
-                "Soll (h)": float(row.get("soll_stunden") or 0),
-                "Ist (h)": float(row.get("ist_stunden") or 0),
-                "Saldo (h)": float(row.get("ueberstunden_saldo") or 0),
+                "Soll (h)": soll_h,
+                "Ist (h)": ist_h,
+                "Manuelle Korrekturen / Saldenvortrag (h)": round(manuelle_korr, 2),
+                "Saldo (h)": saldo_h,
                 "Urlaub gesamt": float(row.get("urlaubstage_gesamt") or 0),
                 "Urlaub genommen": float(row.get("urlaubstage_genommen") or 0),
                 "Krankheitstage": float(row.get("krankheitstage_gesamt") or 0),
@@ -1562,7 +1600,6 @@ def show_admin_dashboard():
         "📅 Dienstplanung",
         "🏖️ Abwesenheiten",
         "👥 Mitarbeiter",
-        "📁 Planovo-Import",
         "📊 Zeitauswertung",
         "🧾 Verträge",
         "⏱️ Arbeitszeitkonten",
@@ -1583,8 +1620,6 @@ def show_admin_dashboard():
         _show_absenzen_tab()
     elif active_section == "👥 Mitarbeiter":
         _show_mitarbeiter_stammdaten_tab()
-    elif active_section == "📁 Planovo-Import":
-        _show_planovo_import_tab()
     elif active_section == "📊 Zeitauswertung":
         _show_zeitauswertung_tab()
     elif active_section == "🧾 Verträge":

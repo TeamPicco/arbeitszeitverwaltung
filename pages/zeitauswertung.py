@@ -13,7 +13,7 @@ import io
 
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
-from utils.audit_log import log_zeitkorrektur, log_zeitloeschung
+from utils.audit_log import log_aktion, log_zeitkorrektur, log_zeitloeschung
 from utils.lohnberechnung import (
     berechne_monat_cached,
     berechne_eintrag,
@@ -110,6 +110,199 @@ def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def _show_manual_account_adjustment(
+    *,
+    aktiver_ma: dict,
+    monat: int,
+    jahr: int,
+    saldo: float,
+) -> None:
+    """Inline-Korrektur im Auswertungsflow mit Pflichtbegründung."""
+    with st.popover("🛠️ Manuelle Korrektur (Stunden/Urlaub/Krankheit)"):
+        st.caption("Jede manuelle Anpassung erfordert eine Begründung (Audit/GoBD).")
+        supabase = get_supabase_client()
+        ma_id = int(aktiver_ma.get("id") or 0)
+        betrieb_id = int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1)
+
+        corr_mode = st.selectbox(
+            "Korrekturtyp",
+            options=["Saldo", "Urlaub genommen", "Krankheitstage"],
+            key=f"za_manual_corr_mode_{ma_id}_{jahr}_{monat}",
+        )
+        corr_value = st.number_input(
+            "Wert",
+            value=0.0,
+            step=0.5,
+            format="%.2f",
+            key=f"za_manual_corr_value_{ma_id}_{jahr}_{monat}",
+        )
+        corr_reason = st.text_area(
+            "Begründung *",
+            placeholder="Pflichtfeld, z.B. Nachtrag Korrektur aus unterschriebener Liste",
+            key=f"za_manual_corr_reason_{ma_id}_{jahr}_{monat}",
+        )
+
+        st.caption(f"Aktueller Saldo: {saldo:+.2f} h")
+
+        if st.button(
+            "💾 Korrektur speichern",
+            use_container_width=True,
+            key=f"za_manual_corr_save_{ma_id}_{jahr}_{monat}",
+            type="primary",
+        ):
+            reason = (corr_reason or "").strip()
+            if not reason:
+                st.error("Bitte eine Begründung angeben.")
+                return
+            try:
+                month_start = date(int(jahr), int(monat), 1)
+                if corr_mode == "Saldo":
+                    target_prev_monat = 12 if int(monat) == 1 else int(monat) - 1
+                    target_prev_jahr = int(jahr) - 1 if int(monat) == 1 else int(jahr)
+                    existing = (
+                        supabase.table("azk_monatsabschluesse")
+                        .select("id")
+                        .eq("mitarbeiter_id", ma_id)
+                        .eq("monat", target_prev_monat)
+                        .eq("jahr", target_prev_jahr)
+                        .limit(1)
+                        .execute()
+                    )
+                    payload = {
+                        "betrieb_id": betrieb_id,
+                        "mitarbeiter_id": ma_id,
+                        "monat": target_prev_monat,
+                        "jahr": target_prev_jahr,
+                        "soll_stunden": 0.0,
+                        "ist_stunden": 0.0,
+                        "differenz_stunden": 0.0,
+                        "ueberstunden_saldo_start": round(float(corr_value), 2),
+                        "ueberstunden_saldo_ende": round(float(corr_value), 2),
+                        "manuelle_korrektur_saldo": round(float(corr_value), 2),
+                        "korrektur_grund": reason,
+                        "urlaubstage_gesamt": 0.0,
+                        "urlaubstage_genommen": 0.0,
+                        "krankheitstage_gesamt": 0.0,
+                        "created_by": st.session_state.get("user_id"),
+                    }
+                    payload_legacy = {
+                        "betrieb_id": betrieb_id,
+                        "mitarbeiter_id": ma_id,
+                        "monat": target_prev_monat,
+                        "jahr": target_prev_jahr,
+                        "soll_stunden": 0.0,
+                        "ist_stunden": 0.0,
+                        "differenz_stunden": 0.0,
+                        "ueberstunden_saldo_start": round(float(corr_value), 2),
+                        "ueberstunden_saldo_ende": round(float(corr_value), 2),
+                        "urlaubstage_gesamt": 0.0,
+                        "urlaubstage_genommen": 0.0,
+                        "krankheitstage_gesamt": 0.0,
+                        "created_by": st.session_state.get("user_id"),
+                    }
+                    if existing.data:
+                        try:
+                            supabase.table("azk_monatsabschluesse").update(payload).eq(
+                                "id", int(existing.data[0]["id"])
+                            ).execute()
+                        except Exception:
+                            supabase.table("azk_monatsabschluesse").update(payload_legacy).eq(
+                                "id", int(existing.data[0]["id"])
+                            ).execute()
+                    else:
+                        try:
+                            supabase.table("azk_monatsabschluesse").insert(payload).execute()
+                        except Exception:
+                            supabase.table("azk_monatsabschluesse").insert(payload_legacy).execute()
+                else:
+                    src = "manuelle_korrektur_urlaub" if corr_mode == "Urlaub genommen" else "manuelle_korrektur_krank"
+                    z_payload = {
+                        "betrieb_id": betrieb_id,
+                        "mitarbeiter_id": ma_id,
+                        "datum": month_start.isoformat(),
+                        "start_zeit": "00:00:00",
+                        "ende_zeit": "00:00:00",
+                        "pause_minuten": 0,
+                        "arbeitsstunden": 0.0,
+                        "quelle": "manuell_admin",
+                        "korrektur_grund": reason,
+                        "manuell_kommentar": f"{src}:{float(corr_value):.2f}",
+                    }
+                    if corr_mode == "Krankheitstage":
+                        z_payload["ist_krank"] = True
+                    try:
+                        supabase.table("zeiterfassung").insert(z_payload).execute()
+                    except Exception:
+                        fallback_payload = {
+                            "betrieb_id": betrieb_id,
+                            "mitarbeiter_id": ma_id,
+                            "datum": month_start.isoformat(),
+                            "start_zeit": "00:00:00",
+                            "ende_zeit": "00:00:00",
+                            "pause_minuten": 0,
+                            "arbeitsstunden": 0.0,
+                            "quelle": "manuell_admin",
+                        }
+                        if corr_mode == "Krankheitstage":
+                            fallback_payload["ist_krank"] = True
+                        supabase.table("zeiterfassung").insert(fallback_payload).execute()
+
+                    # Spiegelung in Monatsabschluss, sofern vorhanden.
+                    closed = (
+                        supabase.table("azk_monatsabschluesse")
+                        .select("id, urlaubstage_genommen, krankheitstage_gesamt")
+                        .eq("mitarbeiter_id", ma_id)
+                        .eq("monat", int(monat))
+                        .eq("jahr", int(jahr))
+                        .limit(1)
+                        .execute()
+                    )
+                    if closed.data:
+                        c0 = closed.data[0]
+                        if corr_mode == "Urlaub genommen":
+                            new_ur = round(float(c0.get("urlaubstage_genommen") or 0.0) + float(corr_value), 2)
+                            try:
+                                supabase.table("azk_monatsabschluesse").update(
+                                    {"urlaubstage_genommen": new_ur, "korrektur_grund": reason}
+                                ).eq("id", int(c0["id"])).execute()
+                            except Exception:
+                                supabase.table("azk_monatsabschluesse").update(
+                                    {"urlaubstage_genommen": new_ur}
+                                ).eq("id", int(c0["id"])).execute()
+                        else:
+                            new_kr = round(float(c0.get("krankheitstage_gesamt") or 0.0) + float(corr_value), 2)
+                            try:
+                                supabase.table("azk_monatsabschluesse").update(
+                                    {"krankheitstage_gesamt": new_kr, "korrektur_grund": reason}
+                                ).eq("id", int(c0["id"])).execute()
+                            except Exception:
+                                supabase.table("azk_monatsabschluesse").update(
+                                    {"krankheitstage_gesamt": new_kr}
+                                ).eq("id", int(c0["id"])).execute()
+
+                try:
+                    log_aktion(
+                        admin_user_id=int(st.session_state.get("user_id") or 0),
+                        admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
+                        aktion="manuelle_azk_korrektur",
+                        tabelle="arbeitszeit_konten",
+                        datensatz_id=ma_id,
+                        mitarbeiter_id=ma_id,
+                        mitarbeiter_name=f"{aktiver_ma.get('vorname', '')} {aktiver_ma.get('nachname', '')}".strip(),
+                        alter_wert={"saldo_alt": float(saldo)},
+                        neuer_wert={"modus": corr_mode, "wert": float(corr_value)},
+                        begruendung=reason,
+                        betrieb_id=betrieb_id,
+                    )
+                except Exception:
+                    pass
+
+                st.success("Korrektur gespeichert.")
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Korrektur konnte nicht gespeichert werden: {exc}")
+
+
 def _korrigiere_zeiterfassung_popup(
     *,
     entry: dict,
@@ -169,8 +362,18 @@ def _korrigiere_zeiterfassung_popup(
                             "ende_zeit": (new_end.strip()[:5] + ":00") if new_end.strip() else None,
                             "pause_minuten": int(new_pause),
                             "quelle": "manuell_admin",
+                            "korrektur_grund": reason.strip(),
                         }
-                        supabase.table("zeiterfassung").update(payload).eq("id", entry_id).execute()
+                        try:
+                            supabase.table("zeiterfassung").update(payload).eq("id", entry_id).execute()
+                        except Exception:
+                            payload_fallback = {
+                                "start_zeit": payload["start_zeit"],
+                                "ende_zeit": payload["ende_zeit"],
+                                "pause_minuten": payload["pause_minuten"],
+                                "quelle": payload["quelle"],
+                            }
+                            supabase.table("zeiterfassung").update(payload_fallback).eq("id", entry_id).execute()
                         log_zeitkorrektur(
                             admin_user_id=int(st.session_state.get("user_id") or 0),
                             admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
@@ -781,6 +984,19 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 with col_k3:
                     saldo_farbe = "🟢" if saldo >= 0 else "🔴"
                     st.metric(f"{saldo_farbe} Aktueller Saldo", f"{saldo:+.2f} h")
+                st.caption(
+                    f"Neuer Saldo = (Ist - Soll) + Saldenvortrag = "
+                    f"({snap.ist_stunden:.2f} - {snap.soll_stunden:.2f}) + {vortrag:.2f}"
+                )
+                if getattr(snap, "korrektur_grund", None):
+                    st.info(f"Manuelle Korrekturgrundlage: {snap.korrektur_grund}")
+
+                _show_manual_account_adjustment(
+                    aktiver_ma=aktiver_ma,
+                    monat=int(monat),
+                    jahr=int(jahr),
+                    saldo=saldo,
+                )
                 
                 # Korrekturbuchung: Überstunden auszahlen
                 if saldo > 0:
