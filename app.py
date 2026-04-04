@@ -19,6 +19,7 @@ st.set_page_config(
     page_title=BRAND_APP_NAME,
     page_icon=BRAND_LOGO_IMAGE,
     layout="wide",
+    initial_sidebar_state="collapsed",
 )
 @st.cache_resource(show_spinner=False)
 def _get_supabase_client():
@@ -231,9 +232,10 @@ if not st.session_state.get('logged_in'):
                     update_last_login(str(user.get("id")))
                     st.rerun()
 else:
-    if BRAND_LOGO_IMAGE:
-        st.sidebar.image(BRAND_LOGO_IMAGE, use_container_width=True)
+    _, top_right = st.columns([9, 1])
+    with top_right:
+        if st.button("Abmelden", key="logout_top_right", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
     from pages import admin_dashboard
     admin_dashboard.show_admin_dashboard()
-    if st.sidebar.button("Abmelden"):
-        st.session_state.clear(); st.rerun()
