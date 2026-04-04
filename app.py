@@ -232,10 +232,38 @@ if not st.session_state.get('logged_in'):
                     update_last_login(str(user.get("id")))
                     st.rerun()
 else:
-    _, top_right = st.columns([9, 1])
-    with top_right:
-        if st.button("Abmelden", key="logout_top_right", use_container_width=True):
-            st.session_state.clear()
-            st.rerun()
+    st.markdown(
+        """
+        <style>
+        .st-key-logout_fixed {
+            position: fixed;
+            top: 0.85rem;
+            right: 1rem;
+            z-index: 1000;
+            width: 150px;
+        }
+        .st-key-logout_fixed button {
+            width: 100% !important;
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+        }
+        @media (max-width: 768px) {
+            .st-key-logout_fixed {
+                top: 0.6rem;
+                right: 0.6rem;
+                width: 132px;
+            }
+            .st-key-logout_fixed button {
+                min-height: 38px !important;
+                font-size: 0.9rem !important;
+            }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("Abmelden", key="logout_fixed"):
+        st.session_state.clear()
+        st.rerun()
     from pages import admin_dashboard
     admin_dashboard.show_admin_dashboard()
