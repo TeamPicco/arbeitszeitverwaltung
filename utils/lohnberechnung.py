@@ -568,7 +568,8 @@ def berechne_eintrag(
             "fehler": "Eintrag offen (kein Ende)",
         }
 
-    # Kappungsregel: berechnet wird erst ab geplanter Dienstplan-Startzeit.
+    # Kappungsregel: Es wird ausschließlich die geplante Dienstplan-Startzeit berücksichtigt.
+    # Die Endzeit stammt immer aus der Zeiterfassung (Ausstempelung / Admin-Korrektur).
     if dienstplan_start_zeit:
         try:
             raw_start_dt = _parse_zeit_zu_datetime(start_zeit, datum)
