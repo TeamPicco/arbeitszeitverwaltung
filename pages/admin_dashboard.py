@@ -40,11 +40,10 @@ def _load_admin_mitarbeiter():
     return _cached_admin_mitarbeiter(betrieb_id)
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def _cached_admin_mitarbeiter(betrieb_id):
     supabase = get_supabase_client()
     query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
-    betrieb_id = st.session_state.get("betrieb_id")
     if betrieb_id is not None:
         query = query.eq("betrieb_id", betrieb_id)
     res = query.execute()

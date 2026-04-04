@@ -49,7 +49,7 @@ def _cached_mitarbeiter(betrieb_id: int) -> list:
     supabase = get_supabase_client()
     resp = (
         supabase.table("mitarbeiter")
-        .select("*")
+        .select("id, betrieb_id, vorname, nachname, email, monatliche_soll_stunden")
         .eq("betrieb_id", betrieb_id)
         .order("nachname")
         .execute()
@@ -60,7 +60,12 @@ def _cached_mitarbeiter(betrieb_id: int) -> list:
 @st.cache_data(ttl=60, show_spinner=False)
 def _cached_schichtvorlagen(betrieb_id: int) -> list:
     supabase = get_supabase_client()
-    resp = supabase.table("schichtvorlagen").select("*").eq("betrieb_id", betrieb_id).execute()
+    resp = (
+        supabase.table("schichtvorlagen")
+        .select("id, betrieb_id, name, start_zeit, ende_zeit, pause_minuten, farbe, ist_urlaub")
+        .eq("betrieb_id", betrieb_id)
+        .execute()
+    )
     return resp.data or []
 
 
@@ -69,7 +74,10 @@ def _cached_monatsdienste(planning_table: str, betrieb_id: int, start_iso: str, 
     supabase = get_supabase_client()
     resp = (
         supabase.table(planning_table)
-        .select("*")
+        .select(
+            "id, betrieb_id, mitarbeiter_id, datum, schichttyp, start_zeit, ende_zeit, "
+            "pause_minuten, urlaub_stunden, schichtvorlage_id, urlaubsantrag_id"
+        )
         .eq("betrieb_id", betrieb_id)
         .gte("datum", start_iso)
         .lte("datum", end_iso)
@@ -484,15 +492,18 @@ def show_dienstplanung():
 
     supabase = get_supabase_client()
 
-    tabs = st.tabs(["📆 Monatsplan", "📊 Monatsübersicht (Tabelle)", "⚙️ Schichtvorlagen"])
-
-    with tabs[0]:
+    section = st.radio(
+        "Dienstplanung Bereich",
+        options=["📆 Monatsplan", "📊 Monatsübersicht (Tabelle)", "⚙️ Schichtvorlagen"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="dienstplanung_section",
+    )
+    if section == "📆 Monatsplan":
         show_monatsplan(supabase)
-
-    with tabs[1]:
+    elif section == "📊 Monatsübersicht (Tabelle)":
         show_monatsuebersicht_tabelle(supabase)
-
-    with tabs[2]:
+    else:
         show_schichtvorlagen(supabase)
 
 
@@ -679,12 +690,12 @@ def show_monatsplan(supabase):
             # Krankheitsstunden = LFZ-Tagessatz (Soll-Stunden / Arbeitstage)
             ma_data = next((m for m in mitarbeiter_liste if m['id'] == mitarbeiter_id), {})
             soll = float(ma_data.get('monatliche_soll_stunden') or 160.0)
-            stunden_pro_tag = round(soll / 20.0, 2)  # 20 Arbeitstage/Monat
+            stunden_pro_tag = round(soll / 21.65, 2)
             krank_stunden = st.number_input(
                 "LFZ-Stunden (Tagessatz)",
                 min_value=0.0, max_value=24.0,
                 value=stunden_pro_tag, step=0.5, format="%.2f",
-                help=f"Lohnfortzahlungsstunden: Soll ({soll}h) ÷ 20 Arbeitstage"
+                help=f"Lohnfortzahlungsstunden: Soll ({soll}h) ÷ 21,65 Arbeitstage"
             )
             st.info("💡 Krankheitstage werden mit Lohnfortzahlung (EFZG) eingetragen.")
             start_z = datetime.strptime("00:00", "%H:%M").time()
@@ -983,92 +994,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
     anzahl_tage = calendar.monthrange(jahr, monat)[1]
 
-    html = '<div style="overflow-x: auto;"><table style="width:100%; border-collapse: collapse; font-size: 0.82rem;">'
-    html += '<thead><tr>'
-    html += ('<th style="border:1px solid #ddd; padding:8px; background:#1e3a5f; color:white; '
-             'position:sticky; left:0; z-index:10;">Mitarbeiter</th>')
-
-    for tag in range(1, anzahl_tage + 1):
-        tag_datum = date(jahr, monat, tag)
-        wt_kurz = WOCHENTAGE_KURZ[tag_datum.weekday()]
-        bg = '#888' if tag_datum.weekday() in [0, 1] else '#1e3a5f'
-        html += (f'<th style="border:1px solid #ddd; padding:5px; background:{bg}; color:white; '
-                 f'text-align:center; min-width:52px;">{tag}<br><small>{wt_kurz}</small></th>')
-
-    html += '</tr></thead><tbody>'
-
-    for mitarbeiter in mitarbeiter_liste:
-        html += '<tr>'
-        html += (f'<td style="border:1px solid #ddd; padding:8px; background:#f8f9fa; font-weight:bold; '
-                 f'position:sticky; left:0; z-index:5;">'
-                 f'{mitarbeiter["vorname"]} {mitarbeiter["nachname"]}</td>')
-
-        for tag in range(1, anzahl_tage + 1):
-            tag_datum = date(jahr, monat, tag)
-            key = (mitarbeiter['id'], tag_datum.isoformat())
-
-            if key in dienste_map:
-                eintraege = sorted(dienste_map[key], key=lambda x: x.get('start_zeit', '00:00'))
-                # Prüfe ob Urlaub oder Frei dabei ist (nur ein Eintrag erwartet)
-                typen = [d.get('schichttyp', 'arbeit') for d in eintraege]
-
-                if 'urlaub' in typen:
-                    dienst = next(d for d in eintraege if d.get('schichttyp') == 'urlaub')
-                    stunden = dienst.get('urlaub_stunden') or 0
-                    html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                             f'background:#fff9c4;" title="Urlaub ({stunden}h)">'
-                             f'<strong style="color:#856404;">U</strong>'
-                             f'<br><small>{stunden:.1f}h</small></td>')
-
-                elif 'frei' in typen:
-                    html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                             f'background:#e9ecef;" title="Frei">'
-                             f'<span style="color:#6c757d;">F</span></td>')
-
-                else:  # arbeit (ggf. mehrere Schichten)
-                    arbeit_eintraege = [d for d in eintraege if d.get('schichttyp', 'arbeit') == 'arbeit']
-                    if len(arbeit_eintraege) == 1:
-                        dienst = arbeit_eintraege[0]
-                        if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
-                            vorlage = vorlagen_dict[dienst['schichtvorlage_id']]
-                            kuerzel = vorlage['name'][:1].upper()
-                            farbe = vorlage.get('farbe', '#0d6efd')
-                            zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
-                            title = f"{vorlage['name']}: {zeiten}"
-                        else:
-                            kuerzel = 'A'
-                            farbe = '#0d6efd'
-                            zeiten = f"{dienst['start_zeit'][:5]}–{dienst['ende_zeit'][:5]}"
-                            title = f"Arbeit: {zeiten}"
-                        html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                                 f'background:{farbe}22;" title="{title}">'
-                                 f'<strong style="color:{farbe};">{kuerzel}</strong>'
-                                 f'<br><small style="font-size:0.7rem;">{zeiten}</small></td>')
-                    else:
-                        # Mehrere Schichten an einem Tag
-                        zeiten_list = [f"{d['start_zeit'][:5]}–{d['ende_zeit'][:5]}" for d in arbeit_eintraege]
-                        title = ' | '.join(zeiten_list)
-                        html += (f'<td style="border:1px solid #ddd; padding:3px; text-align:center; '
-                                 f'background:#cfe2ff;" title="{title}">'
-                                 f'<strong style="color:#0d6efd;">A²</strong>'
-                                 f'<br>' + '<br>'.join(f'<small style="font-size:0.65rem;">{z}</small>' for z in zeiten_list) + '</td>')
-
-            elif key in urlaub_map:
-                # Urlaub genehmigt aber noch nicht im Dienstplan
-                html += (f'<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                         f'background:#fff3cd;" title="Urlaub (nicht im Plan)">'
-                         f'<strong style="color:#856404;">U*</strong></td>')
-
-            elif tag_datum.weekday() in [0, 1]:
-                html += ('<td style="border:1px solid #ddd; padding:5px; text-align:center; '
-                         'background:#f0f0f0; color:#aaa;">–</td>')
-            else:
-                html += '<td style="border:1px solid #ddd; padding:5px; text-align:center;"></td>'
-
-        html += '</tr>'
-
-    html += '</tbody></table></div>'
-    st.markdown(html, unsafe_allow_html=True)
+    st.caption("Kompakte Ansicht aktiviert: direkte Tap-Matrix (schneller als doppelte HTML- und Widget-Tabelle).")
 
     # ── TAP-TO-EDIT MATRIX + POPUP (direkt im Feld antippen) ─
     st.markdown("---")
@@ -1183,7 +1109,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
             fresh_resp = (
                 supabase.table(planning_table)
-                .select("*")
+                .select("id, schichttyp, start_zeit, ende_zeit, pause_minuten, urlaub_stunden")
                 .eq("betrieb_id", st.session_state.betrieb_id)
                 .eq("mitarbeiter_id", ma_id)
                 .eq("datum", datum_iso)
@@ -1480,7 +1406,9 @@ def show_schichtvorlagen(supabase):
     st.subheader("⚙️ Schichtvorlagen")
     st.info("💡 Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
 
-    vorlagen = supabase.table('schichtvorlagen').select('*').eq(
+    vorlagen = supabase.table('schichtvorlagen').select(
+        'id,name,beschreibung,start_zeit,ende_zeit,pause_minuten,farbe,ist_urlaub'
+    ).eq(
         'betrieb_id', st.session_state.betrieb_id
     ).order('name').execute()
 

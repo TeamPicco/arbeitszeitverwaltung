@@ -170,7 +170,7 @@ def _log_eintrag(
     neuer_wert: Dict[str, Any] = None,
     betrieb_id: int = None
 ) -> bool:
-    """Interne Funktion: Schreibt einen Eintrag in die audit_log-Tabelle."""
+    """Interne Funktion: Schreibt einen Eintrag in audit_logs (Fallback audit_log)."""
     try:
         from utils.database import get_supabase_client
         supabase = get_supabase_client()
@@ -195,7 +195,11 @@ def _log_eintrag(
         if betrieb_id:
             eintrag['betrieb_id'] = betrieb_id
         
-        supabase.table('audit_log').insert(eintrag).execute()
+        try:
+            supabase.table('audit_logs').insert(eintrag).execute()
+        except Exception:
+            # Legacy-Fallback für ältere Instanzen
+            supabase.table('audit_log').insert(eintrag).execute()
         logger.info(f"Audit-Log: {aktion} von Admin {admin_name} für {mitarbeiter_name or 'unbekannt'}")
         return True
         
@@ -225,7 +229,10 @@ def get_audit_log(
         from utils.database import get_supabase_client
         supabase = get_supabase_client()
         
-        query = supabase.table('audit_log').select('*').eq('betrieb_id', betrieb_id)
+        try:
+            query = supabase.table('audit_logs').select('*').eq('betrieb_id', betrieb_id)
+        except Exception:
+            query = supabase.table('audit_log').select('*').eq('betrieb_id', betrieb_id)
         
         if mitarbeiter_id:
             query = query.eq('mitarbeiter_id', mitarbeiter_id)

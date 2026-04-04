@@ -13,6 +13,7 @@ import io
 
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
+from utils.audit_log import log_zeitkorrektur, log_zeitloeschung
 from utils.lohnberechnung import (
     berechne_monat,
     berechne_eintrag,
@@ -55,6 +56,36 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     return r.data or []
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
+    """Lädt pro Datum die früheste geplante Startzeit (für Kappungslogik)."""
+    supabase = get_supabase_client()
+    planning_table = resolve_planning_table(supabase)
+    erster = date(jahr, monat, 1).isoformat()
+    letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
+    r = (
+        supabase.table(planning_table)
+        .select("datum,schichttyp,start_zeit")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .gte("datum", erster)
+        .lte("datum", letzter)
+        .order("datum")
+        .order("start_zeit")
+        .execute()
+    )
+    start_map: dict[str, str] = {}
+    for row in (r.data or []):
+        if str(row.get("schichttyp") or "arbeit") != "arbeit":
+            continue
+        d = str(row.get("datum") or "")
+        s = str(row.get("start_zeit") or "")
+        if not d or not s:
+            continue
+        if d not in start_map:
+            start_map[d] = s
+    return start_map
+
+
 def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     """Lädt alle Dienstplan-Einträge (Soll) für einen Mitarbeiter in einem Monat."""
     supabase = get_supabase_client()
@@ -67,6 +98,123 @@ def _lade_dienstplaene(mitarbeiter_id: int, monat: int, jahr: int) -> list:
         'mitarbeiter_id', mitarbeiter_id
     ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []
+
+
+def _korrigiere_zeiterfassung_popup(
+    *,
+    entry: dict,
+    aktiver_ma: dict,
+    monat: int,
+    jahr: int,
+) -> None:
+    @st.dialog("🕒 Zeiteintrag bearbeiten / löschen")
+    def _dialog():
+        supabase = get_supabase_client()
+        entry_id = int(entry.get("id"))
+        datum = str(entry.get("datum") or "")
+        st.markdown(
+            f"**{aktiver_ma.get('vorname','')} {aktiver_ma.get('nachname','')}** · "
+            f"Eintrag #{entry_id} · {datum}"
+        )
+
+        current_start = str(entry.get("start_zeit") or "")[:5] or "08:00"
+        current_end = str(entry.get("ende_zeit") or "")[:5] if entry.get("ende_zeit") else ""
+        current_pause = int(entry.get("pause_minuten") or 0)
+
+        with st.form(key=f"zeit_edit_form_{entry_id}"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                new_start = st.text_input("Start (HH:MM)", value=current_start, key=f"zeit_edit_start_{entry_id}")
+            with c2:
+                new_end = st.text_input("Ende (HH:MM)", value=current_end, key=f"zeit_edit_end_{entry_id}")
+            with c3:
+                new_pause = st.number_input(
+                    "Pause (Min)",
+                    min_value=0,
+                    max_value=240,
+                    value=current_pause,
+                    step=5,
+                    key=f"zeit_edit_pause_{entry_id}",
+                )
+            reason = st.text_area(
+                "Begründung der Änderung *",
+                placeholder="Pflicht für Audit / GoBD-Nachvollziehbarkeit",
+                key=f"zeit_edit_reason_{entry_id}",
+            )
+            s1, s2 = st.columns(2)
+            with s1:
+                do_save = st.form_submit_button("✅ Speichern", use_container_width=True, type="primary")
+            with s2:
+                do_delete = st.form_submit_button("🗑️ Löschen", use_container_width=True)
+
+            if do_save:
+                if not reason.strip():
+                    st.error("Bitte eine Begründung eingeben.")
+                elif len(new_start.strip()) < 4:
+                    st.error("Bitte eine gültige Startzeit eingeben.")
+                else:
+                    try:
+                        payload = {
+                            "start_zeit": (new_start.strip()[:5] + ":00"),
+                            "ende_zeit": (new_end.strip()[:5] + ":00") if new_end.strip() else None,
+                            "pause_minuten": int(new_pause),
+                            "quelle": "manuell_admin",
+                        }
+                        supabase.table("zeiterfassung").update(payload).eq("id", entry_id).execute()
+                        log_zeitkorrektur(
+                            admin_user_id=int(st.session_state.get("user_id") or 0),
+                            admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
+                            mitarbeiter_id=int(aktiver_ma.get("id")),
+                            mitarbeiter_name=f"{aktiver_ma.get('vorname','')} {aktiver_ma.get('nachname','')}".strip(),
+                            zeiterfassung_id=entry_id,
+                            alter_wert={
+                                "start_zeit": entry.get("start_zeit"),
+                                "ende_zeit": entry.get("ende_zeit"),
+                                "pause_minuten": entry.get("pause_minuten"),
+                            },
+                            neuer_wert=payload,
+                            begruendung=reason.strip(),
+                            betrieb_id=int(st.session_state.get("betrieb_id") or 0),
+                        )
+                        _cached_dienstplan_startzeiten.clear()
+                        st.success("Zeiteintrag gespeichert.")
+                        st.session_state.pop("za_edit_entry", None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Speichern fehlgeschlagen: {exc}")
+
+            if do_delete:
+                if not reason.strip():
+                    st.error("Bitte eine Begründung eingeben.")
+                else:
+                    try:
+                        supabase.table("zeiterfassung").delete().eq("id", entry_id).execute()
+                        log_zeitloeschung(
+                            admin_user_id=int(st.session_state.get("user_id") or 0),
+                            admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
+                            mitarbeiter_id=int(aktiver_ma.get("id")),
+                            mitarbeiter_name=f"{aktiver_ma.get('vorname','')} {aktiver_ma.get('nachname','')}".strip(),
+                            zeiterfassung_id=entry_id,
+                            alter_wert={
+                                "start_zeit": entry.get("start_zeit"),
+                                "ende_zeit": entry.get("ende_zeit"),
+                                "pause_minuten": entry.get("pause_minuten"),
+                            },
+                            begruendung=reason.strip(),
+                            betrieb_id=int(st.session_state.get("betrieb_id") or 0),
+                        )
+                        _cached_dienstplan_startzeiten.clear()
+                        st.success("Zeiteintrag gelöscht.")
+                        st.session_state.pop("za_edit_entry", None)
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Löschen fehlgeschlagen: {exc}")
+
+        if st.button("Schließen", use_container_width=True, key=f"zeit_edit_close_{entry_id}"):
+            st.session_state.pop("za_edit_entry", None)
+            st.rerun()
+
+    _dialog()
 
 
 def _berechne_soll_stunden(dienstplaene: list) -> float:
@@ -323,10 +471,15 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Daten laden ──────────────────────────────────────────────────────────
     zeiterfassungen = _lade_zeiterfassungen(aktiver_ma['id'], monat, jahr)
-    dienstplaene = _lade_dienstplaene(aktiver_ma['id'], monat, jahr)
+    dienstplan_start_map = _cached_dienstplan_startzeiten(aktiver_ma['id'], monat, jahr)
 
     # ── Lohnberechnung mit neuem Modul ───────────────────────────────────────
-    monat_ergebnis = berechne_monat(zeiterfassungen, aktiver_ma, auto_pause=False)
+    monat_ergebnis = berechne_monat(
+        zeiterfassungen,
+        aktiver_ma,
+        auto_pause=False,
+        dienstplan_start_map=dienstplan_start_map,
+    )
 
     # ── Soll-Stunden ─────────────────────────────────────────────────────────
     # Soll-Stunden immer aus Stammdaten (Vertrag), nicht aus Dienstplan
@@ -478,6 +631,39 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         })
 
         st.dataframe(df_rows, use_container_width=True, hide_index=True)
+
+        if admin_modus:
+            st.markdown("#### ✏️ Zeiteinträge interaktiv korrigieren")
+            st.caption("Klicken Sie auf einen Eintrag, um ihn in einem Popup zu bearbeiten oder zu löschen (mit Pflichtbegründung).")
+            edit_options = {}
+            for raw in zeiterfassungen:
+                rid = raw.get("id")
+                if rid is None:
+                    continue
+                d = str(raw.get("datum") or "")
+                s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
+                e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
+                label = f"#{rid} · {d} · {s}–{e}"
+                edit_options[label] = raw
+
+            if edit_options:
+                selected_label = st.selectbox(
+                    "Zeiteintrag auswählen",
+                    options=list(edit_options.keys()),
+                    key="za_edit_select",
+                )
+                if st.button("🛠️ Eintrag öffnen", use_container_width=True, key="za_edit_open_btn"):
+                    st.session_state["za_edit_entry"] = edit_options[selected_label]
+                    st.rerun()
+
+            active_edit = st.session_state.get("za_edit_entry")
+            if active_edit:
+                _korrigiere_zeiterfassung_popup(
+                    entry=active_edit,
+                    aktiver_ma=aktiver_ma,
+                    monat=monat,
+                    jahr=jahr,
+                )
 
     st.markdown("---")
 

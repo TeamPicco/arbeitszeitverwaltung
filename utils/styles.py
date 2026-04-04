@@ -365,11 +365,12 @@ def apply_custom_css():
     }}
     
     .stTabs [aria-selected="true"] {{
-        background-color: #e3f2fd !important;  /* Hellblau für aktiven Tab */
+        background-color: {COLORS['primary_dark']} !important;
         color: {COLORS['text_primary']} !important;
+        border: 1px solid {COLORS['border']} !important;
     }}
     
-    /* WICHTIG: Tabs sind KEINE Buttons - schwarze Schrift auf hellem Hintergrund */
+    /* Tabs im Dark-Theme */
     .stTabs [data-baseweb="tab"],
     .stTabs [data-baseweb="tab"] *,
     .stTabs [data-baseweb="tab"] span,

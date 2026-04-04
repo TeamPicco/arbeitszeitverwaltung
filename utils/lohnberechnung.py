@@ -416,7 +416,8 @@ def _berechne_splitting_punkte(
 def berechne_eintrag(
     eintrag: Dict[str, Any],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
+    auto_pause: bool = False,  # Pausen werden ausschließlich manuell eingetragen
+    dienstplan_start_zeit: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Berechnet Stunden und Lohn für einen einzelnen Zeiterfassungs-Eintrag.
@@ -461,6 +462,7 @@ def berechne_eintrag(
     datum_str = eintrag.get("datum", "")
     start_zeit = eintrag.get("start_zeit")
     ende_zeit = eintrag.get("ende_zeit")
+    start_zeit_fuer_berechnung = start_zeit
 
     try:
         datum = date.fromisoformat(datum_str) if datum_str else date.today()
@@ -556,10 +558,28 @@ def berechne_eintrag(
             "fehler": "Eintrag offen (kein Ende)",
         }
 
+    # Kappungsregel: berechnet wird erst ab geplanter Dienstplan-Startzeit.
+    if dienstplan_start_zeit:
+        try:
+            raw_start_dt = _parse_zeit_zu_datetime(start_zeit, datum)
+            raw_end_dt = _parse_zeit_zu_datetime(ende_zeit, datum)
+            if raw_end_dt <= raw_start_dt:
+                raw_end_dt += timedelta(days=1)
+            plan_start_dt = _parse_zeit_zu_datetime(dienstplan_start_zeit, datum)
+            if raw_start_dt < plan_start_dt < raw_end_dt:
+                start_zeit_fuer_berechnung = plan_start_dt.time().strftime("%H:%M:%S")
+                audit_log.append(
+                    "Kappung aktiv: "
+                    f"gestempelt {str(start_zeit)[:5]} → berechnet ab Dienstplan-Start {plan_start_dt.strftime('%H:%M')}"
+                )
+        except Exception:
+            # Falls eine Legacy-Instanz inkonsistente Zeitwerte enthält, nicht hard-failen.
+            start_zeit_fuer_berechnung = start_zeit
+
     # Netto-Stunden berechnen
     pause_manuell = eintrag.get("pause_minuten")
     netto_h, verwendete_pause, zeit_audit = berechne_netto_stunden(
-        start_zeit, ende_zeit, pause_manuell, datum, auto_pause
+        start_zeit_fuer_berechnung, ende_zeit, pause_manuell, datum, auto_pause
     )
     audit_log.extend(zeit_audit)
 
@@ -569,7 +589,7 @@ def berechne_eintrag(
 
     # Zuschläge mit Splitting berechnen
     # WICHTIG: Splitting auf Brutto-Stunden, dann proportional auf Netto-Stunden umrechnen
-    start_dt = _parse_zeit_zu_datetime(start_zeit, datum)
+    start_dt = _parse_zeit_zu_datetime(start_zeit_fuer_berechnung, datum)
     ende_dt = _parse_zeit_zu_datetime(ende_zeit, datum)
     if ende_dt <= start_dt:
         ende_dt += timedelta(days=1)
@@ -614,7 +634,8 @@ def berechne_eintrag(
 def berechne_monat(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
+    auto_pause: bool = False,  # Pausen werden ausschließlich manuell eingetragen
+    dienstplan_start_map: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Berechnet alle Stunden und Lohnsummen für einen Monat.
@@ -623,6 +644,7 @@ def berechne_monat(
         eintraege: Liste aller Zeiterfassungs-Einträge des Monats
         mitarbeiter: Mitarbeiter-Datensatz
         auto_pause: Automatischen Pausenabzug anwenden
+        dienstplan_start_map: Optionales Mapping {YYYY-MM-DD: HH:MM(:SS)} für Kappung
 
     Returns:
         {
@@ -653,7 +675,14 @@ def berechne_monat(
     audit_log_gesamt = []
 
     for eintrag in eintraege:
-        zeile = berechne_eintrag(eintrag, mitarbeiter, auto_pause)
+        datum_key = str(eintrag.get("datum") or "")
+        planned_start = (dienstplan_start_map or {}).get(datum_key)
+        zeile = berechne_eintrag(
+            eintrag,
+            mitarbeiter,
+            auto_pause,
+            dienstplan_start_zeit=planned_start,
+        )
         zeilen.append(zeile)
         audit_log_gesamt.extend(zeile["audit_log"])
         audit_log_gesamt.append("")  # Leerzeile zwischen Einträgen
