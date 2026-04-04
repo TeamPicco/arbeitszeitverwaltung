@@ -31,10 +31,10 @@ WOCHENTAGE_KURZ = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 # Schichttypen
 SCHICHTTYPEN = {
-    'arbeit': {'label': '🔵 Arbeit',      'farbe': '#0d6efd', 'kuerzel': 'A'},
-    'urlaub': {'label': '🟡 Urlaub',      'farbe': '#ffeb3b', 'kuerzel': 'U'},
-    'krank':  {'label': '🤒 Krank',        'farbe': '#ff9800', 'kuerzel': 'K'},
-    'frei':   {'label': '⚪ Frei',         'farbe': '#e9ecef', 'kuerzel': 'F'},
+    'arbeit': {'label': 'Arbeit',      'farbe': '#0d6efd', 'kuerzel': 'A'},
+    'urlaub': {'label': 'Urlaub',      'farbe': '#ffeb3b', 'kuerzel': 'U'},
+    'krank':  {'label': 'Krank',       'farbe': '#ff9800', 'kuerzel': 'K'},
+    'frei':   {'label': 'Frei',        'farbe': '#e9ecef', 'kuerzel': 'F'},
 }
 
 try:
@@ -403,7 +403,7 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
     1) Einzel-Dienstplan je Mitarbeiter
     2) Gesamtansicht (alle Mitarbeiter)
     """
-    st.markdown("### 📥 Download-Center")
+    st.markdown("### Download-Center")
     d1, d2 = st.columns(2)
 
     with d1:
@@ -420,7 +420,7 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
         ma_pdf_filename_key = f"{key_prefix}_ma_pdf_filename"
         ma_pdf_sig_key = f"{key_prefix}_ma_pdf_sig"
         current_ma_sig = f"{jahr}-{monat}-{ma_download_id}-{len(dienste_map)}"
-        if st.button("📄 PDF für Mitarbeiter generieren", use_container_width=True, key=f"{key_prefix}_ma_pdf_generate"):
+        if st.button("PDF für Mitarbeiter generieren", use_container_width=True, key=f"{key_prefix}_ma_pdf_generate"):
             try:
                 ma_dienste_sorted = _collect_employee_dienste(dienste_map, ma_download['id']) if ma_download else []
                 generated_pdfs[ma_pdf_key] = erstelle_einzelner_dienstplan_pdf(
@@ -443,7 +443,7 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
                 and st.session_state.get(ma_pdf_sig_key) == current_ma_sig
             ):
                 st.download_button(
-                    label="📥 Einzel-Dienstplan herunterladen",
+                    label="Einzel-Dienstplan herunterladen",
                     data=generated_pdfs.get(ma_pdf_key),
                     file_name=st.session_state.get(ma_pdf_filename_key),
                     mime="application/pdf",
@@ -459,7 +459,7 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
         all_pdf_key = f"{key_prefix}_all_pdf_bytes"
         all_pdf_sig_key = f"{key_prefix}_all_pdf_sig"
         all_pdf_sig = f"{jahr}-{monat}-{len(mitarbeiter_liste)}-{len(dienste_map)}"
-        if st.button("📄 Komplett-PDF generieren", use_container_width=True, key=f"{key_prefix}_all_pdf_generate"):
+        if st.button("Komplett-PDF generieren", use_container_width=True, key=f"{key_prefix}_all_pdf_generate"):
             try:
                 generated_pdfs[all_pdf_key] = erstelle_admin_dienstplan_pdf(
                     mitarbeiter_liste,
@@ -473,7 +473,7 @@ def _render_download_center(mitarbeiter_liste: list, dienste_map: dict, jahr: in
                 st.warning(f"Gesamt-PDF konnte nicht erstellt werden: {str(e)}")
         if generated_pdfs.get(all_pdf_key) and st.session_state.get(all_pdf_sig_key) == all_pdf_sig:
             st.download_button(
-                label="📄 Komplettansicht als PDF herunterladen",
+                label="Komplettansicht als PDF herunterladen",
                 data=generated_pdfs.get(all_pdf_key),
                 file_name=f"Dienstplan_Alle_{MONATE_DE[monat]}_{jahr}.pdf",
                 mime="application/pdf",
@@ -565,20 +565,20 @@ def setze_urlaub_automatisch(
 def show_dienstplanung():
     """Zeigt die Dienstplanung für Administratoren an"""
 
-    st.markdown('<div class="section-header">📅 Dienstplanung</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-header">Dienstplanung</div>', unsafe_allow_html=True)
 
     supabase = get_supabase_client()
 
     section = st.radio(
         "Dienstplanung Bereich",
-        options=["📆 Monatsplan", "📊 Monatsübersicht (Tabelle)", "⚙️ Schichtvorlagen"],
+        options=["Monatsplan", "Monatsübersicht (Tabelle)", "Schichtvorlagen"],
         horizontal=True,
         label_visibility="collapsed",
         key="dienstplanung_section",
     )
-    if section == "📆 Monatsplan":
+    if section == "Monatsplan":
         show_monatsplan(supabase)
-    elif section == "📊 Monatsübersicht (Tabelle)":
+    elif section == "Monatsübersicht (Tabelle)":
         show_monatsuebersicht_tabelle(supabase)
     else:
         show_schichtvorlagen(supabase)
@@ -592,7 +592,7 @@ def show_monatsplan(supabase):
     """Zeigt den monatlichen Dienstplan mit Frei/Urlaub-Optionen"""
     planning_table = resolve_planning_table(supabase)
 
-    st.subheader("📆 Monatlicher Dienstplan")
+    st.subheader("Monatlicher Dienstplan")
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
@@ -601,7 +601,7 @@ def show_monatsplan(supabase):
         monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1,
                              format_func=lambda x: MONATE_DE[x])
     with col3:
-        if st.button("🔄 Aktualisieren", use_container_width=True):
+        if st.button("Aktualisieren", use_container_width=True):
             st.rerun()
 
     mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
@@ -643,7 +643,7 @@ def show_monatsplan(supabase):
     st.markdown("---")
 
     # ── AUTOMATISCHE URLAUBSEINTRÄGE ──────────────────────────
-    with st.expander("🔄 Genehmigte Urlaube automatisch in Dienstplan eintragen"):
+    with st.expander("Genehmigte Urlaube automatisch in Dienstplan eintragen"):
         st.info(
             "Alle genehmigten Urlaubsanträge für diesen Monat werden automatisch als **Urlaub**-Einträge "
             "in den Dienstplan eingetragen. Bereits vorhandene Einträge werden **nicht** überschrieben."
@@ -651,7 +651,7 @@ def show_monatsplan(supabase):
 
         col_a, col_b = st.columns(2)
         with col_a:
-            auto_alle = st.button("📥 Alle Mitarbeiter – Urlaube eintragen", use_container_width=True, type="primary")
+            auto_alle = st.button("Alle Mitarbeiter – Urlaube eintragen", use_container_width=True, type="primary")
         with col_b:
             ma_auto = st.selectbox(
                 "Oder nur für Mitarbeiter:",
@@ -659,7 +659,7 @@ def show_monatsplan(supabase):
                 format_func=lambda x: "Alle" if x is None else next(
                     (f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste if m['id'] == x), "")
             )
-            auto_einzeln = st.button("📥 Urlaube eintragen", use_container_width=True)
+            auto_einzeln = st.button("Urlaube eintragen", use_container_width=True)
 
         if auto_alle or auto_einzeln:
             gesamt = 0
@@ -680,7 +680,7 @@ def show_monatsplan(supabase):
                 )
                 gesamt += n
             if gesamt > 0:
-                st.success(f"✅ {gesamt} Urlaubstag(e) automatisch eingetragen!")
+                st.success(f"{gesamt} Urlaubstag(e) automatisch eingetragen!")
                 _refresh_after_write()
                 st.rerun()
             else:
@@ -689,8 +689,8 @@ def show_monatsplan(supabase):
     st.markdown("---")
 
     # ── SCHNELLPLANUNG ────────────────────────────────────────
-    with st.expander("➕ Dienst / Urlaub / Frei hinzufügen"):
-        st.info("📅 **Betriebszeiten:** Mittwoch – Sonntag | **Ruhetage:** Montag & Dienstag")
+    with st.expander("Dienst / Urlaub / Frei hinzufügen"):
+        st.info("Betriebszeiten: Mittwoch – Sonntag | Ruhetage: Montag & Dienstag")
 
         col1, col2, col3 = st.columns(3)
 
@@ -710,7 +710,7 @@ def show_monatsplan(supabase):
             )
             if dienst_datum.weekday() in [0, 1]:
                 wt = WOCHENTAGE_DE[dienst_datum.weekday()]
-                st.warning(f"⚠️ {wt} ist ein Ruhetag!")
+                st.warning(f"{wt} ist ein Ruhetag.")
 
         with col3:
             schichttyp = st.selectbox(
@@ -774,14 +774,14 @@ def show_monatsplan(supabase):
                 value=stunden_pro_tag, step=0.5, format="%.2f",
                 help=f"Lohnfortzahlungsstunden: Soll ({soll}h) ÷ 21,65 Arbeitstage"
             )
-            st.info("💡 Krankheitstage werden mit Lohnfortzahlung (EFZG) eingetragen.")
+            st.info("Krankheitstage werden mit Lohnfortzahlung (EFZG) eingetragen.")
             start_z = datetime.strptime("00:00", "%H:%M").time()
             ende_z = datetime.strptime("00:00", "%H:%M").time()
             pause_m = 0
             vorlage_id = None
             urlaub_stunden = 0.0
         else:  # frei
-            st.info("💡 Freie Tage werden ohne Lohn eingetragen.")
+            st.info("Freie Tage werden ohne Lohn eingetragen.")
             start_z = datetime.strptime("00:00", "%H:%M").time()
             ende_z = datetime.strptime("00:00", "%H:%M").time()
             pause_m = 0
@@ -789,7 +789,7 @@ def show_monatsplan(supabase):
             urlaub_stunden = 0.0
             krank_stunden = 0.0
 
-        with st.popover("✅ Eintragen", use_container_width=True):
+        with st.popover("Eintragen", use_container_width=True):
             quick_add_reason = st.text_area(
                 "Begründung (manuelle Anpassung) *",
                 placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
@@ -837,7 +837,7 @@ def show_monatsplan(supabase):
                             begruendung=quick_add_reason.strip(),
                         )
                         _refresh_after_write()
-                        st.success(f"✅ {SCHICHTTYPEN[schichttyp]['label']} eingetragen!")
+                        st.success(f"{SCHICHTTYPEN[schichttyp]['label']} eingetragen.")
                         # E-Mail-Benachrichtigung an Mitarbeiter
                         try:
                             from utils.email_service import send_dienstplan_email
@@ -886,17 +886,17 @@ def show_monatsplan(supabase):
 
         badge = ""
         if nicht_eingetragen > 0:
-            badge = f" 🟡 {nicht_eingetragen} Urlaub(e) fehlen im Plan"
+            badge = f" | {nicht_eingetragen} Urlaub(e) fehlen im Plan"
 
-        krank_badge = f"  🤒 {krank_tage} Krank" if krank_tage > 0 else ""
+        krank_badge = f" | {krank_tage} Krank" if krank_tage > 0 else ""
         with st.expander(
-            f"👤 {mitarbeiter['vorname']} {mitarbeiter['nachname']} "
-            f"| 🔵 {arbeit_tage} Arbeit  🟡 {urlaub_tage} Urlaub  ⚪ {frei_tage} Frei"
+            f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} "
+            f"| {arbeit_tage} Arbeit | {urlaub_tage} Urlaub | {frei_tage} Frei"
             + krank_badge + badge
         ):
             if nicht_eingetragen > 0:
                 st.warning(
-                    f"⚠️ {nicht_eingetragen} genehmigte(r) Urlaubstag(e) noch nicht im Dienstplan. "
+                    f"{nicht_eingetragen} genehmigte(r) Urlaubstag(e) noch nicht im Dienstplan. "
                     f"Nutze 'Genehmigte Urlaube automatisch eintragen' oben."
                 )
 
@@ -906,7 +906,7 @@ def show_monatsplan(supabase):
                 pdf_bytes = erstelle_einzelner_dienstplan_pdf(mitarbeiter, ma_dienste_sorted, jahr, monat)
                 dateiname = f"Dienstplan_{mitarbeiter['nachname']}_{MONATE_DE[monat]}_{jahr}.pdf"
                 st.download_button(
-                    label=f"📥 Dienstplan als PDF herunterladen",
+                    label="Dienstplan als PDF herunterladen",
                     data=pdf_bytes,
                     file_name=dateiname,
                     mime="application/pdf",
@@ -942,22 +942,22 @@ def show_monatsplan(supabase):
                         if typ == 'arbeit':
                             if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
                                 vn = vorlagen_dict[dienst['schichtvorlage_id']]['name']
-                                st.caption(f"🏷️ {vn}")
+                                st.caption(vn)
                             st.write(f"⏰ {dienst['start_zeit'][:5]} – {dienst['ende_zeit'][:5]}")
                         elif typ == 'urlaub':
-                            st.write("🏖️ Urlaub")
+                            st.write("Urlaub")
                         elif typ == 'krank':
                             lfz_h = dienst.get('urlaub_stunden') or 0
-                            st.write(f"🤒 Krank (LFZ: {lfz_h:.1f}h)")
+                            st.write(f"Krank (LFZ: {lfz_h:.1f}h)")
                         else:
-                            st.write("⚪ Frei")
+                            st.write("Frei")
 
                     with col4:
-                        if st.button("✏️", key=f"edit_btn_{dienst['id']}", help="Direkt bearbeiten"):
+                        if st.button("Bearbeiten", key=f"edit_btn_{dienst['id']}", help="Direkt bearbeiten"):
                             st.session_state[edit_key] = not st.session_state.get(edit_key, False)
 
                     with col5:
-                        with st.popover("🗑️", use_container_width=True):
+                        with st.popover("Löschen", use_container_width=True):
                             del_reason_direct = st.text_area(
                                 "Begründung (Löschen) *",
                                 placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
@@ -991,7 +991,7 @@ def show_monatsplan(supabase):
                                             begruendung=del_reason_direct.strip(),
                                         )
                                         _refresh_after_write()
-                                        st.success("✅ Gelöscht!")
+                                        st.success("Eintrag gelöscht.")
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Fehler: {str(e)}")
@@ -1005,7 +1005,7 @@ def show_monatsplan(supabase):
                                 unsafe_allow_html=True,
                             )
                             with st.form(key=f"form_edit_{dienst['id']}"):
-                                st.markdown(f"**✏️ Dienst bearbeiten: {datum_obj.strftime('%d.%m.%Y')} ({wt})**")
+                                st.markdown(f"**Dienst bearbeiten: {datum_obj.strftime('%d.%m.%Y')} ({wt})**")
                                 ec1, ec2 = st.columns(2)
                                 with ec1:
                                     neuer_typ = st.selectbox(
@@ -1035,9 +1035,9 @@ def show_monatsplan(supabase):
                                 )
                                 sb1, sb2 = st.columns(2)
                                 with sb1:
-                                    speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
+                                    speichern = st.form_submit_button("Speichern", use_container_width=True)
                                 with sb2:
-                                    abbrechen = st.form_submit_button("❌ Abbrechen", use_container_width=True)
+                                    abbrechen = st.form_submit_button("Abbrechen", use_container_width=True)
                                 if speichern:
                                     if not (edit_reason or "").strip():
                                         st.error("Bitte eine Begründung eingeben.")
@@ -1068,7 +1068,7 @@ def show_monatsplan(supabase):
                                             )
                                             _refresh_after_write()
                                             st.session_state[edit_key] = False
-                                            st.success("✅ Dienst aktualisiert!")
+                                            st.success("Dienst aktualisiert.")
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Fehler beim Speichern: {str(e)}")
@@ -1088,8 +1088,8 @@ def show_monatsuebersicht_tabelle(supabase):
     """Zeigt Monatsübersicht aller Mitarbeiter in Tabellenform"""
     planning_table = resolve_planning_table(supabase)
 
-    st.subheader("📊 Monatsübersicht (Tabelle)")
-    st.info("💡 Übersicht aller Mitarbeiter – Arbeit (blau), Urlaub (gelb), Frei (grau), Ruhetag (–)")
+    st.subheader("Monatsübersicht (Tabelle)")
+    st.info("Übersicht aller Mitarbeiter – Arbeit, Urlaub, Frei, Ruhetag.")
 
     col1, col2, col3 = st.columns([1, 2, 1])
     with col1:
@@ -1098,7 +1098,7 @@ def show_monatsuebersicht_tabelle(supabase):
         monat = st.selectbox("Monat", range(1, 13), index=date.today().month - 1,
                              format_func=lambda x: MONATE_DE[x], key="tabelle_monat")
     with col3:
-        if st.button("🔄 Aktualisieren", use_container_width=True, key="tabelle_refresh"):
+        if st.button("Aktualisieren", use_container_width=True, key="tabelle_refresh"):
             st.rerun()
 
     mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
@@ -1138,7 +1138,7 @@ def show_monatsuebersicht_tabelle(supabase):
     vorlagen_arbeit = [v for v in vorlagen_dict.values() if not v.get("ist_urlaub")]
     if vorlagen_arbeit:
         vorlage_quickpick = st.selectbox(
-            "⚡ 1‑Klick-Vorlage für Monatsübersicht",
+            "1-Klick-Vorlage für Monatsübersicht",
             options=[None] + [v["id"] for v in vorlagen_arbeit],
             format_func=lambda x: "Keine" if x is None else next((v["name"] for v in vorlagen_arbeit if v["id"] == x), ""),
             help="Wenn gewählt, setzt ein Klick auf eine Tageszelle direkt diese Schichtvorlage.",
@@ -1157,7 +1157,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
     # ── TAP-TO-EDIT MATRIX + POPUP (direkt im Feld antippen) ─
     st.markdown("---")
-    st.markdown("### 👆 Direkt im Feld tippen")
+    st.markdown("### Direkt im Feld tippen")
     st.caption("Tippen Sie ein Tagesfeld an. Es öffnet sich sofort ein Popup zum Bearbeiten/Anlegen – ohne unteren Editor.")
 
     st.caption("Wenn eine Vorlage gewählt ist, setzt ein Klick auf eine Tageszelle die Schicht sofort ohne zusätzliches Popup.")
@@ -1230,7 +1230,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                 vorlage=quick_vorlage,
                             )
                             _refresh_after_write()
-                            st.success(f"✅ {quick_vorlage['name']} gesetzt: {mitarbeiter['vorname']} {mitarbeiter['nachname']} · {tag_datum.strftime('%d.%m.%Y')}")
+                            st.success(f"{quick_vorlage['name']} gesetzt: {mitarbeiter['vorname']} {mitarbeiter['nachname']} · {tag_datum.strftime('%d.%m.%Y')}")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Vorlage konnte nicht gesetzt werden: {str(e)}")
@@ -1251,7 +1251,7 @@ def show_monatsuebersicht_tabelle(supabase):
         active_editor = None
 
     if active_editor:
-        @st.dialog("✏️ Dienst im Feld bearbeiten")
+        @st.dialog("Dienst im Feld bearbeiten")
         def _cell_editor_dialog():
             ma_id = int(active_editor.get("ma_id"))
             datum_iso = str(active_editor.get("datum"))
@@ -1327,9 +1327,9 @@ def show_monatsuebersicht_tabelle(supabase):
                         )
                         s1, s2 = st.columns(2)
                         with s1:
-                            speichern = st.form_submit_button("✅ Speichern", use_container_width=True)
+                            speichern = st.form_submit_button("Speichern", use_container_width=True)
                         with s2:
-                            loeschen = st.form_submit_button("🗑️ Löschen", use_container_width=True)
+                            loeschen = st.form_submit_button("Löschen", use_container_width=True)
 
                         if speichern:
                             if not (edit_reason_cell or "").strip():
@@ -1379,7 +1379,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                     )
                                     _refresh_after_write()
                                     st.session_state["tabelle_cell_editor"] = None
-                                    st.success("✅ Dienst gespeichert.")
+                                    st.success("Dienst gespeichert.")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Fehler beim Speichern: {str(e)}")
@@ -1408,13 +1408,13 @@ def show_monatsuebersicht_tabelle(supabase):
                                     )
                                     _refresh_after_write()
                                     st.session_state["tabelle_cell_editor"] = None
-                                    st.success("✅ Dienst gelöscht.")
+                                    st.success("Dienst gelöscht.")
                                     st.rerun()
                                 except Exception as e:
                                     st.error(f"Fehler beim Löschen: {str(e)}")
 
                 st.markdown("---")
-                st.markdown("**➕ Zusätzlichen Dienst anlegen**")
+                st.markdown("**Zusätzlichen Dienst anlegen**")
 
             with st.form(key=f"cell_new_form_{ma_id}_{datum_iso}"):
                 n1, n2, n3 = st.columns(3)
@@ -1456,7 +1456,7 @@ def show_monatsuebersicht_tabelle(supabase):
                     placeholder="Pflichtfeld für Audit/GoBD",
                     key=f"cell_new_reason_{ma_id}_{datum_iso}",
                 )
-                anlegen = st.form_submit_button("➕ Anlegen", use_container_width=True, type="primary")
+                anlegen = st.form_submit_button("Anlegen", use_container_width=True, type="primary")
                 if anlegen:
                     if not (new_reason_cell or "").strip():
                         st.error("Bitte eine Begründung eingeben.")
@@ -1508,7 +1508,7 @@ def show_monatsuebersicht_tabelle(supabase):
                                 )
                             _refresh_after_write()
                             st.session_state["tabelle_cell_editor"] = None
-                            st.success("✅ Dienst angelegt.")
+                            st.success("Dienst angelegt.")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Fehler beim Anlegen: {str(e)}")
@@ -1524,13 +1524,13 @@ def show_monatsuebersicht_tabelle(supabase):
     st.markdown("**Legende:**")
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
-        st.markdown("🔵 **A** = Arbeit")
+        st.markdown("**A** = Arbeit")
     with col2:
-        st.markdown("🟡 **U** = Urlaub (im Plan)")
+        st.markdown("**U** = Urlaub (im Plan)")
     with col3:
-        st.markdown("🟠 **U*** = Urlaub genehmigt, fehlt im Plan")
+        st.markdown("**U*** = Urlaub genehmigt, fehlt im Plan")
     with col4:
-        st.markdown("⚪ **F** = Frei")
+        st.markdown("**F** = Frei")
     with col5:
         st.markdown("**–** = Ruhetag (Mo/Di)")
 
@@ -1538,7 +1538,7 @@ def show_monatsuebersicht_tabelle(supabase):
     st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📥 Als CSV exportieren", use_container_width=True):
+        if st.button("Als CSV exportieren", use_container_width=True):
             csv_data = "Mitarbeiter," + ",".join([str(t) for t in range(1, anzahl_tage + 1)]) + "\n"
             for mitarbeiter in mitarbeiter_liste:
                 row = f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}"
@@ -1567,32 +1567,32 @@ def show_monatsuebersicht_tabelle(supabase):
                 csv_data += row + "\n"
 
             st.download_button(
-                label="💾 CSV herunterladen",
+                label="CSV herunterladen",
                 data=csv_data.encode('utf-8-sig'),
                 file_name=f"dienstplan_{MONATE_DE[monat]}_{jahr}.csv",
                 mime="text/csv",
                 use_container_width=True
             )
     with col2:
-        st.info("📌 PDF-Downloads finden Sie oben im Download-Center.")
+        st.info("PDF-Downloads finden Sie oben im Download-Center.")
     
     # ============================================================
     # DIENSTPLAN-VERÖFFENTLICHUNG: E-Mail an alle Mitarbeiter
     # ============================================================
     st.markdown("---")
-    st.markdown("### 📧 Dienstplan veröffentlichen & Mitarbeiter benachrichtigen")
-    st.info("⚠️ Dieser Button sendet eine E-Mail an ALLE Mitarbeiter mit E-Mail-Adresse. "
+    st.markdown("### Dienstplan veröffentlichen und Mitarbeiter benachrichtigen")
+    st.info("Dieser Button sendet eine E-Mail an ALLE Mitarbeiter mit E-Mail-Adresse. "
             "Die Nachricht enthält einen Vorbehalt-Hinweis und den Link zur App.")
     
     col_mail1, col_mail2 = st.columns([2, 1])
     with col_mail1:
         vorbehalt_aktiv = st.checkbox(
-            "⚠️ Vorbehalt-Hinweis einfügen (Endzeiten richten sich nach wirtschaftlichem Betriebsende)",
+            "Vorbehalt-Hinweis einfügen (Endzeiten richten sich nach wirtschaftlichem Betriebsende)",
             value=True,
             key="dienstplan_vorbehalt"
         )
     with col_mail2:
-        if st.button("📧 Dienstplan veröffentlichen & E-Mails senden",
+        if st.button("Dienstplan veröffentlichen und E-Mails senden",
                      use_container_width=True, type="primary", key="dienstplan_publish_email"):
             try:
                 from utils.email_service import send_dienstplan_veroeffentlichung_alle
@@ -1606,11 +1606,11 @@ def show_monatsuebersicht_tabelle(supabase):
                 fehlgeschlagen = ergebnis.get('fehlgeschlagen', 0)
                 keine_email = ergebnis.get('keine_email', 0)
                 if gesendet > 0:
-                    st.success(f"✅ {gesendet} E-Mail(s) erfolgreich gesendet!"
+                    st.success(f"{gesendet} E-Mail(s) erfolgreich gesendet!"
                                f"{f' | {fehlgeschlagen} fehlgeschlagen' if fehlgeschlagen else ''}"
                                f"{f' | {keine_email} ohne E-Mail' if keine_email else ''}")
                 else:
-                    st.warning(f"⚠️ Keine E-Mails gesendet. "
+                    st.warning(f"Keine E-Mails gesendet. "
                                f"Fehlgeschlagen: {fehlgeschlagen}, Ohne E-Mail: {keine_email}")
             except Exception as e:
                 st.error(f"E-Mail-Fehler: {str(e)}")
@@ -1623,8 +1623,8 @@ def show_monatsuebersicht_tabelle(supabase):
 def show_schichtvorlagen(supabase):
     """Zeigt die Schichtvorlagen-Verwaltung an"""
 
-    st.subheader("⚙️ Schichtvorlagen")
-    st.info("💡 Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
+    st.subheader("Schichtvorlagen")
+    st.info("Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
 
     vorlagen = supabase.table('schichtvorlagen').select(
         'id,name,beschreibung,start_zeit,ende_zeit,pause_minuten,farbe,ist_urlaub'
@@ -1632,14 +1632,14 @@ def show_schichtvorlagen(supabase):
         'betrieb_id', st.session_state.betrieb_id
     ).order('name').execute()
 
-    with st.expander("➕ Neue Schichtvorlage erstellen", expanded=False):
+    with st.expander("Neue Schichtvorlage erstellen", expanded=False):
         with st.form("neue_vorlage_form"):
             col1, col2 = st.columns(2)
 
             with col1:
                 name = st.text_input("Name", placeholder="z.B. Frühschicht")
                 beschreibung = st.text_area("Beschreibung (optional)")
-                ist_urlaub = st.checkbox("🏖️ Urlaub-Schicht (keine festen Zeiten)",
+                ist_urlaub = st.checkbox("Urlaub-Schicht (keine festen Zeiten)",
                                          help="Für Urlaubstage – Stunden werden aus Mitarbeiterprofil berechnet")
 
             with col2:
@@ -1657,7 +1657,7 @@ def show_schichtvorlagen(supabase):
                     else:
                         pause_minuten = 0
                 else:
-                    st.info("💡 Bei Urlaub werden Zeiten automatisch aus Mitarbeiterprofil berechnet")
+                    st.info("Bei Urlaub werden Zeiten automatisch aus Mitarbeiterprofil berechnet")
                     start_zeit = datetime.strptime("00:00", "%H:%M").time()
                     ende_zeit = datetime.strptime("00:00", "%H:%M").time()
                     pause_minuten = 0
@@ -1665,7 +1665,7 @@ def show_schichtvorlagen(supabase):
             farbe = st.color_picker("Farbe für Kalender",
                                     value="#ffeb3b" if ist_urlaub else "#0d6efd")
 
-            if st.form_submit_button("💾 Vorlage speichern", use_container_width=True) and name:
+            if st.form_submit_button("Vorlage speichern", use_container_width=True) and name:
                 try:
                     supabase.table('schichtvorlagen').insert({
                         'betrieb_id': st.session_state.betrieb_id,
@@ -1678,7 +1678,7 @@ def show_schichtvorlagen(supabase):
                         'ist_urlaub': ist_urlaub
                     }).execute()
                     _refresh_after_write()
-                    st.success("✅ Schichtvorlage erstellt!")
+                    st.success("Schichtvorlage erstellt.")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Fehler: {str(e)}")
@@ -1688,7 +1688,7 @@ def show_schichtvorlagen(supabase):
     if vorlagen.data:
         st.markdown(f"**{len(vorlagen.data)} Schichtvorlagen**")
         for vorlage in vorlagen.data:
-            with st.expander(f"🏷️ {vorlage['name']}", expanded=False):
+            with st.expander(f"{vorlage['name']}", expanded=False):
                 edit_mode = st.session_state.get(f"edit_vorlage_{vorlage['id']}", False)
 
                 if edit_mode:
@@ -1708,9 +1708,9 @@ def show_schichtvorlagen(supabase):
 
                         col_s, col_c = st.columns(2)
                         with col_s:
-                            submit = st.form_submit_button("💾 Speichern", use_container_width=True, type="primary")
+                            submit = st.form_submit_button("Speichern", use_container_width=True, type="primary")
                         with col_c:
-                            cancel = st.form_submit_button("❌ Abbrechen", use_container_width=True)
+                            cancel = st.form_submit_button("Abbrechen", use_container_width=True)
 
                         if submit and name:
                             try:
@@ -1724,7 +1724,7 @@ def show_schichtvorlagen(supabase):
                                 }).eq('id', vorlage['id']).execute()
                                 _refresh_after_write()
                                 st.session_state[f"edit_vorlage_{vorlage['id']}"] = False
-                                st.success("✅ Vorlage aktualisiert!")
+                                st.success("Vorlage aktualisiert.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Fehler: {str(e)}")
@@ -1738,7 +1738,7 @@ def show_schichtvorlagen(supabase):
                         if vorlage.get('pause_minuten', 0) > 0:
                             st.write(f"**Pause:** {vorlage['pause_minuten']} Min")
                         if vorlage.get('ist_urlaub'):
-                            st.write("🏖️ Urlaub-Schicht")
+                            st.write("Urlaub-Schicht")
                     with col2:
                         if vorlage.get('beschreibung'):
                             st.write(f"**Beschreibung:** {vorlage['beschreibung']}")
@@ -1749,14 +1749,14 @@ def show_schichtvorlagen(supabase):
                             unsafe_allow_html=True
                         )
                     with col3:
-                        if st.button("✏️", key=f"sv_edit_btn_{vorlage['id']}", help="Bearbeiten"):
+                        if st.button("Bearbeiten", key=f"sv_edit_btn_{vorlage['id']}", help="Bearbeiten"):
                             st.session_state[f"edit_vorlage_{vorlage['id']}"] = True
                             st.rerun()
-                        if st.button("🗑️", key=f"del_vorlage_{vorlage['id']}", help="Löschen"):
+                        if st.button("Löschen", key=f"del_vorlage_{vorlage['id']}", help="Löschen"):
                             try:
                                 supabase.table('schichtvorlagen').delete().eq('id', vorlage['id']).execute()
                                 _refresh_after_write()
-                                st.success("✅ Vorlage gelöscht!")
+                                st.success("Vorlage gelöscht.")
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Fehler: {str(e)}")
