@@ -10,6 +10,7 @@ import calendar
 import locale
 import io
 import os
+import html
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
@@ -1138,95 +1139,171 @@ def show_monatsuebersicht_tabelle(supabase):
 
     anzahl_tage = calendar.monthrange(jahr, monat)[1]
 
-    st.caption("Kompakte Ansicht aktiviert: direkte Tap-Matrix (schneller als doppelte HTML- und Widget-Tabelle).")
+    st.markdown(
+        """
+        <style>
+        .dp-month-table-wrap {
+            overflow-x: auto;
+            overflow-y: hidden;
+            border: 1px solid #2a2a2a;
+            border-radius: 10px;
+            background: #0b0b0b;
+            padding: 0;
+            margin: 0.35rem 0 0.6rem 0;
+        }
+        .dp-month-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: max-content;
+            min-width: 100%;
+            table-layout: fixed;
+        }
+        .dp-month-table th, .dp-month-table td {
+            min-width: 112px;
+            max-width: 112px;
+            width: 112px;
+            padding: 6px 8px;
+            text-align: center;
+            vertical-align: middle;
+            border-bottom: 1px solid #1f2937;
+            border-right: 1px solid #1f2937;
+            font-size: 0.78rem;
+            line-height: 1.15rem;
+            white-space: nowrap;
+        }
+        .dp-month-table th {
+            position: sticky;
+            top: 0;
+            z-index: 3;
+            background: #111827;
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .dp-month-table th:first-child,
+        .dp-month-table td:first-child {
+            position: sticky;
+            left: 0;
+            z-index: 4;
+            min-width: 230px;
+            max-width: 230px;
+            width: 230px;
+            text-align: left;
+            font-weight: 700;
+            background: #0f172a;
+            color: #ffffff;
+        }
+        .dp-cell-geplant { background: #1e3a8a; color: #ffffff; font-weight: 600; }
+        .dp-cell-urlaub  { background: #fde68a; color: #000000; font-weight: 600; }
+        .dp-cell-frei    { background: #e5e7eb; color: #000000; font-weight: 600; }
+        .dp-cell-krank   { background: #fdba74; color: #000000; font-weight: 600; }
+        .dp-cell-ruhetag { background: #1f2937; color: #ffffff; }
+        .dp-cell-leer    { background: #111827; color: #ffffff; }
+        .dp-month-table tr:last-child td { border-bottom: none; }
+        .dp-month-table th:last-child, .dp-month-table td:last-child { border-right: none; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    # ── TAP-TO-EDIT MATRIX + POPUP (direkt im Feld antippen) ─
-    st.markdown("---")
-    st.markdown("### Direkt im Feld tippen")
-    st.caption("Tippen Sie ein Tagesfeld an. Es öffnet sich sofort ein Popup zum Bearbeiten/Anlegen – ohne unteren Editor.")
+    st.caption("Monatsübersicht ist horizontal scrollbar. Die Mitarbeiter-Spalte bleibt beim Scrollen fixiert.")
 
-    st.caption("Wenn eine Vorlage gewählt ist, setzt ein Klick auf eine Tageszelle die Schicht sofort ohne zusätzliches Popup.")
+    def _cell_state_label(ma: dict, tag_datum: date) -> tuple[str, str]:
+        key = (ma["id"], tag_datum.isoformat())
+        eintraege = sorted(dienste_map.get(key, []), key=lambda x: x.get("start_zeit", "00:00"))
+        if eintraege:
+            typen = [d.get("schichttyp", "arbeit") for d in eintraege]
+            if "urlaub" in typen:
+                stunden = float(next((d.get("urlaub_stunden") or 0.0) for d in eintraege if d.get("schichttyp") == "urlaub"))
+                return ("dp-cell-urlaub", f"Urlaub {stunden:.1f}h")
+            if "krank" in typen:
+                lfz_h = float(next((d.get("urlaub_stunden") or 0.0) for d in eintraege if d.get("schichttyp") == "krank"))
+                return ("dp-cell-krank", f"Krank {lfz_h:.1f}h")
+            if "frei" in typen:
+                return ("dp-cell-frei", "Frei")
+            arbeit = [d for d in eintraege if d.get("schichttyp", "arbeit") == "arbeit"]
+            if len(arbeit) > 1:
+                zeit = " | ".join(f"{d.get('start_zeit', '')[:5]}-{d.get('ende_zeit', '')[:5]}" for d in arbeit)
+                return ("dp-cell-geplant", f"Geplant {zeit}")
+            if arbeit:
+                return ("dp-cell-geplant", f"Geplant {arbeit[0].get('start_zeit', '')[:5]}-{arbeit[0].get('ende_zeit', '')[:5]}")
+            return ("dp-cell-leer", "+")
+        if key in urlaub_map:
+            return ("dp-cell-urlaub", "Urlaub offen")
+        if tag_datum.weekday() in [0, 1]:
+            return ("dp-cell-ruhetag", "Ruhetag")
+        return ("dp-cell-leer", "—")
 
-    header_cols = st.columns([2.6] + [1] * anzahl_tage)
-    header_cols[0].markdown("**Mitarbeiter**")
+    table_parts: list[str] = ["<div class='dp-month-table-wrap'><table class='dp-month-table'><thead><tr>"]
+    table_parts.append("<th>Mitarbeiter</th>")
     for tag in range(1, anzahl_tage + 1):
         tag_datum = date(jahr, monat, tag)
         wt_kurz = WOCHENTAGE_KURZ[tag_datum.weekday()]
-        header_cols[tag].markdown(
-            f"<div style='text-align:center; font-size:0.78rem;'><b>{tag}</b><br><small>{wt_kurz}</small></div>",
-            unsafe_allow_html=True,
-        )
+        table_parts.append(f"<th>{tag:02d}<br><span style='font-size:0.68rem;'>{wt_kurz}</span></th>")
+    table_parts.append("</tr></thead><tbody>")
 
-    for mitarbeiter in mitarbeiter_liste:
-        row_cols = st.columns([2.6] + [1] * anzahl_tage)
-        row_cols[0].markdown(
-            f"<div style='font-size:0.82rem;'><b>{mitarbeiter['vorname']} {mitarbeiter['nachname']}</b></div>",
-            unsafe_allow_html=True,
-        )
-
+    for ma in mitarbeiter_liste:
+        ma_name = html.escape(f"{ma['vorname']} {ma['nachname']}")
+        table_parts.append(f"<tr><td>{ma_name}</td>")
         for tag in range(1, anzahl_tage + 1):
             tag_datum = date(jahr, monat, tag)
-            key = (mitarbeiter['id'], tag_datum.isoformat())
-            eintraege = sorted(dienste_map.get(key, []), key=lambda x: x.get('start_zeit', '00:00'))
+            css_cls, label = _cell_state_label(ma, tag_datum)
+            table_parts.append(f"<td class='{css_cls}'>{html.escape(label)}</td>")
+        table_parts.append("</tr>")
 
-            label = "+"
-            hint = "Neuen Dienst anlegen"
-            if eintraege:
-                typen = [d.get('schichttyp', 'arbeit') for d in eintraege]
-                if 'urlaub' in typen:
-                    label = "U"
-                    stunden = float(next((d.get('urlaub_stunden') or 0.0) for d in eintraege if d.get('schichttyp') == 'urlaub'))
-                    hint = f"Urlaub ({stunden:.1f}h) bearbeiten"
-                elif 'krank' in typen:
-                    label = "K"
-                    lfz_h = float(next((d.get('urlaub_stunden') or 0.0) for d in eintraege if d.get('schichttyp') == 'krank'))
-                    hint = f"Krank (LFZ {lfz_h:.1f}h) bearbeiten"
-                elif 'frei' in typen:
-                    label = "F"
-                    hint = "Freien Tag bearbeiten"
-                else:
-                    arbeit = [d for d in eintraege if d.get('schichttyp', 'arbeit') == 'arbeit']
-                    if len(arbeit) > 1:
-                        label = "A2"
-                        zeiten = " | ".join(f"{d.get('start_zeit', '')[:5]}-{d.get('ende_zeit', '')[:5]}" for d in arbeit)
-                        hint = f"Mehrere Arbeitsdienste: {zeiten}"
-                    elif arbeit:
-                        label = "A"
-                        hint = f"Arbeitsdienst: {arbeit[0].get('start_zeit', '')[:5]}-{arbeit[0].get('ende_zeit', '')[:5]}"
-            elif key in urlaub_map:
-                label = "U*"
-                hint = "Genehmigter Urlaub (noch nicht im Plan) – antippen zum Eintragen"
-            elif tag_datum.weekday() in [0, 1]:
-                label = "–"
-                hint = "Ruhetag (Mo/Di) – antippen, um trotzdem einen Eintrag zu setzen"
+    table_parts.append("</tbody></table></div>")
+    st.markdown("".join(table_parts), unsafe_allow_html=True)
 
-            btn_key = f"tap_edit_{jahr}_{monat}_{mitarbeiter['id']}_{tag}"
-            if row_cols[tag].button(label, key=btn_key, use_container_width=True, help=hint):
-                if vorlage_quickpick is not None:
-                    quick_vorlage = vorlagen_dict.get(vorlage_quickpick)
-                    if quick_vorlage:
-                        try:
-                            _apply_schichtvorlage_one_click(
-                                supabase=supabase,
-                                planning_table=planning_table,
-                                betrieb_id=st.session_state.betrieb_id,
-                                mitarbeiter=mitarbeiter,
-                                datum_iso=tag_datum.isoformat(),
-                                vorlage=quick_vorlage,
-                            )
-                            _refresh_after_write()
-                            st.success(f"{quick_vorlage['name']} gesetzt: {mitarbeiter['vorname']} {mitarbeiter['nachname']} · {tag_datum.strftime('%d.%m.%Y')}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Vorlage konnte nicht gesetzt werden: {str(e)}")
-                            st.stop()
-                st.session_state["tabelle_cell_editor"] = {
-                    "ma_id": mitarbeiter["id"],
-                    "datum": tag_datum.isoformat(),
-                    "jahr": jahr,
-                    "monat": monat,
-                }
-                st.rerun()
+    st.markdown("### Dienst im Feld bearbeiten")
+    b1, b2, b3 = st.columns([2, 2, 1.4], gap="small")
+    with b1:
+        selected_ma_id = st.selectbox(
+            "Mitarbeiter",
+            options=[m["id"] for m in mitarbeiter_liste],
+            format_func=lambda x: next((f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste if m["id"] == x), ""),
+            key=f"table_edit_ma_{jahr}_{monat}",
+        )
+    with b2:
+        selected_day = st.date_input(
+            "Datum",
+            value=erster_tag,
+            min_value=erster_tag,
+            max_value=letzter_tag,
+            format="DD.MM.YYYY",
+            key=f"table_edit_day_{jahr}_{monat}",
+        )
+    with b3:
+        open_editor = st.button("Bearbeiten öffnen", use_container_width=True, key=f"table_edit_open_{jahr}_{monat}")
+
+    if open_editor:
+        if vorlage_quickpick is not None:
+            quick_vorlage = vorlagen_dict.get(vorlage_quickpick)
+            ma_sel = next((m for m in mitarbeiter_liste if m["id"] == selected_ma_id), None)
+            if quick_vorlage and ma_sel:
+                try:
+                    _apply_schichtvorlage_one_click(
+                        supabase=supabase,
+                        planning_table=planning_table,
+                        betrieb_id=st.session_state.betrieb_id,
+                        mitarbeiter=ma_sel,
+                        datum_iso=selected_day.isoformat(),
+                        vorlage=quick_vorlage,
+                    )
+                    _refresh_after_write()
+                    st.success(
+                        f"{quick_vorlage['name']} gesetzt: {ma_sel['vorname']} {ma_sel['nachname']} · {selected_day.strftime('%d.%m.%Y')}"
+                    )
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Vorlage konnte nicht gesetzt werden: {str(e)}")
+                    st.stop()
+
+        st.session_state["tabelle_cell_editor"] = {
+            "ma_id": int(selected_ma_id),
+            "datum": selected_day.isoformat(),
+            "jahr": jahr,
+            "monat": monat,
+        }
+        st.rerun()
 
     active_editor = st.session_state.get("tabelle_cell_editor")
     if active_editor and (
