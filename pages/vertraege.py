@@ -117,8 +117,8 @@ def _build_prefill(ma: dict) -> ContractData:
 def _render_form(prefill: ContractData) -> ContractData:
     st.markdown("### Mitarbeiter-Sync")
     st.caption("Name, Anschrift und Geburtsdatum werden automatisch aus der Datenbank vorgeladen und können angepasst werden.")
-
-    c1, c2 = st.columns(2)
+    st.markdown("#### Arbeitnehmer-Daten")
+    c1, c2 = st.columns(2, gap="large")
     with c1:
         employee_name = st.text_input("Name", value=prefill.employee_name, key="v4_employee_name")
         employee_birth_date = st.date_input(
@@ -135,9 +135,8 @@ def _render_form(prefill: ContractData) -> ContractData:
             key="v4_employee_city",
             placeholder="z. B. 04105 Leipzig",
         )
-
-    st.markdown("### Vertragsdetails")
-    d1, d2, d3 = st.columns(3)
+    st.markdown("#### Vertragsdetails")
+    d1, d2, d3 = st.columns(3, gap="large")
     with d1:
         prior_contract_date_text = st.text_input(
             "Datum ursprünglicher Arbeitsvertrag",
@@ -191,7 +190,6 @@ def _render_form(prefill: ContractData) -> ContractData:
         height=130,
         placeholder="Freitext für individuelle Vereinbarungen...",
     )
-
     return ContractData(
         contract_title="Änderungsvertrag",
         prior_contract_date_text=prior_contract_date_text,

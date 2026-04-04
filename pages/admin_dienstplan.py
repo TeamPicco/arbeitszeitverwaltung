@@ -14,10 +14,10 @@ from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
 from utils.audit_log import log_aktion
-from utils.dienstplan_stats import summarize_employee_month
 from utils.calculations import (
     parse_zeit,
 )
+from utils.lohnberechnung import summarize_employee_month
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 
 # Deutsche Monatsnamen
@@ -32,7 +32,7 @@ WOCHENTAGE_KURZ = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 # Schichttypen
 SCHICHTTYPEN = {
-    'arbeit': {'label': 'Arbeit',      'farbe': '#0d6efd', 'kuerzel': 'A'},
+    'arbeit': {'label': 'Geplant',     'farbe': '#0d6efd', 'kuerzel': 'A'},
     'urlaub': {'label': 'Urlaub',      'farbe': '#ffeb3b', 'kuerzel': 'U'},
     'krank':  {'label': 'Krank',       'farbe': '#ff9800', 'kuerzel': 'K'},
     'frei':   {'label': 'Frei',        'farbe': '#e9ecef', 'kuerzel': 'F'},
@@ -934,7 +934,7 @@ def show_monatsplan(supabase):
                     typ_info = SCHICHTTYPEN.get(typ, SCHICHTTYPEN['arbeit'])
                     edit_key = f"edit_dienst_{dienst['id']}"
 
-                    col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 1, 1])
+                    col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 1, 1], gap="small")
 
                     with col1:
                         st.write(f"**{datum_obj.strftime('%d.%m.%Y')}**")
@@ -953,7 +953,7 @@ def show_monatsplan(supabase):
                             if dienst.get('schichtvorlage_id') and dienst['schichtvorlage_id'] in vorlagen_dict:
                                 vn = vorlagen_dict[dienst['schichtvorlage_id']]['name']
                                 st.caption(vn)
-                            st.write(f"⏰ {dienst['start_zeit'][:5]} – {dienst['ende_zeit'][:5]}")
+                            st.write(f"{dienst['start_zeit'][:5]} - {dienst['ende_zeit'][:5]}")
                         elif typ == 'urlaub':
                             st.write("Urlaub")
                         elif typ == 'krank':

@@ -1,7 +1,7 @@
 """
 lohnkern.py – Kernlogik der Lohnberechnung
 
-Lohnprinzip (vertragsbasiert, planovo-kompatibel):
+Lohnprinzip (vertragsbasiert):
   - Grundlohn  = vergütete_stunden × Stundenlohn
   - vergütete_stunden = gearbeitete Ist-Stunden + Urlaubsstunden + Krank-LFZ-Stunden
   - Überstunden (vergütete_h > Soll) → ins Arbeitszeitkonto, WERDEN BEZAHLT

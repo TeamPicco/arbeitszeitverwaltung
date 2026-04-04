@@ -480,7 +480,6 @@ def validate_work_account_cycle(
     allowed_sources = {
         "stempeluhr",
         "abwesenheit_system",
-        "historischer_import",
         "historischer_saldo",
         "manuell_admin",
         "au_bescheinigung",

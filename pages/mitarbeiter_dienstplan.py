@@ -13,7 +13,7 @@ import io
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
-from utils.dienstplan_stats import summarize_employee_month
+from utils.lohnberechnung import summarize_dienstplan_month
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -317,7 +317,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.markdown("---")
 
     dienste = dienstplaene_resp.data or []
-    counts = summarize_employee_month(year=jahr, month=monat, entries=dienste)
+    counts = summarize_dienstplan_month(year=jahr, month=monat, entries=dienste)
 
     col_a, col_b, col_c, col_d = st.columns(4)
     col_a.metric("Geplant", counts.geplant)

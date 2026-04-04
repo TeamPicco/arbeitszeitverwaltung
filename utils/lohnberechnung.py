@@ -16,8 +16,9 @@ Bundesland: Sachsen (SN) – Besonderheit: Buß- und Bettag ist gesetzlicher Fei
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Iterable
 import calendar
 import holidays
 import streamlit as st
@@ -40,6 +41,14 @@ PAUSE_REGELN = [
     (6.0, 30),   # > 6 Stunden → 30 Min Pause
     (0.0, 0),    # ≤ 6 Stunden → keine Pause
 ]
+
+
+@dataclass(frozen=True)
+class DienstplanSummary:
+    geplant: int
+    urlaub: int
+    frei: int
+    krank: int
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -777,6 +786,111 @@ def berechne_arbeitszeitkonto_saldo(
     soll_v = float(soll_stunden or 0.0)
     vortrag_v = float(saldenvortrag or 0.0)
     return round((ist_v - soll_v) + vortrag_v, 2)
+
+
+def _to_date_or_none(value: object) -> date | None:
+    if isinstance(value, date):
+        return value
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) >= 10:
+            return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+    return None
+
+
+def _norm_status(entry: Dict[str, Any]) -> str:
+    raw = str(entry.get("schichttyp") or entry.get("typ") or entry.get("status") or "").strip().lower()
+    if raw in {"urlaub", "vacation", "u"}:
+        return "urlaub"
+    if raw in {"krank", "sick", "k"} or bool(entry.get("ist_krank")):
+        return "krank"
+    if raw in {"arbeit", "geplant", "a"}:
+        return "geplant"
+    if raw == "frei":
+        return "frei"
+    if bool(entry.get("ist_urlaub")):
+        return "urlaub"
+    return "geplant"
+
+
+def summarize_dienstplan_month(
+    *,
+    year: int,
+    month: int,
+    entries: Iterable[Dict[str, Any]] | None,
+    extra_urlaub_dates: Iterable[object] | None = None,
+    extra_krank_dates: Iterable[object] | None = None,
+) -> DienstplanSummary:
+    """
+    Zentrale Monatszusammenfassung für Dienstplan:
+    - Geplant / Urlaub / Krank aus Einträgen
+    - Frei für alle Tage ohne Eintrag (inkl. betriebliche Ruhetage Mo/Di)
+    """
+    _, days_in_month = calendar.monthrange(year, month)
+
+    status_by_day: Dict[date, str] = {}
+    for entry in entries or []:
+        d = _to_date_or_none(entry.get("datum"))
+        if d is None or d.year != year or d.month != month:
+            continue
+        status = _norm_status(entry)
+        prev = status_by_day.get(d)
+        if prev == "krank":
+            continue
+        if prev == "urlaub" and status not in {"krank"}:
+            continue
+        if prev == "geplant" and status == "frei":
+            continue
+        status_by_day[d] = status
+
+    for d_any in extra_urlaub_dates or []:
+        d = _to_date_or_none(d_any)
+        if d is None or d.year != year or d.month != month:
+            continue
+        if status_by_day.get(d) != "krank":
+            status_by_day[d] = "urlaub"
+
+    for d_any in extra_krank_dates or []:
+        d = _to_date_or_none(d_any)
+        if d is None or d.year != year or d.month != month:
+            continue
+        status_by_day[d] = "krank"
+
+    geplant = urlaub = krank = frei = 0
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        status = status_by_day.get(d)
+        if status == "krank":
+            krank += 1
+        elif status == "urlaub":
+            urlaub += 1
+        elif status == "geplant":
+            geplant += 1
+        else:
+            frei += 1
+
+    return DienstplanSummary(geplant=geplant, urlaub=urlaub, frei=frei, krank=krank)
+
+
+def summarize_employee_month(
+    *,
+    year: int,
+    month: int,
+    entries: Iterable[Dict[str, Any]] | None,
+    extra_urlaub_dates: Iterable[object] | None = None,
+    extra_krank_dates: Iterable[object] | None = None,
+) -> DienstplanSummary:
+    return summarize_dienstplan_month(
+        year=year,
+        month=month,
+        entries=entries,
+        extra_urlaub_dates=extra_urlaub_dates,
+        extra_krank_dates=extra_krank_dates,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
