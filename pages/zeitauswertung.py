@@ -1127,7 +1127,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     if korrektur_count > 0:
         st.markdown(f"""
-        <div style="background:#fff3cd;padding:0.8rem;border-radius:6px;border-left:4px solid #ffc107;margin-top:0.5rem;">
+        <div style="background:#fff3cd;color:#000000;padding:0.8rem;border-radius:6px;border-left:4px solid #ffc107;margin-top:0.5rem;">
             <strong>Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en)
             wurden in diesem Monat durch den Administrator angepasst.
             Diese sind in der Tabelle gelb markiert.

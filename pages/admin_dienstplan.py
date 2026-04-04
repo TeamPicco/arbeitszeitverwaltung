@@ -32,10 +32,10 @@ WOCHENTAGE_KURZ = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
 
 # Schichttypen
 SCHICHTTYPEN = {
-    'arbeit': {'label': 'Geplant',     'farbe': '#0d6efd', 'kuerzel': 'A'},
-    'urlaub': {'label': 'Urlaub',      'farbe': '#ffeb3b', 'kuerzel': 'U'},
-    'krank':  {'label': 'Krank',       'farbe': '#ff9800', 'kuerzel': 'K'},
-    'frei':   {'label': 'Frei',        'farbe': '#e9ecef', 'kuerzel': 'F'},
+    'arbeit': {'label': 'Geplant',     'farbe': '#0d6efd', 'text_farbe': '#ffffff', 'kuerzel': 'A'},
+    'urlaub': {'label': 'Urlaub',      'farbe': '#ffeb3b', 'text_farbe': '#000000', 'kuerzel': 'U'},
+    'krank':  {'label': 'Krank',       'farbe': '#ff9800', 'text_farbe': '#000000', 'kuerzel': 'K'},
+    'frei':   {'label': 'Frei',        'farbe': '#e9ecef', 'text_farbe': '#000000', 'kuerzel': 'F'},
 }
 
 try:
@@ -943,6 +943,7 @@ def show_monatsplan(supabase):
                     with col2:
                         st.markdown(
                             f"<span style='background:{typ_info['farbe']}; "
+                            f"color:{typ_info.get('text_farbe', '#ffffff')}; "
                             f"padding:2px 8px; border-radius:4px; font-size:0.85rem;'>"
                             f"{typ_info['label']}</span>",
                             unsafe_allow_html=True

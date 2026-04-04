@@ -81,26 +81,58 @@ def _render_login_branding() -> None:
             margin: 0 auto !important;
         }
         div[data-testid="stForm"] {
-            border: 1px solid #e2e8f0 !important;
+            border: 1px solid #2a2a2a !important;
             border-radius: 12px !important;
-            background: #ffffff !important;
+            background: #0b0b0b !important;
             padding: 1.2rem 1.2rem 0.6rem 1.2rem !important;
-            box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45) !important;
             max-width: 680px !important;
             margin: 0 auto !important;
+        }
+        div[data-testid="stForm"] * {
+            color: #ffffff !important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
+            background: #0b0b0b !important;
+            border-bottom: 1px solid #2a2a2a !important;
+        }
+        div[data-testid="stTabs"] [data-baseweb="tab"] {
+            color: #ffffff !important;
+            background: #121212 !important;
+            border: 1px solid #2a2a2a !important;
+            border-radius: 10px 10px 0 0 !important;
+        }
+        div[data-testid="stTabs"] [aria-selected="true"] {
+            background: #2563eb !important;
+            color: #ffffff !important;
+            border-color: #2563eb !important;
         }
         div[data-testid="stTextInput"] input {
             min-height: 52px !important;
             font-size: 1rem !important;
             border-radius: 10px !important;
             padding: 0 0.85rem !important;
+            background: #121212 !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+            border: 1px solid #2a2a2a !important;
+        }
+        div[data-testid="stTextInput"] input:focus {
+            border-color: #2563eb !important;
+            box-shadow: 0 0 0 1px #2563eb !important;
+            background: #000000 !important;
+            color: #ffffff !important;
+            -webkit-text-fill-color: #ffffff !important;
+        }
+        div[data-testid="stWidgetLabel"], label {
+            color: #ffffff !important;
         }
         .coreo-topbar {
             position: sticky;
             top: 0;
             z-index: 50;
-            background: #f8fafc;
-            border-bottom: 1px solid #e2e8f0;
+            background: #0b0b0b;
+            border-bottom: 1px solid #2a2a2a;
             margin-bottom: 1rem;
             padding-top: 0.25rem;
             padding-bottom: 0.25rem;

@@ -1272,16 +1272,18 @@ def show_admin_dashboard():
             key="admin_top_option_menu",
             styles={
                 "container": {"padding": "0", "background-color": "transparent"},
-                "icon": {"color": "#334155", "font-size": "16px"},
+                "icon": {"color": "#ffffff", "font-size": "16px"},
                 "nav-link": {
                     "font-size": "14px",
                     "font-weight": "600",
-                    "color": "#0f172a",
+                    "color": "#ffffff",
                     "padding": "10px 14px",
                     "margin": "0 4px 0 0",
                     "border-radius": "10px",
+                    "background-color": "#121212",
+                    "border": "1px solid #2a2a2a",
                 },
-                "nav-link-selected": {"background-color": "#e2e8f0", "color": "#0f172a"},
+                "nav-link-selected": {"background-color": "#2563eb", "color": "#ffffff"},
             },
         )
         st.session_state["admin_nav"] = selected

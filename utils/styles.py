@@ -1,17 +1,19 @@
-"""Globales UI-Framework mit strengem Kontrastmanagement."""
+"""Globales UI-Framework mit Dark-Mode und maximalem Kontrast."""
 
 import streamlit as st
 
 COLORS = {
-    "app_bg": "#F8FAFC",
-    "surface": "#FFFFFF",
-    "surface_dark": "#000000",
-    "border": "#E2E8F0",
+    "app_bg": "#000000",
+    "surface": "#0B0B0B",
+    "surface_alt": "#121212",
+    "surface_light": "#FFFFFF",
+    "border": "#2A2A2A",
     "text_on_light": "#000000",
     "text_on_dark": "#FFFFFF",
     "muted_on_light": "#111111",
-    "primary": "#000000",
-    "primary_hover": "#111111",
+    "muted_on_dark": "#E6E6E6",
+    "primary": "#2563EB",
+    "primary_hover": "#1D4ED8",
 }
 
 
@@ -21,10 +23,10 @@ def apply_custom_css() -> None:
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-        html, body, .stApp, [data-testid="stAppViewContainer"] {{
+        html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {{
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important;
             background: {COLORS["app_bg"]} !important;
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
         }}
 
         [data-testid="stSidebar"],
@@ -42,7 +44,7 @@ def apply_custom_css() -> None:
             position: sticky;
             top: 0;
             z-index: 40;
-            background: {COLORS["app_bg"]};
+            background: {COLORS["surface"]};
             border-bottom: 1px solid {COLORS["border"]};
             padding: 0.25rem 0 0.5rem 0;
             margin-bottom: 1rem;
@@ -63,10 +65,10 @@ def apply_custom_css() -> None:
             object-fit: contain !important;
         }}
 
-        /* Kontrastregel: Auf hellem Grund schwarz, auf dunklem Grund weiß */
+        /* Kontrastregel: Auf dunklem Grund weiß */
         h1, h2, h3, h4, h5, h6, p, span, label, div,
         [data-testid="stMarkdownContainer"], [data-testid="stText"], [data-testid="stMetricLabel"] {{
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
         }}
 
         [style*="background: #000"], [style*="background:#000"], [style*="background-color: #000"],
@@ -79,6 +81,17 @@ def apply_custom_css() -> None:
         [style*="background-color: rgb(0, 0, 0)"] * {{
             color: {COLORS["text_on_dark"]} !important;
         }}
+        /* Wenn irgendwo weißer Hintergrund auftaucht, erzwinge schwarze Schrift */
+        [style*="background:#fff"], [style*="background: #fff"], [style*="background:#ffffff"],
+        [style*="background: #ffffff"], [style*="background-color:#fff"], [style*="background-color: #fff"],
+        [style*="background-color:#ffffff"], [style*="background-color: #ffffff"] {{
+            color: {COLORS["text_on_light"]} !important;
+        }}
+        [style*="background:#fff"] *, [style*="background: #fff"] *, [style*="background:#ffffff"] *,
+        [style*="background: #ffffff"] *, [style*="background-color:#fff"] *, [style*="background-color: #fff"] *,
+        [style*="background-color:#ffffff"] *, [style*="background-color: #ffffff"] * {{
+            color: {COLORS["text_on_light"]} !important;
+        }}
 
         /* Card-Surfaces */
         div[data-testid="stMetric"],
@@ -90,7 +103,7 @@ def apply_custom_css() -> None:
             border: 1px solid {COLORS["border"]} !important;
             border-radius: 12px !important;
             box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
         }}
 
         /* Buttons */
@@ -98,7 +111,7 @@ def apply_custom_css() -> None:
         .stDownloadButton > button {{
             min-height: 42px !important;
             border-radius: 8px !important;
-            border: 1px solid {COLORS["border"]} !important;
+            border: 1px solid {COLORS["primary"]} !important;
             background: {COLORS["primary"]} !important;
             color: {COLORS["text_on_dark"]} !important;
             font-weight: 600 !important;
@@ -113,7 +126,7 @@ def apply_custom_css() -> None:
         /* Inputs: Label + Text strikt kontrastreich */
         .stTextInput label, .stNumberInput label, .stDateInput label, .stTextArea label,
         [data-testid="stWidgetLabel"] {{
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
             font-weight: 600 !important;
         }}
 
@@ -125,41 +138,91 @@ def apply_custom_css() -> None:
         [data-baseweb="input"] input {{
             border-radius: 10px !important;
             border: 1px solid {COLORS["border"]} !important;
-            background: {COLORS["surface"]} !important;
-            color: {COLORS["text_on_light"]} !important;
+            background: {COLORS["surface_alt"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
             min-height: 42px !important;
-            -webkit-text-fill-color: {COLORS["text_on_light"]} !important;
+            -webkit-text-fill-color: {COLORS["text_on_dark"]} !important;
             opacity: 1 !important;
+        }}
+        .stTextInput input:focus,
+        .stNumberInput input:focus,
+        .stDateInput input:focus,
+        .stTextArea textarea:focus,
+        [data-baseweb="input"]:focus-within,
+        [data-baseweb="select"] > div:focus-within {{
+            border: 1px solid {COLORS["primary"]} !important;
+            box-shadow: 0 0 0 1px {COLORS["primary"]} !important;
+            background: {COLORS["app_bg"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+            -webkit-text-fill-color: {COLORS["text_on_dark"]} !important;
+        }}
+        .stTextInput input:active,
+        .stNumberInput input:active,
+        .stDateInput input:active,
+        .stTextArea textarea:active {{
+            color: {COLORS["text_on_dark"]} !important;
+            -webkit-text-fill-color: {COLORS["text_on_dark"]} !important;
+        }}
+        .stDateInput button,
+        .stDateInput svg,
+        .stNumberInput button,
+        [data-baseweb="select"] svg {{
+            color: {COLORS["text_on_dark"]} !important;
+            fill: {COLORS["text_on_dark"]} !important;
         }}
 
         .stTextInput input::placeholder,
         .stNumberInput input::placeholder,
         .stDateInput input::placeholder,
         .stTextArea textarea::placeholder {{
-            color: {COLORS["muted_on_light"]} !important;
+            color: {COLORS["muted_on_dark"]} !important;
             opacity: 1 !important;
+        }}
+        [role="listbox"] {{
+            background: {COLORS["surface_alt"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+        }}
+        [role="option"] {{
+            background: {COLORS["surface_alt"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+        }}
+        [role="option"]:hover {{
+            background: {COLORS["primary"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
         }}
 
         /* DataFrames/Tables mit starkem Kontrast */
         [data-testid="stDataFrame"] *,
         [data-testid="stTable"] *,
         .dataframe * {{
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+        }}
+        [data-testid="stDataFrame"] [role="grid"],
+        [data-testid="stDataFrame"] [role="row"],
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataFrame"] [role="gridcell"] {{
+            background: {COLORS["surface_alt"]} !important;
         }}
 
         /* Tabs */
         .stTabs [data-baseweb="tab-list"] {{
-            background: transparent !important;
+            background: {COLORS["surface"]} !important;
             border-bottom: 1px solid {COLORS["border"]} !important;
         }}
         .stTabs [data-baseweb="tab"] {{
             border-radius: 8px 8px 0 0 !important;
-            color: {COLORS["text_on_light"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+            background: {COLORS["surface"]} !important;
+            border: 1px solid {COLORS["border"]} !important;
+        }}
+        .stTabs [data-baseweb="tab"]:hover {{
+            color: {COLORS["text_on_dark"]} !important;
+            background: {COLORS["surface_alt"]} !important;
         }}
         .stTabs [aria-selected="true"] {{
-            background: {COLORS["surface"]} !important;
-            color: {COLORS["text_on_light"]} !important;
-            border: 1px solid {COLORS["border"]} !important;
+            background: {COLORS["primary"]} !important;
+            color: {COLORS["text_on_dark"]} !important;
+            border: 1px solid {COLORS["primary"]} !important;
         }}
 
         /* Expander-Abstände straffen */
@@ -169,7 +232,7 @@ def apply_custom_css() -> None:
         }}
 
         .coreo-form-group {{
-            background: {COLORS["surface"]};
+            background: {COLORS["surface_alt"]};
             border: 1px solid {COLORS["border"]};
             border-radius: 10px;
             padding: 0.85rem 0.95rem 0.65rem 0.95rem;
@@ -191,8 +254,8 @@ def create_card(title: str, content: str) -> None:
             box-shadow:0 2px 10px rgba(15,23,42,0.04);
             padding:1rem 1.1rem;
             margin:0.5rem 0;">
-            <h4 style="margin:0 0 0.35rem 0; color:{COLORS["text_on_light"]};">{title}</h4>
-            <div style="color:{COLORS["muted_on_light"]};">{content}</div>
+            <h4 style="margin:0 0 0.35rem 0; color:{COLORS["text_on_dark"]};">{title}</h4>
+            <div style="color:{COLORS["muted_on_dark"]};">{content}</div>
         </div>
         """,
         unsafe_allow_html=True,

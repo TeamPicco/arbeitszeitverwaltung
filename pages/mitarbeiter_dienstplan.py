@@ -38,14 +38,15 @@ DIENSTPLAN_CSS = """
     padding: 10px 14px;
     margin-bottom: 6px;
     border-radius: 10px;
-    background: #ffffff;
-    border-left: 5px solid #0d6efd;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    background: #0b0b0b;
+    border-left: 5px solid #2563eb;
+    border: 1px solid #2a2a2a;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
     gap: 12px;
 }
-.dp-card.urlaub  { border-left-color: #f59e0b; background: #fffbeb; }
-.dp-card.frei    { border-left-color: #9ca3af; background: #f9fafb; }
-.dp-card.arbeit  { border-left-color: #10b981; background: #f0fdf4; }
+.dp-card.urlaub  { border-left-color: #f59e0b; background: #1a1405; }
+.dp-card.frei    { border-left-color: #9ca3af; background: #111111; }
+.dp-card.arbeit  { border-left-color: #10b981; background: #06150f; }
 
 /* Datum-Block – Wochentag neben dem Datum */
 .dp-date {
@@ -55,9 +56,9 @@ DIENSTPLAN_CSS = """
     gap: 6px;
     line-height: 1.2;
 }
-.dp-date .day   { font-size: 1.4rem; font-weight: 700; color: #111827; }
-.dp-date .month { font-size: 0.7rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
-.dp-date .weekday-inline { font-size: 0.82rem; color: #374151; font-weight: 600; min-width: 26px; }
+.dp-date .day   { font-size: 1.4rem; font-weight: 700; color: #ffffff; }
+.dp-date .month { font-size: 0.7rem; color: #e5e7eb; text-transform: uppercase; letter-spacing: 0.05em; }
+.dp-date .weekday-inline { font-size: 0.82rem; color: #e5e7eb; font-weight: 600; min-width: 26px; }
 
 /* Wochentag (versteckt, da jetzt inline im Datum-Block) */
 .dp-weekday {
@@ -69,7 +70,7 @@ DIENSTPLAN_CSS = """
     flex: 1;
     font-size: 1rem;
     font-weight: 600;
-    color: #111827;
+    color: #ffffff;
     letter-spacing: 0.02em;
 }
 
@@ -81,9 +82,9 @@ DIENSTPLAN_CSS = """
     font-weight: 600;
     white-space: nowrap;
 }
-.dp-badge.arbeit  { background: #d1fae5; color: #065f46; }
-.dp-badge.urlaub  { background: #fef3c7; color: #92400e; }
-.dp-badge.frei    { background: #f3f4f6; color: #6b7280; }
+.dp-badge.arbeit  { background: #0d2e1f; color: #ffffff; border: 1px solid #1f6f4e; }
+.dp-badge.urlaub  { background: #3b2a07; color: #ffffff; border: 1px solid #996a08; }
+.dp-badge.frei    { background: #1f2937; color: #ffffff; border: 1px solid #4b5563; }
 
 /* Kalender */
 .dp-cal-header {
@@ -96,7 +97,7 @@ DIENSTPLAN_CSS = """
     text-align: center;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #6b7280;
+    color: #e5e7eb;
     padding: 4px 0;
 }
 .dp-cal-grid {
@@ -114,19 +115,19 @@ DIENSTPLAN_CSS = """
 .dp-cal-day .num   { font-weight: 700; font-size: 0.9rem; }
 .dp-cal-day .zeit  { font-size: 0.65rem; margin-top: 2px; }
 .dp-cal-day.leer   { background: transparent; }
-.dp-cal-day.arbeit { background: #d1fae5; color: #065f46; }
-.dp-cal-day.urlaub { background: #fef3c7; color: #92400e; }
-.dp-cal-day.frei   { background: #f3f4f6; color: #9ca3af; }
-.dp-cal-day.normal { background: #f9fafb; color: #d1d5db; border: 1px solid #f3f4f6; }
+.dp-cal-day.arbeit { background: #0d2e1f; color: #ffffff; border: 1px solid #1f6f4e; }
+.dp-cal-day.urlaub { background: #3b2a07; color: #ffffff; border: 1px solid #996a08; }
+.dp-cal-day.frei   { background: #1f2937; color: #ffffff; border: 1px solid #4b5563; }
+.dp-cal-day.normal { background: #0f0f0f; color: #ffffff; border: 1px solid #2a2a2a; }
 
 /* Monat-Header */
 .dp-month-header {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #111827;
+    color: #ffffff;
     margin: 16px 0 10px 0;
     padding-bottom: 6px;
-    border-bottom: 2px solid #e5e7eb;
+    border-bottom: 2px solid #2a2a2a;
 }
 
 /* Responsive */
@@ -137,7 +138,7 @@ DIENSTPLAN_CSS = """
         width: 100%;
         font-size: 0.8rem;
         font-weight: 700;
-        color: #374151;
+        color: #ffffff;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         margin-bottom: 2px;
