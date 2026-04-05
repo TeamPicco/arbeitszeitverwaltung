@@ -1262,7 +1262,14 @@ def show_monatsuebersicht_tabelle(supabase):
             border-right: 1px solid #ffffff;
             font-size: 0.78rem;
             line-height: 1.15rem;
-            white-space: nowrap;
+            overflow: hidden;
+        }
+        .dp-month-table th { white-space: nowrap; }
+        .dp-month-table td {
+            white-space: pre-line;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            text-overflow: clip;
         }
         .dp-month-table th {
             position: sticky;
@@ -1284,6 +1291,7 @@ def show_monatsuebersicht_tabelle(supabase):
             font-weight: 700;
             background: #000000;
             color: #ffffff;
+            white-space: nowrap;
         }
         .dp-cell-geplant { background: #1e3a8a; color: #ffffff; font-weight: 600; }
         .dp-cell-urlaub  { background: #fde68a; color: #000000; font-weight: 600; }
@@ -1315,10 +1323,12 @@ def show_monatsuebersicht_tabelle(supabase):
                 return ("dp-cell-frei", "Frei")
             arbeit = [d for d in eintraege if d.get("schichttyp", "arbeit") == "arbeit"]
             if len(arbeit) > 1:
-                zeit = " | ".join(f"{d.get('start_zeit', '')[:5]}-{d.get('ende_zeit', '')[:5]}" for d in arbeit)
-                return ("dp-cell-geplant", f"Geplant {zeit}")
+                zeit = "\n".join(
+                    f"{d.get('start_zeit', '')[:5]}-{d.get('ende_zeit', '')[:5]}" for d in arbeit
+                )
+                return ("dp-cell-geplant", zeit)
             if arbeit:
-                return ("dp-cell-geplant", f"Geplant {arbeit[0].get('start_zeit', '')[:5]}-{arbeit[0].get('ende_zeit', '')[:5]}")
+                return ("dp-cell-geplant", f"{arbeit[0].get('start_zeit', '')[:5]}-{arbeit[0].get('ende_zeit', '')[:5]}")
             return ("dp-cell-leer", "+")
         if key in urlaub_map:
             return ("dp-cell-urlaub", "Urlaub offen")
