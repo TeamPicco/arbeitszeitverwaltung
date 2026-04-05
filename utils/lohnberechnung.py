@@ -683,6 +683,59 @@ def berechne_eintrag(
 # MONATSSUMMEN
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _is_krank_row(entry: Dict[str, Any]) -> bool:
+    quelle = str(entry.get("quelle") or "").strip().lower()
+    abw_typ = str(entry.get("abwesenheitstyp") or "").strip().lower()
+    return bool(entry.get("ist_krank")) or quelle in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+        "krank",
+        "krankheit",
+    }
+
+
+def _sort_key_for_entry(entry: Dict[str, Any]) -> tuple:
+    datum_key = str(entry.get("datum") or "")
+    start_key = str(entry.get("start_zeit") or "")
+    try:
+        id_key = int(entry.get("id") or 0)
+    except Exception:
+        id_key = 0
+    return (datum_key, start_key, id_key)
+
+
+def _normalize_entries_for_month(entries: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Bereinigt Konflikttage:
+    - Liegt an einem Datum mindestens ein Krank-Eintrag vor, zählt nur dieser Krank-Pfad.
+    - Zusätzliche Arbeits-/Stempelzeilen desselben Datums werden für die Monatsberechnung ignoriert.
+    """
+    by_day: Dict[str, List[Dict[str, Any]]] = {}
+    for row in entries or []:
+        day = str(row.get("datum") or "").strip()
+        if not day:
+            continue
+        by_day.setdefault(day, []).append(row)
+
+    normalized: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+
+    for day in sorted(by_day.keys()):
+        rows = sorted(by_day[day], key=_sort_key_for_entry)
+        krank_rows = [r for r in rows if _is_krank_row(r)]
+        if not krank_rows:
+            normalized.extend(rows)
+            continue
+
+        chosen = krank_rows[0]
+        normalized.append(chosen)
+        ignored = [r for r in rows if r is not chosen]
+        if ignored:
+            warnings.append(
+                f"Hinweis {day}: Kranktag-Konflikt erkannt. "
+                f"{len(ignored)} zusätzlicher Eintrag wurde in der Berechnung ignoriert."
+            )
+    return normalized, warnings
+
+
 def berechne_monat(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],
@@ -718,6 +771,7 @@ def berechne_monat(
     """
     # data_hash dient als expliziter Cache-Buster im Funktions-Signature-Key.
     _ = data_hash
+    eintraege_bereinigt, konflikt_warnungen = _normalize_entries_for_month(eintraege)
     zeilen = []
     gesamt_stunden = 0.0
     sonntags_stunden = 0.0
@@ -729,7 +783,7 @@ def berechne_monat(
     warnungen = []
     audit_log_gesamt = []
 
-    for eintrag in eintraege:
+    for eintrag in eintraege_bereinigt:
         datum_key = str(eintrag.get("datum") or "")
         planned_start = (dienstplan_start_map or {}).get(datum_key)
         zeile = berechne_eintrag(
@@ -787,7 +841,7 @@ def berechne_monat(
         "gesamtbrutto": gesamtbrutto,
         "anzahl_eintraege": len(zeilen),
         "offene_eintraege": offene_eintraege,
-        "warnungen": warnungen,
+        "warnungen": warnungen + konflikt_warnungen,
         "audit_log_gesamt": audit_log_gesamt,
     }
 

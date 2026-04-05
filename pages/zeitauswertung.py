@@ -65,7 +65,7 @@ def _cached_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
     try:
         r = supabase.table('zeiterfassung').select(
-            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at,manuell_kommentar,korrektur_grund'
+            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,abwesenheitstyp,created_at,updated_at,manuell_kommentar,korrektur_grund'
         ).eq(
             'mitarbeiter_id', mitarbeiter_id
         ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
@@ -217,6 +217,7 @@ def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
                 "pause_minuten": z.get("pause_minuten"),
                 "quelle": z.get("quelle"),
                 "ist_krank": z.get("ist_krank"),
+                "abwesenheitstyp": z.get("abwesenheitstyp"),
                 "updated_at": z.get("updated_at"),
             }
         )
@@ -239,6 +240,46 @@ def _is_auto_timeout_entry(raw: dict) -> bool:
         or "auto-close" in kommentar
         or "forgotten_logout_timeout_10h" in grund
     )
+
+
+def _is_sick_row(raw: dict) -> bool:
+    quelle = str(raw.get("quelle") or "").strip().lower()
+    abw_typ = str(raw.get("abwesenheitstyp") or "").strip().lower()
+    return bool(raw.get("ist_krank")) or quelle in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+        "krank",
+        "krankheit",
+    }
+
+
+def _collect_sick_day_conflicts(rows: list[dict]) -> tuple[set[int], dict[str, int]]:
+    """
+    Liefert IDs von Zeilen, die wegen Kranktag-Priorität in der Berechnung ignoriert werden.
+    """
+    by_day: dict[str, list[dict]] = {}
+    for raw in rows or []:
+        day = str(raw.get("datum") or "").strip()[:10]
+        if not day:
+            continue
+        by_day.setdefault(day, []).append(raw)
+
+    ignored_ids: set[int] = set()
+    conflict_counts: dict[str, int] = {}
+    for day, day_rows in by_day.items():
+        krank_rows = [r for r in day_rows if _is_sick_row(r)]
+        if not krank_rows:
+            continue
+        chosen = krank_rows[0]
+        ignored = [r for r in day_rows if r is not chosen]
+        if not ignored:
+            continue
+        for r in ignored:
+            try:
+                rid = int(r.get("id"))
+            except Exception:
+                continue
+            ignored_ids.add(rid)
+        conflict_counts[day] = len(ignored)
+    return ignored_ids, conflict_counts
 
 
 def _show_manual_outdoor_entry_form(
@@ -1233,6 +1274,14 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         if admin_modus:
             st.markdown("#### Zeiteinträge interaktiv korrigieren")
             st.caption("Direkt auf Bearbeiten klicken, um den Eintrag im Popup zu ändern oder zu löschen (mit Pflichtbegründung).")
+            ignored_conflict_ids, conflict_days = _collect_sick_day_conflicts(zeiterfassungen)
+            if conflict_days:
+                details = " | ".join([f"{d}: {n} ignoriert" for d, n in sorted(conflict_days.items())])
+                st.warning(
+                    "Kranktag-Konflikte erkannt. Zusätzliche Stempelzeiten an diesen Tagen "
+                    "werden in der Berechnung nicht berücksichtigt: "
+                    f"{details}"
+                )
 
             editable_entries = []
             for raw in zeiterfassungen:
@@ -1255,10 +1304,11 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                     d = str(raw.get("datum") or "")
                     s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
                     e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
+                    ignored_label = " (Konflikt: in Berechnung ignoriert)" if rid in ignored_conflict_ids else ""
 
                     c_info, c_action = st.columns([5, 1])
                     with c_info:
-                        st.markdown(f"**#{rid}** · {d} · {s}–{e}")
+                        st.markdown(f"**#{rid}** · {d} · {s}–{e}{ignored_label}")
                     with c_action:
                         if st.button("Bearbeiten", key=f"za_edit_btn_{rid}", use_container_width=True):
                             st.session_state["za_edit_entry"] = raw

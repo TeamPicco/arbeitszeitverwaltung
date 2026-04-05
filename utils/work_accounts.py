@@ -332,21 +332,102 @@ def resolve_month_contract_targets(
     }
 
 
-def _load_month_ist_hours(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> float:
-    zeit_res = (
-        supabase.table("zeiterfassung")
-        .select("arbeitsstunden, stunden, quelle")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .gte("datum", month_start.isoformat())
-        .lte("datum", month_end.isoformat())
-        .execute()
+def _resolve_daily_target_for_day(
+    *,
+    day: date,
+    month_workdays: int,
+    fallback_monthly_soll: float,
+    contract_rows: list[dict],
+) -> float:
+    fallback_daily = (float(fallback_monthly_soll or 0.0) / float(month_workdays)) if month_workdays > 0 else 0.0
+    active_contracts = [c for c in (contract_rows or []) if _contract_active_on(c, day)]
+    active = _latest_row(
+        active_contracts,
+        key_fn=lambda c: (str(c.get("gueltig_ab") or "1900-01-01"), str(c.get("gueltig_bis") or "9999-12-31")),
     )
-    total = 0.0
-    for row in (zeit_res.data or []):
-        if str(row.get("quelle") or "").lower() == "historischer_saldo":
-            # Reiner Startsaldo-Übertrag, darf nie als Arbeitszeit zählen.
+    if not active:
+        return round(fallback_daily, 4)
+    return round(_resolve_daily_target_hours(active, month_workdays) or fallback_daily, 4)
+
+
+def _is_krank_row(row: dict) -> bool:
+    source = str(row.get("quelle") or "").strip().lower()
+    abw_typ = str(row.get("abwesenheitstyp") or "").strip().lower()
+    return bool(row.get("ist_krank")) or source in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+        "krank",
+        "krankheit",
+    }
+
+
+def _load_month_ist_hours(
+    supabase,
+    mitarbeiter_id: int,
+    month_start: date,
+    month_end: date,
+    *,
+    mitarbeiter_defaults: Optional[dict] = None,
+    contract_rows: Optional[list[dict]] = None,
+) -> float:
+    try:
+        zeit_res = (
+            supabase.table("zeiterfassung")
+            .select("datum,arbeitsstunden,stunden,quelle,ist_krank,abwesenheitstyp")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("datum", month_start.isoformat())
+            .lte("datum", month_end.isoformat())
+            .execute()
+        )
+    except Exception:
+        # Legacy-Fallback mit reduziertem Feldsatz
+        zeit_res = (
+            supabase.table("zeiterfassung")
+            .select("datum,arbeitsstunden,stunden,quelle,ist_krank")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("datum", month_start.isoformat())
+            .lte("datum", month_end.isoformat())
+            .execute()
+        )
+
+    rows = zeit_res.data or []
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        day = str(row.get("datum") or "").strip()[:10]
+        if not day:
             continue
-        total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
+        grouped.setdefault(day, []).append(row)
+
+    workdays = [d for d in _daterange(month_start, month_end) if _is_workday(d)]
+    month_workdays = len(workdays)
+    fallback_monthly_soll = _to_float((mitarbeiter_defaults or {}).get("monatliche_soll_stunden"))
+    if fallback_monthly_soll <= 0:
+        fallback_monthly_soll = _to_float(_load_mitarbeiter_defaults(supabase, mitarbeiter_id).get("monatliche_soll_stunden"))
+    contracts = list(contract_rows or [])
+    if not contracts:
+        contracts = _load_contract_rows(supabase, mitarbeiter_id)
+
+    daily_target_cache: dict[str, float] = {}
+    for wd in workdays:
+        daily_target_cache[wd.isoformat()] = _resolve_daily_target_for_day(
+            day=wd,
+            month_workdays=month_workdays,
+            fallback_monthly_soll=fallback_monthly_soll,
+            contract_rows=contracts,
+        )
+
+    total = 0.0
+    for day in sorted(grouped.keys()):
+        day_rows = grouped[day]
+        productive_rows = [r for r in day_rows if str(r.get("quelle") or "").strip().lower() != "historischer_saldo"]
+        if not productive_rows:
+            continue
+
+        # Kranktag hat Vorrang: verhindert Doppelzählung aus "krank + stempeln" am selben Datum.
+        if any(_is_krank_row(r) for r in productive_rows):
+            total += float(daily_target_cache.get(day, 0.0))
+            continue
+
+        for row in productive_rows:
+            total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
     return round(total, 2)
 
 
@@ -677,7 +758,14 @@ def _build_month_snapshot(
         mitarbeiter_defaults=defaults,
         contract_rows=contracts,
     )
-    ist_stunden = _load_month_ist_hours(supabase, mitarbeiter_id, month_start, month_end)
+    ist_stunden = _load_month_ist_hours(
+        supabase,
+        mitarbeiter_id,
+        month_start,
+        month_end,
+        mitarbeiter_defaults=defaults,
+        contract_rows=contracts,
+    )
     urlaub_genommen, krank_tage = _load_month_absence_counters(supabase, mitarbeiter_id, month_start, month_end)
 
     diff = round(ist_stunden - soll_stunden, 2)
