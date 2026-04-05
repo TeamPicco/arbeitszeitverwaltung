@@ -1257,7 +1257,8 @@ def show_admin_dashboard():
     st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
     top_logo, top_nav = st.columns([1.2, 5], vertical_alignment="center")
     with top_logo:
-        st.image(BRAND_LOGO_IMAGE, width=230)
+        with st.container(key="header_logo"):
+            st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
         nav_options = ["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
         current_nav = st.session_state.get("admin_nav", "Dienstplanung")

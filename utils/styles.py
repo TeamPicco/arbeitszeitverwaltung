@@ -45,9 +45,25 @@ def apply_custom_css() -> None:
             top: 0;
             z-index: 40;
             background: {COLORS["surface"]};
-            border-bottom: 1px solid {COLORS["border"]};
-            padding: 0.25rem 0 0.5rem 0;
-            margin-bottom: 1rem;
+            border-bottom: none;
+            padding: 0.15rem 0 0.15rem 0;
+            margin-bottom: 0.55rem;
+        }}
+
+        .st-key-header_logo {{
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
+
+        .st-key-header_logo [data-testid="stElementContainer"] {{
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
+
+        .st-key-header_logo [data-testid="stImage"] {{
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 0 !important;
         }}
 
         .coreo-card {{
