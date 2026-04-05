@@ -770,190 +770,203 @@ def _berechne_soll_stunden(dienstplaene: list) -> float:
 # PDF-EXPORT
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict,
-                  soll_stunden: float) -> bytes:
-    """Erstellt eine PDF-Monatsauswertung mit vollständiger Zuschlagsaufschlüsselung."""
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib import colors
-    from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+def _erstelle_pdf(
+    mitarbeiter: dict,
+    monat: int,
+    jahr: int,
+    monat_ergebnis: dict,
+    soll_stunden: float,
+    zeiterfassungen: list,
+) -> bytes:
+    """Erstellt eine kompakte 1-Seiten-A4-Zeitauswertung (ohne Geldwerte) via fpdf2."""
+    from pathlib import Path
 
-    def safe_str(s):
-        """Konvertiert beliebige Werte sicher zu ReportLab-kompatiblen Strings (Umlaute korrekt)."""
-        if s is None:
+    from fpdf import FPDF
+
+    def safe_str(value) -> str:
+        if value is None:
             return "-"
-        try:
-            text = str(s)
-            # Umlaute und Sonderzeichen für ReportLab (latin-1 Subset) ersetzen
-            replacements = {
-                'ä': 'ae', 'ö': 'oe', 'ü': 'ue',
-                'Ä': 'Ae', 'Ö': 'Oe', 'Ü': 'Ue',
-                'ß': 'ss', '€': 'EUR', '–': '-', '—': '-',
-            }
-            for orig, repl in replacements.items():
-                text = text.replace(orig, repl)
-            # Alle verbleibenden nicht-ASCII-Zeichen entfernen
-            return text.encode('ascii', errors='replace').decode('ascii')
-        except Exception:
-            return str(s)[:50]
+        text = str(value)
+        replacements = {
+            "ä": "ae",
+            "ö": "oe",
+            "ü": "ue",
+            "Ä": "Ae",
+            "Ö": "Oe",
+            "Ü": "Ue",
+            "ß": "ss",
+            "–": "-",
+            "—": "-",
+        }
+        for src, dst in replacements.items():
+            text = text.replace(src, dst)
+        return text.encode("latin-1", errors="replace").decode("latin-1")
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4,
-                            leftMargin=1.5*cm, rightMargin=1.5*cm,
-                            topMargin=2*cm, bottomMargin=2*cm)
-    styles = getSampleStyleSheet()
-    story = []
+    def fmt_hhmm(value) -> str:
+        if value is None:
+            return "-"
+        raw = str(value).strip()
+        if not raw:
+            return "-"
+        if "T" in raw:
+            raw = raw.split("T", 1)[-1]
+        if len(raw) >= 5 and raw[2] == ":":
+            return raw[:5]
+        return raw[:5] if ":" in raw else raw
 
-    if BRAND_LOGO_IMAGE and os.path.exists(BRAND_LOGO_IMAGE):
+    def resolve_logo_path() -> str:
+        root = Path(__file__).resolve().parents[1]
+        candidates = [
+            root / "assets" / "Piccolo Logo.jpeg",
+            root / "assets" / "Piccolo Logo.jpg",
+            root / "assets" / "piccolo_logo.jpeg",
+            root / "assets" / "piccolo_logo.jpg",
+        ]
+        if BRAND_LOGO_IMAGE:
+            candidates.append(Path(BRAND_LOGO_IMAGE))
+        for candidate in candidates:
+            try:
+                if candidate and candidate.exists():
+                    return str(candidate)
+            except Exception:
+                continue
+        return ""
+
+    raw_map = {int(r.get("id")): r for r in (zeiterfassungen or []) if r.get("id") is not None}
+
+    rows: list[list[str]] = []
+    zeilen = monat_ergebnis.get("zeilen", [])
+    for z in zeilen:
+        if z.get("fehler") == "Eintrag offen (kein Ende)":
+            continue
+        datum = z.get("datum")
+        datum_str = datum.strftime("%d.%m.%Y") if isinstance(datum, date) else str(datum or "-")
+        if isinstance(datum, date):
+            tag = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][datum.weekday()]
+        else:
+            tag = "-"
+        raw = raw_map.get(int(z.get("id") or 0), {})
+        ist_krank = bool(z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung")
+
+        if ist_krank:
+            von, bis = "LFZ", "LFZ"
+            typ = "Krank"
+        else:
+            von = fmt_hhmm(raw.get("start_zeit") or z.get("berechneter_start_zeit"))
+            bis = fmt_hhmm(raw.get("ende_zeit")) if raw.get("ende_zeit") else "-"
+            typ = "Arbeit"
+            if z.get("ist_feiertag"):
+                typ = "Feiertag"
+            elif z.get("ist_sonntag"):
+                typ = "Sonntag"
+        rows.append(
+            [
+                safe_str(datum_str),
+                safe_str(tag),
+                safe_str(von),
+                safe_str(bis),
+                safe_str(str(int(z.get("pause_minuten") or 0))),
+                safe_str(f"{float(z.get('netto_stunden') or 0.0):.2f}"),
+                safe_str(typ),
+            ]
+        )
+
+    ist_stunden = float(monat_ergebnis.get("gesamt_stunden") or 0.0)
+    diff = ist_stunden - float(soll_stunden or 0.0)
+
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_auto_page_break(auto=False)
+    margin = 7.0
+    pdf.set_margins(margin, margin, margin)
+    pdf.add_page()
+
+    logo_path = resolve_logo_path()
+    if logo_path:
         try:
-            logo = Image(BRAND_LOGO_IMAGE, width=4.5 * cm, height=2.5 * cm)
-            logo.hAlign = "LEFT"
-            story.append(logo)
-            story.append(Spacer(1, 0.2 * cm))
+            pdf.image(logo_path, x=pdf.w - margin - 34, y=margin, w=34)
         except Exception:
             pass
 
-    titel_style = ParagraphStyle('titel', parent=styles['Heading1'],
-                                  fontSize=16, alignment=TA_CENTER, spaceAfter=6)
-    sub_style = ParagraphStyle('sub', parent=styles['Normal'],
-                                fontSize=11, alignment=TA_CENTER, spaceAfter=4)
-    info_style = ParagraphStyle('info', parent=styles['Normal'],
-                                 fontSize=9, spaceAfter=2)
+    name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}".strip()
+    monat_name = MONATE[monat - 1] if 1 <= int(monat) <= 12 else str(monat)
+    personal_nr = safe_str(mitarbeiter.get("personalnummer") or "-")
 
-    story.append(Paragraph("Zeitauswertung / Monatsnachweis", titel_style))
-    story.append(Paragraph(f"{MONATE[monat-1]} {jahr}", sub_style))
-    story.append(Spacer(1, 0.3*cm))
-    story.append(Paragraph(
-        f"<b>Mitarbeiter:</b> {safe_str(mitarbeiter['vorname'])} {safe_str(mitarbeiter['nachname'])} &nbsp;&nbsp; "
-        f"<b>Personal-Nr.:</b> {safe_str(mitarbeiter.get('personalnummer', '-'))}",
-        info_style))
-    story.append(Spacer(1, 0.5*cm))
+    pdf.set_xy(margin, margin + 0.5)
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.cell(125, 6.5, safe_str("Zeitauswertung / Monatsnachweis"), ln=1)
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(125, 5.2, safe_str(f"{monat_name} {jahr}"), ln=1)
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "", 8.8)
+    pdf.cell(125, 4.8, safe_str(f"Mitarbeiter: {name}"), ln=1)
+    pdf.set_x(margin)
+    pdf.cell(125, 4.8, safe_str(f"Personal-Nr.: {personal_nr}"), ln=1)
 
-    # Detailtabelle (reiner Zeitnachweis ohne Euro-Werte)
-    header = ['Datum', 'Tag', 'Von', 'Bis', 'Pause', 'Netto-h', 'Typ']
-    data = [header]
+    table_start_y = max(pdf.get_y() + 2.5, margin + 30.0)
+    pdf.set_y(table_start_y)
 
-    zeilen = monat_ergebnis.get("zeilen", [])
-    for z in zeilen:
-        if z.get("fehler") and z["fehler"] == "Eintrag offen (kein Ende)":
-            continue
+    headers = ["Datum", "Tag", "Von", "Bis", "Pause", "Netto-h", "Typ"]
+    col_widths = [28, 10, 20, 20, 18, 22, 78]  # Summe = 196 mm (A4 mit 7mm Rändern)
+    row_count = len(rows) + 2  # Header + Summe
+    bottom_limit = 276.0  # Platz für Footer
+    available_h = max(80.0, bottom_limit - table_start_y)
+    row_h = max(2.4, min(5.0, available_h / max(row_count, 1)))
+    header_h = min(5.4, row_h + 0.8)
 
-        datum = z["datum"]
-        datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
-        wochentag = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][datum.weekday()] if isinstance(datum, date) else "–"
+    pdf.set_font("Helvetica", "B", 8.0)
+    pdf.set_fill_color(0, 0, 0)
+    pdf.set_text_color(255, 255, 255)
+    for i, h in enumerate(headers):
+        pdf.cell(col_widths[i], header_h, safe_str(h), border=1, align="C", fill=True)
+    pdf.ln()
 
-        typ = "Arbeit"
-        if z.get("ist_feiertag"):
-            typ = f"Feiertag"
-        elif z.get("ist_sonntag"):
-            typ = "Sonntag"
+    row_font = 7.0 if row_h >= 3.8 else (6.2 if row_h >= 3.0 else 5.4)
+    pdf.set_font("Helvetica", "", row_font)
+    pdf.set_text_color(0, 0, 0)
+    alt_fill = (245, 245, 245)
+    for idx, row in enumerate(rows):
+        fill = idx % 2 == 0
+        if fill:
+            pdf.set_fill_color(*alt_fill)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+        for i, val in enumerate(row):
+            align = "L" if i == 6 else "C"
+            pdf.cell(col_widths[i], row_h, safe_str(val), border=1, align=align, fill=fill)
+        pdf.ln()
 
-        data.append([
-            datum_str,
-            wochentag,
-            str(z.get("datum", ""))[:5] if False else "–",  # Platzhalter
-            "–",
-            f"{z.get('pause_minuten', 0)} Min",
-            f"{z.get('netto_stunden', 0):.2f}",
-            typ,
-        ])
+    # Deutlich hervorgehobene Summenzeile
+    summary_h = max(4.2, row_h + 0.8)
+    pdf.set_font("Helvetica", "B", max(7.0, row_font))
+    pdf.set_fill_color(0, 0, 0)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(sum(col_widths[:5]), summary_h, safe_str("Gesamtsumme Netto-Stunden"), border=1, align="L", fill=True)
+    pdf.cell(col_widths[5], summary_h, safe_str(f"{ist_stunden:.2f} h"), border=1, align="C", fill=True)
+    pdf.cell(
+        col_widths[6],
+        summary_h,
+        safe_str(f"Soll {float(soll_stunden or 0.0):.2f} h | Differenz {diff:+.2f} h"),
+        border=1,
+        align="L",
+        fill=True,
+    )
+    pdf.ln()
 
-    # Wir bauen die Tabelle aus den Zeiterfassungs-Rohdaten neu auf (mit Zeiten)
-    # Dazu nutzen wir die zeilen-Daten direkt
-    data = [header]
-    for z in zeilen:
-        if z.get("fehler") and z["fehler"] == "Eintrag offen (kein Ende)":
-            continue
-        datum = z["datum"]
-        datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
-        wochentag = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][datum.weekday()] if isinstance(datum, date) else "–"
-        typ = "Arbeit"
-        if z.get("ist_feiertag"):
-            typ = f"Feiertag"
-        elif z.get("ist_sonntag"):
-            typ = "Sonntag"
-        data.append([
-            datum_str, wochentag, "–", "–",
-            f"{z.get('pause_minuten', 0)} Min",
-            f"{z.get('netto_stunden', 0):.2f}",
-            typ,
-        ])
+    pdf.set_y(-9.5)
+    pdf.set_font("Helvetica", "", 6.6)
+    pdf.set_text_color(70, 70, 70)
+    pdf.cell(
+        0,
+        3.8,
+        safe_str(f"Erstellt am: {date.today().strftime('%d.%m.%Y')} | {BRAND_COMPANY_NAME}"),
+        align="C",
+    )
 
-    ist_stunden = monat_ergebnis.get("gesamt_stunden", 0)
-    data.append(['', '', '', '', 'Gesamt:', f"{ist_stunden:.2f}", ''])
-
-    col_widths = [2.6*cm, 1.2*cm, 1.8*cm, 1.8*cm, 2.0*cm, 2.2*cm, 4.9*cm]
-    t = Table(data, colWidths=col_widths, repeatRows=1)
-    ts = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.black),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 7.5),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTSIZE', (0, 1), (-1, -1), 7),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.white]),
-        ('TEXTCOLOR', (0, 1), (-1, -2), colors.black),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
-        ('TEXTCOLOR', (0, -1), (-1, -1), colors.black),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('TOPPADDING', (0, 0), (-1, -1), 3),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
-    ])
-    t.setStyle(ts)
-    story.append(t)
-    story.append(Spacer(1, 0.8*cm))
-
-    # Zusammenfassung nur auf Zeitbasis (ohne Lohn-/Euroangaben)
-    diff = ist_stunden - soll_stunden
-    diff_str = f"+{diff:.2f} h" if diff >= 0 else f"{diff:.2f} h"
-
-    zusammen = [
-        ['Soll-Stunden:', f"{soll_stunden:.2f} h"],
-        ['Ist-Stunden (Netto):', f"{ist_stunden:.2f} h"],
-        ['Differenz:', diff_str],
-        ['', '']
-    ]
-    if monat_ergebnis.get("sonntags_stunden", 0) > 0 or monat_ergebnis.get("feiertags_stunden", 0) > 0:
-        zusammen.append(['Aufschlüsselung:', ''])
-    if monat_ergebnis.get("sonntags_stunden", 0) > 0:
-        zusammen.append([
-            "Sonntagsstunden:",
-            f"{monat_ergebnis.get('sonntags_stunden', 0):.2f} h"
-        ])
-    if monat_ergebnis.get("feiertags_stunden", 0) > 0:
-        zusammen.append([
-            "Feiertagsstunden:",
-            f"{monat_ergebnis.get('feiertags_stunden', 0):.2f} h"
-        ])
-    zusammen.append(['Hinweis:', 'Dieser Export enthält keine Euro-/Lohnwerte.'])
-
-    t2 = Table(zusammen, colWidths=[7*cm, 4*cm])
-    t2.setStyle(TableStyle([
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, -1), (-1, -1), 11),
-        ('ALIGN', (1, 0), (1, -1), 'RIGHT'),
-        ('LINEABOVE', (0, -1), (-1, -1), 1, colors.black),
-        ('TOPPADDING', (0, 0), (-1, -1), 4),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
-    ]))
-    story.append(t2)
-    story.append(Spacer(1, 1*cm))
-
-    story.append(Paragraph(
-        f"Erstellt am: {date.today().strftime('%d.%m.%Y')} | "
-        f"Bundesland: Sachsen (SN) | {BRAND_COMPANY_NAME}",
-        ParagraphStyle('footer', parent=styles['Normal'], fontSize=7,
-                       alignment=TA_CENTER, textColor=colors.black)
-    ))
-
-    doc.build(story)
-    buffer.seek(0)
-    return buffer.read()
+    output = pdf.output(dest="S")
+    if isinstance(output, str):
+        return output.encode("latin-1")
+    return bytes(output)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1468,7 +1481,14 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     with col_pdf:
         if st.button("PDF-Monatsauswertung erstellen", type="primary", use_container_width=True):
             try:
-                pdf_bytes = _erstelle_pdf(aktiver_ma, monat, jahr, monat_ergebnis, soll_stunden)
+                pdf_bytes = _erstelle_pdf(
+                    aktiver_ma,
+                    monat,
+                    jahr,
+                    monat_ergebnis,
+                    soll_stunden,
+                    zeiterfassungen,
+                )
                 dateiname = (
                     f"Zeitauswertung_{aktiver_ma['nachname']}_{aktiver_ma['vorname']}_"
                     f"{jahr}_{monat:02d}.pdf"
