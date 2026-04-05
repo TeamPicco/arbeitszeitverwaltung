@@ -827,13 +827,12 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     story.append(Spacer(1, 0.3*cm))
     story.append(Paragraph(
         f"<b>Mitarbeiter:</b> {safe_str(mitarbeiter['vorname'])} {safe_str(mitarbeiter['nachname'])} &nbsp;&nbsp; "
-        f"<b>Personal-Nr.:</b> {safe_str(mitarbeiter.get('personalnummer', '-'))} &nbsp;&nbsp; "
-        f"<b>Abgeleiteter Stundenwert:</b> {_effective_hourly_rate(mitarbeiter):.2f} EUR",
+        f"<b>Personal-Nr.:</b> {safe_str(mitarbeiter.get('personalnummer', '-'))}",
         info_style))
     story.append(Spacer(1, 0.5*cm))
 
-    # Detailtabelle
-    header = ['Datum', 'Tag', 'Von', 'Bis', 'Pause', 'Netto-h', 'Typ', 'Grundlohn', 'Zuschlag', 'Gesamt']
+    # Detailtabelle (reiner Zeitnachweis ohne Euro-Werte)
+    header = ['Datum', 'Tag', 'Von', 'Bis', 'Pause', 'Netto-h', 'Typ']
     data = [header]
 
     zeilen = monat_ergebnis.get("zeilen", [])
@@ -851,8 +850,6 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
         elif z.get("ist_sonntag"):
             typ = "Sonntag"
 
-        zuschlag_gesamt = z.get("sonntagszuschlag", 0) + z.get("feiertagszuschlag", 0)
-
         data.append([
             datum_str,
             wochentag,
@@ -861,9 +858,6 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
             f"{z.get('pause_minuten', 0)} Min",
             f"{z.get('netto_stunden', 0):.2f}",
             typ,
-            f"{z.get('grundlohn', 0):.2f} €",
-            f"+{zuschlag_gesamt:.2f} €" if zuschlag_gesamt > 0 else "–",
-            f"{z.get('gesamtlohn', 0):.2f} €",
         ])
 
     # Wir bauen die Tabelle aus den Zeiterfassungs-Rohdaten neu auf (mit Zeiten)
@@ -880,23 +874,17 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
             typ = f"Feiertag"
         elif z.get("ist_sonntag"):
             typ = "Sonntag"
-        zuschlag_gesamt = z.get("sonntagszuschlag", 0) + z.get("feiertagszuschlag", 0)
         data.append([
             datum_str, wochentag, "–", "–",
             f"{z.get('pause_minuten', 0)} Min",
             f"{z.get('netto_stunden', 0):.2f}",
             typ,
-            f"{z.get('grundlohn', 0):.2f} €",
-            f"+{zuschlag_gesamt:.2f} €" if zuschlag_gesamt > 0 else "–",
-            f"{z.get('gesamtlohn', 0):.2f} €",
         ])
 
     ist_stunden = monat_ergebnis.get("gesamt_stunden", 0)
-    gesamtbrutto = monat_ergebnis.get("gesamtbrutto", 0)
-    data.append(['', '', '', '', 'Gesamt:', f"{ist_stunden:.2f}", '', '', '',
-                 f"{gesamtbrutto:.2f} €"])
+    data.append(['', '', '', '', 'Gesamt:', f"{ist_stunden:.2f}", ''])
 
-    col_widths = [1.9*cm, 0.9*cm, 1.2*cm, 1.2*cm, 1.5*cm, 1.4*cm, 1.8*cm, 2.0*cm, 1.8*cm, 2.0*cm]
+    col_widths = [2.6*cm, 1.2*cm, 1.8*cm, 1.8*cm, 2.0*cm, 2.2*cm, 4.9*cm]
     t = Table(data, colWidths=col_widths, repeatRows=1)
     ts = TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.black),
@@ -918,7 +906,7 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     story.append(t)
     story.append(Spacer(1, 0.8*cm))
 
-    # Zusammenfassung mit Zuschlagsaufschlüsselung
+    # Zusammenfassung nur auf Zeitbasis (ohne Lohn-/Euroangaben)
     diff = ist_stunden - soll_stunden
     diff_str = f"+{diff:.2f} h" if diff >= 0 else f"{diff:.2f} h"
 
@@ -926,20 +914,21 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
         ['Soll-Stunden:', f"{soll_stunden:.2f} h"],
         ['Ist-Stunden (Netto):', f"{ist_stunden:.2f} h"],
         ['Differenz:', diff_str],
-        ['', ''],
-        ['Grundlohn:', f"{monat_ergebnis.get('grundlohn', 0):.2f} €"],
+        ['', '']
     ]
+    if monat_ergebnis.get("sonntags_stunden", 0) > 0 or monat_ergebnis.get("feiertags_stunden", 0) > 0:
+        zusammen.append(['Aufschlüsselung:', ''])
     if monat_ergebnis.get("sonntags_stunden", 0) > 0:
         zusammen.append([
-            f"Sonntagszuschlag ({monat_ergebnis['sonntags_stunden']:.2f} h × 50%):",
-            f"+{monat_ergebnis.get('sonntagszuschlag', 0):.2f} €"
+            "Sonntagsstunden:",
+            f"{monat_ergebnis.get('sonntags_stunden', 0):.2f} h"
         ])
     if monat_ergebnis.get("feiertags_stunden", 0) > 0:
         zusammen.append([
-            f"Feiertagszuschlag ({monat_ergebnis['feiertags_stunden']:.2f} h × 100%):",
-            f"+{monat_ergebnis.get('feiertagszuschlag', 0):.2f} €"
+            "Feiertagsstunden:",
+            f"{monat_ergebnis.get('feiertags_stunden', 0):.2f} h"
         ])
-    zusammen.append(['Gesamt-Bruttolohn:', f"{gesamtbrutto:.2f} €"])
+    zusammen.append(['Hinweis:', 'Dieser Export enthält keine Euro-/Lohnwerte.'])
 
     t2 = Table(zusammen, colWidths=[7*cm, 4*cm])
     t2.setStyle(TableStyle([
@@ -1497,9 +1486,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     with col_info:
         st.info(
-            "Die Monatsauswertung enthält alle Zeiterfassungen, den Soll-Ist-Vergleich, "
-            "Zuschlagsberechnungen nach Sachsen-Feiertagskalender und dient als Grundlage "
-            "für die Lohnabrechnung."
+            "Die Monatsauswertung enthält alle Zeiterfassungen und den Soll-Ist-Vergleich "
+            "als reinen Zeitnachweis (ohne Euro-/Lohnwerte)."
         )
 
     if korrektur_count > 0:
