@@ -11,6 +11,7 @@ import locale
 import io
 import os
 import html
+from urllib.parse import urlencode
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
@@ -1282,6 +1283,17 @@ def show_monatsuebersicht_tabelle(supabase):
             overflow: hidden;
             text-overflow: clip;
         }
+        .dp-cell-link {
+            display: block;
+            color: inherit !important;
+            text-decoration: none !important;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+        .dp-cell-link:hover .dp-cell-content {
+            filter: brightness(1.08);
+        }
         .dp-month-table th {
             position: sticky;
             top: 0;
@@ -1364,13 +1376,59 @@ def show_monatsuebersicht_tabelle(supabase):
             if css_cls == "dp-cell-geplant":
                 # In der Monatsübersicht nur reine Zeitfenster anzeigen, kein Status-Prefix.
                 label = label.replace("Geplant ", "")
+            query = urlencode(
+                {
+                    "dp_ma": int(ma["id"]),
+                    "dp_date": tag_datum.isoformat(),
+                    "dp_year": int(jahr),
+                    "dp_month": int(monat),
+                }
+            )
             table_parts.append(
-                f"<td class='{css_cls}'><span class='dp-cell-content'>{html.escape(label)}</span></td>"
+                f"<td class='{css_cls}'><a class='dp-cell-link' href='?{query}'><span class='dp-cell-content'>{html.escape(label)}</span></a></td>"
             )
         table_parts.append("</tr>")
 
     table_parts.append("</tbody></table></div>")
     st.markdown("".join(table_parts), unsafe_allow_html=True)
+
+    # 1-Klick-Öffnung per Zellklick (Query-Param-Bridge aus HTML-Tabelle zum Dialog-Editor)
+    def _qp_scalar(name: str) -> str:
+        try:
+            value = st.query_params.get(name)
+        except Exception:
+            return ""
+        if isinstance(value, list):
+            return str(value[0]) if value else ""
+        return str(value or "")
+
+    clicked_ma = _qp_scalar("dp_ma")
+    clicked_date = _qp_scalar("dp_date")
+    clicked_year = _qp_scalar("dp_year")
+    clicked_month = _qp_scalar("dp_month")
+    if clicked_ma and clicked_date and clicked_year and clicked_month:
+        try:
+            ma_id_clicked = int(clicked_ma)
+            y_clicked = int(clicked_year)
+            m_clicked = int(clicked_month)
+            d_clicked = date.fromisoformat(clicked_date)
+            valid_ma = any(int(m["id"]) == ma_id_clicked for m in mitarbeiter_liste)
+            if valid_ma and y_clicked == int(jahr) and m_clicked == int(monat) and d_clicked.month == int(monat):
+                st.session_state["tabelle_cell_editor"] = {
+                    "ma_id": ma_id_clicked,
+                    "datum": d_clicked.isoformat(),
+                    "jahr": int(jahr),
+                    "monat": int(monat),
+                }
+                # Nur unsere Bridge-Parameter entfernen; andere URL-Parameter bleiben erhalten.
+                for key in ("dp_ma", "dp_date", "dp_year", "dp_month"):
+                    try:
+                        del st.query_params[key]
+                    except Exception:
+                        pass
+                st.rerun()
+        except Exception:
+            pass
 
     st.markdown("### Dienst im Feld bearbeiten")
     b1, b2, b3 = st.columns([2, 2, 1.4], gap="small")
@@ -1446,6 +1504,31 @@ def show_monatsuebersicht_tabelle(supabase):
                 return
 
             st.markdown(f"**{ma['vorname']} {ma['nachname']}** – {datum_obj.strftime('%d.%m.%Y')} ({WOCHENTAGE_DE[datum_obj.weekday()]})")
+
+            arbeits_vorlagen = [v for v in vorlagen_dict.values() if not v.get("ist_urlaub")]
+            if arbeits_vorlagen:
+                with st.popover("Schichtvorlage anwenden"):
+                    vorlage_id = st.selectbox(
+                        "Vorlage",
+                        options=[v["id"] for v in arbeits_vorlagen],
+                        format_func=lambda x: next((v["name"] for v in arbeits_vorlagen if v["id"] == x), ""),
+                        key=f"cell_tpl_pick_{ma_id}_{datum_iso}",
+                    )
+                    if st.button("Vorlage übernehmen", use_container_width=True, key=f"cell_tpl_apply_{ma_id}_{datum_iso}"):
+                        vorlage = next((v for v in arbeits_vorlagen if v["id"] == vorlage_id), None)
+                        if vorlage is not None:
+                            _apply_schichtvorlage_one_click(
+                                supabase=supabase,
+                                planning_table=planning_table,
+                                betrieb_id=st.session_state.betrieb_id,
+                                mitarbeiter=ma,
+                                datum_iso=datum_iso,
+                                vorlage=vorlage,
+                            )
+                            _refresh_after_write()
+                            st.session_state["tabelle_cell_editor"] = None
+                            st.success("Schichtvorlage gesetzt.")
+                            st.rerun()
 
             bestehende = sorted(
                 [

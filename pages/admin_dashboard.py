@@ -27,6 +27,33 @@ ADMIN_MITARBEITER_COLUMNS = (
     "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage, resturlaub_vorjahr, "
     "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
 )
+ADMIN_MITARBEITER_COLUMNS_FALLBACK = (
+    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
+    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
+    "monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, "
+    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+STUNDENLOHN_PERSONAL_COLUMNS = (
+    "stundenlohn_personalakte",
+    "stundenlohn_brutto",
+    "stundenlohn",
+)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _resolve_stundenlohn_personal_column() -> str:
+    """
+    Ermittelt eine optionale Stundenlohn-Spalte für die Personalakte.
+    Diese Spalte ist rein dokumentarisch und wird NICHT für Zeitberechnungen verwendet.
+    """
+    supabase = get_supabase_client()
+    for col in STUNDENLOHN_PERSONAL_COLUMNS:
+        try:
+            supabase.table("mitarbeiter").select(f"id,{col}").limit(1).execute()
+            return col
+        except Exception:
+            continue
+    return ""
 
 
 def _load_admin_mitarbeiter():
@@ -37,11 +64,39 @@ def _load_admin_mitarbeiter():
 @st.cache_data(ttl=600, show_spinner=False)
 def _cached_admin_mitarbeiter(betrieb_id):
     supabase = get_supabase_client()
-    query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
-    if betrieb_id is not None:
-        query = query.eq("betrieb_id", betrieb_id)
-    res = query.execute()
-    return res.data or []
+    try:
+        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        rows = query.execute().data or []
+    except Exception:
+        # Rückfall für ältere Schemas ohne monatliche_brutto_verguetung.
+        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS_FALLBACK).order("nachname")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        rows = query.execute().data or []
+        for row in rows:
+            row["monatliche_brutto_verguetung"] = float(row.get("monatliche_brutto_verguetung") or 0.0)
+
+    # Optionales Personalakten-Feld: Stundenlohn (rein dokumentarisch, keine Berechnungswirkung)
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
+    if stundenlohn_col:
+        try:
+            rate_query = supabase.table("mitarbeiter").select(f"id,{stundenlohn_col}")
+            if betrieb_id is not None:
+                rate_query = rate_query.eq("betrieb_id", betrieb_id)
+            rate_rows = rate_query.execute().data or []
+            rate_by_id = {int(r["id"]): _to_float(r.get(stundenlohn_col), 0.0) for r in rate_rows if r.get("id") is not None}
+        except Exception:
+            rate_by_id = {}
+    else:
+        rate_by_id = {}
+
+    for row in rows:
+        row_id = int(row.get("id") or 0)
+        row["akten_stundenlohn"] = _to_float(rate_by_id.get(row_id), 0.0)
+
+    return rows
 
 
 def _refresh_after_write() -> None:
@@ -380,7 +435,18 @@ def _show_absenzen_tab():
 def _show_mitarbeiter_stammdaten_tab():
     st.subheader("Mitarbeiter-Stammdaten und Dokumente")
     supabase = get_supabase_client()
+    # Schritt 1: Verbindung prüfen, bevor Stammdaten-UI gerendert wird.
+    try:
+        supabase.table("mitarbeiter").select("id").limit(1).execute()
+    except Exception as exc:
+        st.error(f"Datenbankverbindung für Personalakte fehlgeschlagen: {exc}")
+        return
+
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
     alle_ma = _load_admin_mitarbeiter()
+    st.caption(
+        "Hinweis: 'Stundenlohn' ist ein Personalakten-Feld und hat keinen Einfluss auf Dienstplan- oder Zeiterfassungsberechnungen."
+    )
 
     with st.expander("Mitarbeiter neu anlegen", expanded=False):
         with st.form("neuer_mitarbeiter_form"):
@@ -416,13 +482,21 @@ def _show_mitarbeiter_stammdaten_tab():
             with n12:
                 new_monatsbrutto = st.number_input("Monatliche Brutto-Vergütung", min_value=0.0, value=0.0, step=50.0)
 
-            n13, n14, n15 = st.columns(3)
+            n13, n14, n15, n16 = st.columns(4)
             with n13:
                 new_urlaub = st.number_input("Urlaubstage/Jahr", min_value=0.0, value=28.0, step=0.5)
             with n14:
                 new_resturlaub = st.number_input("Resturlaub Vorjahr", min_value=0.0, value=0.0, step=0.5)
             with n15:
                 new_geburtsdatum = st.date_input("Geburtsdatum", value=date(1990, 1, 1), format="DD.MM.YYYY")
+            with n16:
+                new_stundenlohn = st.number_input(
+                    "Stundenlohn (Personalakte)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.5,
+                    format="%.2f",
+                )
 
             create = st.form_submit_button("Mitarbeiter anlegen", type="primary", use_container_width=True)
             if create:
@@ -449,6 +523,8 @@ def _show_mitarbeiter_stammdaten_tab():
                         "sonntagszuschlag_aktiv": False,
                         "feiertagszuschlag_aktiv": False,
                     }
+                    if stundenlohn_col:
+                        payload[stundenlohn_col] = float(new_stundenlohn)
                     try:
                         supabase.table("mitarbeiter").insert(payload).execute()
                         _refresh_after_write()
@@ -470,11 +546,17 @@ def _show_mitarbeiter_stammdaten_tab():
     )
     ma = ma_options[selected_label]
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Personalnummer", ma.get("personalnummer") or "-")
     c2.metric("Soll (Monat)", f"{_to_float(ma.get('monatliche_soll_stunden')):.2f} h")
     c3.metric("Monatsbrutto", f"{_to_float(ma.get('monatliche_brutto_verguetung')):.2f} EUR")
     c4.metric("Urlaub/Jahr", f"{_to_float(ma.get('jahres_urlaubstage')):.1f} Tg")
+    c5.metric("Stundenlohn (Akte)", f"{_to_float(ma.get('akten_stundenlohn')):.2f} EUR")
+    if not stundenlohn_col:
+        st.info(
+            "Im aktuellen DB-Schema wurde keine Stundenlohn-Spalte gefunden. "
+            "Das Feld wird angezeigt, aber erst nach Hinzufügen einer passenden Spalte dauerhaft gespeichert."
+        )
 
     eintritt_default = _safe_date(ma.get("eintrittsdatum")) or date.today()
     austritt_default = _safe_date(ma.get("austrittsdatum"))
@@ -541,7 +623,7 @@ def _show_mitarbeiter_stammdaten_tab():
                 step=0.5,
             )
 
-        z1, z2, z3 = st.columns(3)
+        z1, z2, z3, z4 = st.columns(4)
         with z1:
             resturlaub_vorjahr = st.number_input(
                 "Resturlaub Vorjahr",
@@ -558,6 +640,14 @@ def _show_mitarbeiter_stammdaten_tab():
             feiertagszuschlag_aktiv = st.checkbox(
                 "Feiertagszuschlag aktiv",
                 value=bool(ma.get("feiertagszuschlag_aktiv")),
+            )
+        with z4:
+            akten_stundenlohn = st.number_input(
+                "Stundenlohn (Personalakte)",
+                min_value=0.0,
+                value=_to_float(ma.get("akten_stundenlohn")),
+                step=0.5,
+                format="%.2f",
             )
 
         save = st.form_submit_button("Stammdaten speichern", type="primary", use_container_width=True)
@@ -581,6 +671,8 @@ def _show_mitarbeiter_stammdaten_tab():
                 "sonntagszuschlag_aktiv": bool(sonntagszuschlag_aktiv),
                 "feiertagszuschlag_aktiv": bool(feiertagszuschlag_aktiv),
             }
+            if stundenlohn_col:
+                payload[stundenlohn_col] = float(akten_stundenlohn)
             ok = update_mitarbeiter(ma["id"], payload)
             if ok:
                 _refresh_after_write()
@@ -1260,15 +1352,17 @@ def show_admin_dashboard():
         with st.container(key="header_logo"):
             st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
-        nav_options = ["Dienstplanung", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
+        nav_options = ["Dienstplanung", "Personalakte", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
         current_nav = st.session_state.get("admin_nav", "Dienstplanung")
         if current_nav == "Vertraege":
             current_nav = "Verträge"
+        if current_nav == "Mitarbeiter":
+            current_nav = "Personalakte"
         default_idx = nav_options.index(current_nav) if current_nav in nav_options else 0
         selected = option_menu(
             menu_title=None,
             options=nav_options,
-            icons=["calendar", "clock", "bar-chart-2", "file-text"],
+            icons=["calendar", "people", "clock", "bar-chart-2", "file-text"],
             orientation="horizontal",
             default_index=default_idx,
             key="admin_top_option_menu",
@@ -1296,6 +1390,8 @@ def show_admin_dashboard():
         from pages import admin_dienstplan
 
         admin_dienstplan.show_dienstplanung()
+    elif selected == "Personalakte":
+        _show_mitarbeiter_stammdaten_tab()
     elif selected == "Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()
     elif selected == "Zeitauswertung":

@@ -117,25 +117,25 @@ def _build_prefill(ma: dict) -> ContractData:
 
 
 @st.fragment
-def _render_form(prefill: ContractData) -> ContractData:
+def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
     st.markdown("### Mitarbeiter-Sync")
     st.caption("Name, Anschrift und Geburtsdatum werden automatisch aus der Datenbank vorgeladen und können angepasst werden.")
     st.markdown("#### Arbeitnehmer-Daten")
     c1, c2 = st.columns(2, gap="large")
     with c1:
-        employee_name = st.text_input("Name", value=prefill.employee_name, key="v4_employee_name")
+        employee_name = st.text_input("Name", value=prefill.employee_name, key=f"{key_prefix}_employee_name")
         employee_birth_date = st.date_input(
             "Geburtsdatum",
             value=_to_date(prefill.employee_birth_date),
             format="DD.MM.YYYY",
-            key="v4_birth_date",
+            key=f"{key_prefix}_birth_date",
         )
     with c2:
-        employee_street = st.text_input("Straße", value=prefill.employee_street, key="v4_employee_street")
+        employee_street = st.text_input("Straße", value=prefill.employee_street, key=f"{key_prefix}_employee_street")
         employee_city_line = st.text_input(
             "PLZ / Ort",
             value=prefill.employee_city_line,
-            key="v4_employee_city",
+            key=f"{key_prefix}_employee_city",
             placeholder="z. B. 04105 Leipzig",
         )
     st.markdown("#### Vertragsdetails")
@@ -144,14 +144,14 @@ def _render_form(prefill: ContractData) -> ContractData:
         prior_contract_date_text = st.text_input(
             "Datum ursprünglicher Arbeitsvertrag",
             value=prefill.prior_contract_date_text,
-            key="v4_prior_contract_date_text",
+            key=f"{key_prefix}_prior_contract_date_text",
             help="Default: 15. Oktober 2025",
         )
         amendment_effective_date = st.date_input(
             "Inkrafttreten der Änderung",
             value=_to_date(prefill.amendment_effective_date),
             format="DD.MM.YYYY",
-            key="v4_effective_date",
+            key=f"{key_prefix}_effective_date",
         )
     with d2:
         monthly_target_hours = st.number_input(
@@ -160,7 +160,7 @@ def _render_form(prefill: ContractData) -> ContractData:
             value=float(prefill.monthly_target_hours),
             step=0.5,
             format="%.2f",
-            key="v4_monthly_hours",
+            key=f"{key_prefix}_monthly_hours",
         )
         monthly_gross_salary = st.number_input(
             "Monatliche Brutto-Vergütung (€)",
@@ -168,7 +168,7 @@ def _render_form(prefill: ContractData) -> ContractData:
             value=float(prefill.monthly_gross_salary),
             step=50.0,
             format="%.2f",
-            key="v4_monthly_gross",
+            key=f"{key_prefix}_monthly_gross",
         )
     with d3:
         annual_vacation_days = st.number_input(
@@ -177,19 +177,19 @@ def _render_form(prefill: ContractData) -> ContractData:
             value=float(prefill.annual_vacation_days),
             step=0.5,
             format="%.1f",
-            key="v4_vacation_days",
+            key=f"{key_prefix}_vacation_days",
         )
         employment_start_date = st.date_input(
             "Eintrittsdatum",
             value=_to_date(prefill.employment_start_date),
             format="DD.MM.YYYY",
-            key="v4_start_employment",
+            key=f"{key_prefix}_start_employment",
         )
 
     additional_agreements = st.text_area(
         "Sonstige Vereinbarungen (§ 8)",
         value=prefill.additional_agreements,
-        key="v4_additional_agreements",
+        key=f"{key_prefix}_additional_agreements",
         height=130,
         placeholder="Freitext für individuelle Vereinbarungen...",
     )
@@ -246,28 +246,45 @@ def show_vertraege_page() -> None:
     }
     selected_label = st.selectbox("Mitarbeiter auswählen", list(options.keys()), key="v4_selected_mitarbeiter")
     selected_employee = options[selected_label]
+    selected_employee_id = int(selected_employee.get("id") or 0)
+    key_prefix = f"v4_ma_{selected_employee_id}"
+    if st.session_state.get("v4_selected_mitarbeiter_id") != selected_employee_id:
+        # Mitarbeiterwechsel: Vorschau bewusst neu laden lassen (verhindert stale Ronny-Formularzustand)
+        st.session_state["v4_selected_mitarbeiter_id"] = selected_employee_id
 
     prefill = _build_prefill(selected_employee)
-    contract_data = _render_form(prefill)
+    contract_data = _render_form(prefill, key_prefix=key_prefix)
 
-    if st.button("PDF erzeugen", type="primary", use_container_width=True, key="v4_generate_pdf_btn"):
+    pdf_by_ma = st.session_state.setdefault("v4_contract_pdf_by_ma", {})
+    preview_by_ma = st.session_state.setdefault("v4_contract_preview_by_ma", {})
+
+    if st.button(
+        "PDF erzeugen",
+        type="primary",
+        use_container_width=True,
+        key=f"{key_prefix}_generate_pdf_btn",
+    ):
         try:
             pdf_bytes = generate_contract_pdf(contract_data)
-            st.session_state["v4_contract_pdf"] = pdf_bytes
-            st.session_state["v4_contract_preview_enabled"] = False
+            pdf_by_ma[selected_employee_id] = pdf_bytes
+            preview_by_ma[selected_employee_id] = False
             st.success("Vertrag-PDF wurde erzeugt.")
         except Exception as exc:
             st.error(f"PDF-Erzeugung fehlgeschlagen: {exc}")
             return
 
-    pdf_bytes = st.session_state.get("v4_contract_pdf")
+    pdf_bytes = pdf_by_ma.get(selected_employee_id)
     if pdf_bytes:
         st.markdown("### PDF-Vorschau")
-        preview_enabled = bool(st.session_state.get("v4_contract_preview_enabled", False))
+        preview_enabled = bool(preview_by_ma.get(selected_employee_id, False))
         if not preview_enabled:
             st.info("Vorschau wird erst bei Bedarf geladen (Lazy Loading).")
-            if st.button("Vorschau laden", use_container_width=True, key="v4_contract_pdf_preview_load"):
-                st.session_state["v4_contract_preview_enabled"] = True
+            if st.button(
+                "Vorschau laden",
+                use_container_width=True,
+                key=f"{key_prefix}_contract_pdf_preview_load",
+            ):
+                preview_by_ma[selected_employee_id] = True
                 st.rerun()
         else:
             _try_embed_pdf(pdf_bytes)
@@ -277,5 +294,5 @@ def show_vertraege_page() -> None:
             file_name=as_download_filename(contract_data.employee_name, contract_data.amendment_effective_date),
             mime="application/pdf",
             use_container_width=True,
-            key="v4_contract_pdf_download",
+            key=f"{key_prefix}_contract_pdf_download",
         )
