@@ -63,11 +63,19 @@ def _cached_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     supabase = get_supabase_client()
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = supabase.table('zeiterfassung').select(
-        'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at'
-    ).eq(
-        'mitarbeiter_id', mitarbeiter_id
-    ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
+    try:
+        r = supabase.table('zeiterfassung').select(
+            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at,manuell_kommentar,korrektur_grund'
+        ).eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
+    except Exception:
+        # Legacy-Fallback ohne neue Audit-Felder
+        r = supabase.table('zeiterfassung').select(
+            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at'
+        ).eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
     return r.data or []
 
 
@@ -218,6 +226,209 @@ def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
 
     canonical = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _is_auto_timeout_entry(raw: dict) -> bool:
+    """Erkennt automatisch gekappte Schichten (vergessenes Logout)."""
+    quelle = str(raw.get("quelle") or "").strip().lower()
+    kommentar = str(raw.get("manuell_kommentar") or "").strip().lower()
+    grund = str(raw.get("korrektur_grund") or "").strip().lower()
+    return (
+        quelle == "system_auto_close"
+        or "auto_timeout_10h" in kommentar
+        or "auto-close" in kommentar
+        or "forgotten_logout_timeout_10h" in grund
+    )
+
+
+def _show_manual_outdoor_entry_form(
+    *,
+    ma_liste: list[dict],
+    default_ma_id: int,
+    jahr: int,
+    monat: int,
+) -> None:
+    """
+    Admin-Form für nachträgliche, vollständige Zeiterfassung (Außendienst).
+    GoBD: Pflichtbegründung + Zeitstempel + Audit-Log.
+    """
+    if not ma_liste:
+        st.info("Keine Mitarbeiter-Stammdaten verfügbar.")
+        return
+
+    ma_options = {
+        f"{m.get('vorname', '').strip()} {m.get('nachname', '').strip()}".strip(): m
+        for m in ma_liste
+    }
+    ma_labels = list(ma_options.keys())
+    default_index = 0
+    for idx, label in enumerate(ma_labels):
+        if int(ma_options[label].get("id") or 0) == int(default_ma_id or 0):
+            default_index = idx
+            break
+
+    with st.expander("Außendienst-Modul: Manuelle Zeiterfassung anlegen", expanded=False):
+        st.caption(
+            "Vollständige manuelle Anlage eines Zeiteintrags mit Pflichtbegründung "
+            "(GoBD/Audit). Doppelungen pro Mitarbeiter/Datum werden blockiert."
+        )
+        selected_label = st.selectbox(
+            "Mitarbeiter",
+            ma_labels,
+            index=default_index,
+            key=f"za_manual_create_ma_{jahr}_{monat}",
+        )
+        selected_ma = ma_options[selected_label]
+        selected_ma_id = int(selected_ma.get("id") or 0)
+        betrieb_id = int(st.session_state.get("betrieb_id") or selected_ma.get("betrieb_id") or 1)
+
+        today = date.today()
+        default_date = today if (today.year == jahr and today.month == monat) else date(jahr, monat, 1)
+        manual_date = st.date_input(
+            "Datum",
+            value=default_date,
+            key=f"za_manual_create_date_{jahr}_{monat}",
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            start_time = st.time_input(
+                "Startzeit",
+                value=time(8, 0),
+                step=300,
+                key=f"za_manual_create_start_{jahr}_{monat}",
+            )
+        with c2:
+            end_time = st.time_input(
+                "Endzeit",
+                value=time(17, 0),
+                step=300,
+                key=f"za_manual_create_end_{jahr}_{monat}",
+            )
+        with c3:
+            pause_min = st.number_input(
+                "Pause (Minuten)",
+                min_value=0,
+                max_value=240,
+                value=0,
+                step=5,
+                key=f"za_manual_create_pause_{jahr}_{monat}",
+            )
+
+        reason = st.text_area(
+            "Begründung der manuellen Anlage *",
+            placeholder="Pflichtfeld, z.B. Außendienst ohne Gerätezugang",
+            key=f"za_manual_create_reason_{jahr}_{monat}",
+        )
+
+        if st.button(
+            "Außendienst-Eintrag speichern",
+            type="primary",
+            use_container_width=True,
+            key=f"za_manual_create_save_{jahr}_{monat}",
+        ):
+            reason_clean = (reason or "").strip()
+            if not reason_clean:
+                st.error("Bitte eine Begründung der manuellen Anlage angeben.")
+                return
+
+            start_dt = datetime.combine(manual_date, start_time)
+            end_dt = datetime.combine(manual_date, end_time)
+            if end_dt <= start_dt:
+                end_dt += timedelta(days=1)
+            brutto_min = int((end_dt - start_dt).total_seconds() // 60)
+            if brutto_min > (10 * 60):
+                st.error(
+                    "Die manuelle Anlage überschreitet 10 Stunden. "
+                    "Bitte Eintrag aufteilen oder als Korrektur mit Admin-Prüfung erfassen."
+                )
+                return
+            netto_min = max(0, brutto_min - int(pause_min))
+            if netto_min <= 0:
+                st.error("Start-/Endzeit und Pause ergeben keine gültige Arbeitszeit.")
+                return
+
+            supabase = get_supabase_client()
+            datum_iso = manual_date.isoformat()
+            dup = (
+                supabase.table("zeiterfassung")
+                .select("id,start_zeit,ende_zeit,quelle")
+                .eq("mitarbeiter_id", selected_ma_id)
+                .eq("datum", datum_iso)
+                .limit(10)
+                .execute()
+            )
+            if dup.data:
+                existing = ", ".join(
+                    f"#{int(d.get('id'))} {str(d.get('start_zeit') or '--:--')[:5]}-{str(d.get('ende_zeit') or 'offen')[:5]}"
+                    for d in dup.data
+                )
+                st.error(
+                    f"Für {selected_label} existiert am {manual_date.strftime('%d.%m.%Y')} "
+                    f"bereits ein Eintrag: {existing}. Anlage wurde zur Dublettenvermeidung gestoppt."
+                )
+                return
+
+            created_ts = datetime.now().isoformat(timespec="seconds")
+            payload = {
+                "betrieb_id": betrieb_id,
+                "mitarbeiter_id": selected_ma_id,
+                "datum": datum_iso,
+                "start_zeit": start_time.strftime("%H:%M:%S"),
+                "ende_zeit": end_time.strftime("%H:%M:%S"),
+                "pause_minuten": int(pause_min),
+                "arbeitsstunden": round(netto_min / 60.0, 2),
+                "quelle": "manuell_admin",
+                "korrektur_grund": reason_clean,
+                "manuell_kommentar": f"manuelle_anlage_admin@{created_ts}",
+            }
+            try:
+                try:
+                    ins = supabase.table("zeiterfassung").insert(payload).execute()
+                except Exception:
+                    payload_fallback = {
+                        "betrieb_id": payload["betrieb_id"],
+                        "mitarbeiter_id": payload["mitarbeiter_id"],
+                        "datum": payload["datum"],
+                        "start_zeit": payload["start_zeit"],
+                        "ende_zeit": payload["ende_zeit"],
+                        "pause_minuten": payload["pause_minuten"],
+                        "arbeitsstunden": payload["arbeitsstunden"],
+                        "quelle": payload["quelle"],
+                    }
+                    ins = supabase.table("zeiterfassung").insert(payload_fallback).execute()
+
+                new_row_id = int((ins.data or [{}])[0].get("id") or 0)
+                try:
+                    log_aktion(
+                        admin_user_id=int(st.session_state.get("user_id") or 0),
+                        admin_name=str(st.session_state.get("username") or st.session_state.get("user_name") or "Admin"),
+                        aktion="manuelle_zeiterfassung_anlage",
+                        tabelle="zeiterfassung",
+                        datensatz_id=new_row_id if new_row_id > 0 else selected_ma_id,
+                        mitarbeiter_id=selected_ma_id,
+                        mitarbeiter_name=selected_label,
+                        alter_wert=None,
+                        neuer_wert={
+                            "datum": datum_iso,
+                            "start_zeit": payload["start_zeit"],
+                            "ende_zeit": payload["ende_zeit"],
+                            "pause_minuten": payload["pause_minuten"],
+                            "arbeitsstunden": payload["arbeitsstunden"],
+                        },
+                        begruendung=reason_clean,
+                        betrieb_id=betrieb_id,
+                    )
+                except Exception:
+                    pass
+
+                _clear_zeitauswertung_caches()
+                st.success(
+                    f"Außendienst-Eintrag für {selected_label} am "
+                    f"{manual_date.strftime('%d.%m.%Y')} wurde erfolgreich gespeichert."
+                )
+                st.rerun()
+            except Exception as exc:
+                st.error(f"Speichern fehlgeschlagen: {exc}")
 
 
 def _show_manual_account_adjustment(
@@ -782,6 +993,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                              index=heute.month - 1, key="za_monat")
 
     # ── Mitarbeiter-Auswahl (nur Admin) ──────────────────────────────────────
+    ma_liste: list[dict] = []
     if admin_modus:
         ma_liste = _cached_admin_mitarbeiter_za(int(st.session_state.betrieb_id))
         ma_optionen = {f"{m['vorname']} {m['nachname']}": m for m in ma_liste}
@@ -796,6 +1008,15 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         aktiver_ma = mitarbeiter
 
     st.markdown("---")
+
+    if admin_modus:
+        _show_manual_outdoor_entry_form(
+            ma_liste=ma_liste,
+            default_ma_id=int(aktiver_ma.get("id") or 0),
+            jahr=int(jahr),
+            monat=int(monat),
+        )
+        st.markdown("---")
 
     # ── Daten laden ──────────────────────────────────────────────────────────
     zeiterfassungen = _lade_zeiterfassungen(aktiver_ma['id'], monat, jahr)
@@ -881,6 +1102,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 raw.get('updated_at') and raw.get('created_at')
                 and raw['updated_at'] != raw['created_at']
             )
+            timeout_auto = _is_auto_timeout_entry(raw)
 
             datum = z["datum"]
             datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
@@ -913,6 +1135,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             # Manuell angelegter Eintrag kennzeichnen
             if raw.get('quelle') == 'manuell_admin':
                 typ_str += " Manuell"
+            if timeout_auto:
+                typ_str += " Auto-Timeout"
 
             # Zuschlag-Info
             so_z = z.get("sonntagszuschlag", 0)
@@ -947,8 +1171,10 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 "Pause": f"{z.get('pause_minuten', 0)} Min",
                 "Netto-h": netto_str,
                 "Typ": typ_str,
+                "Status": "Timeout (Auto-Kappung 10h)" if timeout_auto else "",
                 "Grundlohn": grundlohn_str,
                 "Gesamt": gesamt_str,
+                "__auto_timeout": timeout_auto,
             })
 
         # Summenzeile
@@ -960,11 +1186,35 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             "Pause": "",
             "Netto-h": f"{ist_stunden:.2f} h",
             "Typ": "",
+            "Status": "",
             "Grundlohn": "",
             "Gesamt": f"{gesamtbrutto:.2f} €",
+            "__auto_timeout": False,
         })
+        timeout_count = sum(1 for row in df_rows if bool(row.get("__auto_timeout")))
+        display_rows = [{k: v for k, v in row.items() if not k.startswith("__")} for row in df_rows]
+        try:
+            import pandas as pd
 
-        st.dataframe(df_rows, use_container_width=True, hide_index=True)
+            df_display = pd.DataFrame(display_rows)
+
+            def _timeout_row_style(row):
+                is_timeout = "Timeout (Auto-Kappung 10h)" in str(row.get("Status") or "")
+                style = "background-color: #ff9800; color: #000000; font-weight: 700;" if is_timeout else ""
+                return [style] * len(row)
+
+            st.dataframe(
+                df_display.style.apply(_timeout_row_style, axis=1),
+                use_container_width=True,
+                hide_index=True,
+            )
+        except Exception:
+            st.dataframe(display_rows, use_container_width=True, hide_index=True)
+        if timeout_count > 0:
+            st.warning(
+                f"{timeout_count} Eintrag/Einträge wurden durch Auto-Timeout (10h) beendet "
+                "und sind in der Tabelle orange markiert."
+            )
 
         if admin_modus:
             st.markdown("#### Zeiteinträge interaktiv korrigieren")

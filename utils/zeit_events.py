@@ -221,14 +221,94 @@ def _close_stale_open_shift(
             "mitarbeiter_id": mitarbeiter_id,
             "aktion": EVENT_CLOCK_OUT,
             "zeitpunkt_utc": forced_out.isoformat(),
-            "quelle": source,
+            "quelle": "system_auto_close",
             "geraet_id": last_in.get("geraet_id"),
             "created_by": last_in.get("created_by"),
             "notiz": "Auto-Close: offene Schicht > 10h wurde systemseitig beendet (Admin-Pruefung erforderlich)",
         }
         _insert_event_with_rls_fallback(client, insert_payload)
+        _sync_legacy_row_for_auto_close(
+            client,
+            mitarbeiter_id=mitarbeiter_id,
+            betrieb_id=int(last_in.get("betrieb_id") or betrieb_id or 0) or None,
+            in_ts=in_ts,
+            forced_out=forced_out,
+            source=source,
+        )
     except Exception:
         # Kein Hard-Fail im Stempelworkflow.
+        return
+
+
+def _sync_legacy_row_for_auto_close(
+    client,
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: Optional[int],
+    in_ts: datetime,
+    forced_out: datetime,
+    source: str,
+) -> None:
+    """
+    Schreibt die automatische Kappung zusätzlich in die Legacy-Tabelle `zeiterfassung`,
+    damit Auswertungen den Timeout sofort sehen und markieren können.
+    """
+    try:
+        break_minutes = 0
+        try:
+            ev_res = (
+                client.table("zeit_eintraege")
+                .select("aktion, zeitpunkt_utc")
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .gte("zeitpunkt_utc", in_ts.isoformat())
+                .lte("zeitpunkt_utc", forced_out.isoformat())
+                .order("zeitpunkt_utc")
+                .execute()
+            )
+            segment_events = _normalize_event_rows(ev_res.data or [])
+            break_minutes = _compute_break_minutes(segment_events)
+        except Exception:
+            break_minutes = 0
+
+        day = to_berlin(in_ts).date()
+        legacy = _build_legacy_payload(
+            mitarbeiter_id=mitarbeiter_id,
+            day=day,
+            start_dt=in_ts,
+            end_dt=forced_out,
+            break_minutes=break_minutes,
+            source="system_auto_close",
+        )
+        legacy["betrieb_id"] = betrieb_id
+        legacy["quelle"] = "system_auto_close"
+        legacy["manuell_kommentar"] = (
+            f"auto_timeout_10h@{forced_out.isoformat()}|trigger={source or 'unknown'}"
+        )
+        legacy["korrektur_grund"] = "forgotten_logout_timeout_10h"
+        try:
+            client.table("zeiterfassung").upsert(
+                legacy,
+                on_conflict="mitarbeiter_id,datum,start_zeit",
+            ).execute()
+        except Exception:
+            # Legacy-Fallback ohne neue Audit-Felder
+            fallback = {
+                "betrieb_id": legacy.get("betrieb_id"),
+                "mitarbeiter_id": legacy.get("mitarbeiter_id"),
+                "datum": legacy.get("datum"),
+                "start_zeit": legacy.get("start_zeit"),
+                "ende_zeit": legacy.get("ende_zeit"),
+                "pause_minuten": legacy.get("pause_minuten"),
+                "arbeitsstunden": legacy.get("arbeitsstunden"),
+                "monat": legacy.get("monat"),
+                "jahr": legacy.get("jahr"),
+                "quelle": legacy.get("quelle"),
+            }
+            client.table("zeiterfassung").upsert(
+                fallback,
+                on_conflict="mitarbeiter_id,datum,start_zeit",
+            ).execute()
+    except Exception:
         return
 
 
