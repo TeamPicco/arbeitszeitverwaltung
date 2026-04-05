@@ -295,6 +295,43 @@ def _resolve_month_soll_and_vacation(
     return round(soll_hours, 2), round(urlaubstage_gesamt, 2)
 
 
+def resolve_month_contract_targets(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+) -> dict:
+    """
+    Liefert die vertraglich wirksamen Monatsziele für einen Mitarbeiter.
+
+    Rückgabe:
+    {
+        "soll_stunden": float,
+        "arbeitstage": int,
+        "tagessoll_stunden": float,
+        "urlaubstage_gesamt": float,
+    }
+    """
+    month_start, month_end = _month_bounds(monat, jahr)
+    defaults = _load_mitarbeiter_defaults(supabase, mitarbeiter_id)
+    contracts = _load_contract_rows(supabase, mitarbeiter_id)
+    soll_stunden, urlaubstage_gesamt = _resolve_month_soll_and_vacation(
+        month_start=month_start,
+        month_end=month_end,
+        mitarbeiter_defaults=defaults,
+        contract_rows=contracts,
+    )
+    arbeitstage = int(sum(1 for d in _daterange(month_start, month_end) if _is_workday(d)))
+    tagessoll_stunden = round((soll_stunden / float(arbeitstage)) if arbeitstage > 0 else 0.0, 4)
+    return {
+        "soll_stunden": round(float(soll_stunden or 0.0), 2),
+        "arbeitstage": arbeitstage,
+        "tagessoll_stunden": tagessoll_stunden,
+        "urlaubstage_gesamt": round(float(urlaubstage_gesamt or 0.0), 2),
+    }
+
+
 def _load_month_ist_hours(supabase, mitarbeiter_id: int, month_start: date, month_end: date) -> float:
     zeit_res = (
         supabase.table("zeiterfassung")

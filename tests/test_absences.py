@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from utils.absences import delete_absence, store_absence, update_absence
+from utils.absences import calculate_absence_credit, delete_absence, store_absence, update_absence
 
 
 class FakeResponse:
@@ -240,3 +240,23 @@ def test_delete_absence_requires_reason():
             absence_id=11,
             delete_reason="",
         )
+
+
+def test_absence_credit_uses_month_workdays_not_2165():
+    # April 2026 hat im Betriebsmodell (Mi-So) 22 Arbeitstage.
+    # Tagesziel muss daher exakt 160/22 sein.
+    start = date(2026, 4, 1)
+    end = date(2026, 4, 1)
+    out = calculate_absence_credit(
+        typ="krankheit",
+        start=start,
+        end=end,
+        monthly_target_hours=160.0,
+        paid=True,
+    )
+    assert out.days == 1.0
+    assert out.credited_hours == round(160.0 / 22.0, 2)
+
+
+def test_monthly_target_to_daily_hours_with_zero_returns_zero():
+    assert _monthly_target_to_daily_hours(monthly_target_hours=0.0, reference_day=date(2026, 4, 1)) == 0.0

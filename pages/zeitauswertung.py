@@ -1035,8 +1035,20 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     )
 
     # ── Soll-Stunden ─────────────────────────────────────────────────────────
-    # Soll-Stunden immer aus Stammdaten (Vertrag), nicht aus Dienstplan
-    soll_stunden = float(aktiver_ma.get('monatliche_soll_stunden', 0) or 0)
+    # Für Endanzeige und Arbeitszeitkonto dieselbe Vertragslogik verwenden.
+    # Dadurch bleiben Zeitauswertung und Konto deterministisch synchron.
+    snap_preview = None
+    try:
+        snap_preview = sync_work_account_for_month(
+            get_supabase_client(),
+            betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+            mitarbeiter_id=int(aktiver_ma["id"]),
+            monat=int(monat),
+            jahr=int(jahr),
+        )
+    except Exception:
+        snap_preview = None
+    soll_stunden = float(snap_preview.soll_stunden) if snap_preview else float(aktiver_ma.get('monatliche_soll_stunden', 0) or 0)
 
     ist_stunden = monat_ergebnis["gesamt_stunden"]
     differenz = ist_stunden - soll_stunden
@@ -1349,7 +1361,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         st.markdown("### Arbeitszeitkonto")
         try:
             supabase_konto = get_supabase_client()
-            snap = sync_work_account_for_month(
+            snap = snap_preview or sync_work_account_for_month(
                 supabase_konto,
                 betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
                 mitarbeiter_id=int(aktiver_ma["id"]),

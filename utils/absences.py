@@ -12,6 +12,13 @@ class AbsenceResult:
     typ: str
 
 
+def _to_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except Exception:
+        return float(default)
+
+
 def _is_workday(d: date) -> bool:
     # Bestehende Betriebslogik: Montag/Dienstag sind Ruhetage.
     return d.weekday() not in (0, 1)
@@ -27,6 +34,124 @@ def workdays_between(start: date, end: date) -> float:
     return total
 
 
+def _month_bounds(day: date) -> tuple[date, date]:
+    start = date(day.year, day.month, 1)
+    end = date(
+        day.year + (1 if day.month == 12 else 0),
+        1 if day.month == 12 else day.month + 1,
+        1,
+    ) - timedelta(days=1)
+    return start, end
+
+
+def _month_workdays(day: date) -> int:
+    start, end = _month_bounds(day)
+    return int(workdays_between(start, end))
+
+
+def _monthly_target_to_daily_hours(*, monthly_target_hours: float, reference_day: date) -> float:
+    """
+    Öffentlicher Helper für Tests/Validierung:
+    Tagesziel = Monats-Soll / tatsächliche Arbeitstage im Referenzmonat.
+    """
+    workdays = _month_workdays(reference_day)
+    if workdays <= 0:
+        return 0.0
+    return round(_to_float(monthly_target_hours, 0.0) / float(workdays), 4)
+
+
+def _load_default_monthly_target_hours(supabase, mitarbeiter_id: int, fallback: float) -> float:
+    try:
+        res = (
+            supabase.table("mitarbeiter")
+            .select("monatliche_soll_stunden")
+            .eq("id", mitarbeiter_id)
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if rows:
+            db_val = _to_float((rows[0] or {}).get("monatliche_soll_stunden"), 0.0)
+            if db_val > 0:
+                return db_val
+    except Exception:
+        pass
+    return _to_float(fallback, 0.0)
+
+
+def _load_contract_rows(supabase, mitarbeiter_id: int) -> list[dict]:
+    try:
+        res = (
+            supabase.table("vertraege")
+            .select("gueltig_ab,gueltig_bis,soll_stunden_monat,wochenstunden")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
+
+
+def _contract_active_on(contract: dict, day: date) -> bool:
+    try:
+        start = date.fromisoformat(str(contract.get("gueltig_ab")))
+    except Exception:
+        return False
+    end_raw = contract.get("gueltig_bis")
+    if not end_raw:
+        return day >= start
+    try:
+        end = date.fromisoformat(str(end_raw))
+    except Exception:
+        return day >= start
+    return start <= day <= end
+
+
+def _resolve_daily_target_for_date(day: date, fallback_monthly_target: float, contract_rows: list[dict]) -> float:
+    month_workdays = _month_workdays(day)
+    if month_workdays <= 0:
+        return 0.0
+
+    active_contracts = [c for c in (contract_rows or []) if _contract_active_on(c, day)]
+    active_contracts = sorted(active_contracts, key=lambda c: str(c.get("gueltig_ab") or ""), reverse=True)
+    active = active_contracts[0] if active_contracts else None
+
+    fallback_daily = _to_float(fallback_monthly_target) / float(month_workdays)
+    if not active:
+        return round(fallback_daily, 4)
+
+    soll_monat = _to_float(active.get("soll_stunden_monat"), 0.0)
+    if soll_monat > 0:
+        return round(soll_monat / float(month_workdays), 4)
+
+    wochenstunden = _to_float(active.get("wochenstunden"), 0.0)
+    if wochenstunden > 0:
+        # Betriebsmodell: 5 Arbeitstage (Mi-So).
+        return round(wochenstunden / 5.0, 4)
+
+    return round(fallback_daily, 4)
+
+
+def _calculate_daily_credit_map(
+    *,
+    start: date,
+    end: date,
+    paid: bool,
+    fallback_monthly_target: float,
+    contract_rows: list[dict],
+) -> Dict[str, float]:
+    daily: Dict[str, float] = {}
+    cur = start
+    while cur <= end:
+        if _is_workday(cur):
+            credit = 0.0
+            if paid:
+                credit = _resolve_daily_target_for_date(cur, fallback_monthly_target, contract_rows)
+            daily[cur.isoformat()] = round(float(credit), 2)
+        cur += timedelta(days=1)
+    return daily
+
+
 def calculate_absence_credit(
     typ: str,
     start: date,
@@ -34,9 +159,17 @@ def calculate_absence_credit(
     monthly_target_hours: float,
     paid: bool = True,
 ) -> AbsenceResult:
-    days = workdays_between(start, end)
-    day_target = (float(monthly_target_hours or 0.0) / 21.65) if monthly_target_hours else 0.0
-    hours = round(days * day_target, 2) if paid else 0.0
+    # Fallback-Berechnung ohne Vertragskontext:
+    # Tagessoll wird monatsgenau aus Sollstunden / tatsächlichen Arbeitstagen ermittelt.
+    daily_map = _calculate_daily_credit_map(
+        start=start,
+        end=end,
+        paid=paid,
+        fallback_monthly_target=_to_float(monthly_target_hours, 0.0),
+        contract_rows=[],
+    )
+    days = float(len(daily_map))
+    hours = round(sum(daily_map.values()), 2)
     return AbsenceResult(days=days, credited_hours=hours, typ=typ)
 
 
@@ -82,15 +215,18 @@ def _mirror_absence_into_legacy(
     end: date,
     paid: bool,
     credited_hours: float,
+    daily_credit_map: Dict[str, float] | None = None,
 ) -> None:
     cur = start
     days = workdays_between(start, end)
-    per_day_credit = round(credited_hours / days, 2) if days else 0.0
+    per_day_credit_default = round(credited_hours / days, 2) if days else 0.0
     while cur <= end:
         if _is_workday(cur):
+            iso = cur.isoformat()
+            per_day_credit = float((daily_credit_map or {}).get(iso, per_day_credit_default))
             legacy_row = {
                 "mitarbeiter_id": mitarbeiter_id,
-                "datum": cur.isoformat(),
+                "datum": iso,
                 "start_zeit": "00:00:00",
                 "ende_zeit": "00:00:00",
                 "abwesenheitstyp": typ,
@@ -206,12 +342,19 @@ def store_absence(
 ) -> Dict[str, float | str]:
     normalized_typ = _normalize_absence_type(typ)
     paid = normalized_typ in ("urlaub", "krankheit", "sonderurlaub")
-    result = calculate_absence_credit(
-        typ=normalized_typ,
+    fallback_monthly_target = _load_default_monthly_target_hours(supabase, mitarbeiter_id, monthly_target_hours)
+    contract_rows = _load_contract_rows(supabase, mitarbeiter_id)
+    daily_credit_map = _calculate_daily_credit_map(
         start=start,
         end=end,
-        monthly_target_hours=monthly_target_hours,
         paid=paid,
+        fallback_monthly_target=fallback_monthly_target,
+        contract_rows=contract_rows,
+    )
+    result = AbsenceResult(
+        days=float(len(daily_credit_map)),
+        credited_hours=round(sum(daily_credit_map.values()), 2),
+        typ=normalized_typ,
     )
 
     payload = {
@@ -237,6 +380,7 @@ def store_absence(
         end=end,
         paid=paid,
         credited_hours=result.credited_hours,
+        daily_credit_map=daily_credit_map,
     )
 
     return {
@@ -269,12 +413,19 @@ def update_absence(
 
     normalized_typ = _normalize_absence_type(typ)
     paid = normalized_typ in ("urlaub", "krankheit", "sonderurlaub")
-    result = calculate_absence_credit(
-        typ=normalized_typ,
+    fallback_monthly_target = _load_default_monthly_target_hours(supabase, int(current.get("mitarbeiter_id")), monthly_target_hours)
+    contract_rows = _load_contract_rows(supabase, int(current.get("mitarbeiter_id")))
+    daily_credit_map = _calculate_daily_credit_map(
         start=start,
         end=end,
-        monthly_target_hours=monthly_target_hours,
         paid=paid,
+        fallback_monthly_target=fallback_monthly_target,
+        contract_rows=contract_rows,
+    )
+    result = AbsenceResult(
+        days=float(len(daily_credit_map)),
+        credited_hours=round(sum(daily_credit_map.values()), 2),
+        typ=normalized_typ,
     )
 
     old_start = _parse_iso_date(current.get("start_datum") or current.get("datum")) or start
@@ -325,6 +476,7 @@ def update_absence(
         end=end,
         paid=paid,
         credited_hours=result.credited_hours,
+        daily_credit_map=daily_credit_map,
     )
 
     updated = _load_absence_by_id(supabase, absence_id)
