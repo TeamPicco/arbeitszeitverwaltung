@@ -130,6 +130,13 @@ def _to_float(value, default: float = 0.0) -> float:
         return default
 
 
+def _to_int(value, default: int = 0) -> int:
+    try:
+        return int(round(float(value if value is not None else default)))
+    except Exception:
+        return int(default)
+
+
 def _upload_status_key(mitarbeiter_id: int) -> str:
     return f"personalakte_upload_status_{int(mitarbeiter_id)}"
 
@@ -704,7 +711,7 @@ def _show_mitarbeiter_stammdaten_tab():
                         "geburtsdatum": new_geburtsdatum.isoformat(),
                         "monatliche_soll_stunden": float(new_soll),
                         "monatliche_brutto_verguetung": float(new_monatsbrutto),
-                        "jahres_urlaubstage": float(new_urlaub),
+                        "jahres_urlaubstage": _to_int(new_urlaub, 28),
                         "resturlaub_vorjahr": float(new_resturlaub),
                         "sonntagszuschlag_aktiv": False,
                         "feiertagszuschlag_aktiv": False,
@@ -807,7 +814,8 @@ def _show_mitarbeiter_stammdaten_tab():
                 "Urlaubstage/Jahr",
                 min_value=0.0,
                 value=_to_float(ma.get("jahres_urlaubstage")),
-                step=0.5,
+                step=1.0,
+                format="%.0f",
             )
 
         z1, z2, z3, z4 = st.columns(4)
@@ -853,7 +861,7 @@ def _show_mitarbeiter_stammdaten_tab():
                 "austrittsdatum": austrittsdatum.isoformat() if hat_austritt else None,
                 "monatliche_soll_stunden": float(monatliche_soll_stunden),
                 "monatliche_brutto_verguetung": float(monatliche_brutto_verguetung),
-                "jahres_urlaubstage": float(jahres_urlaubstage),
+                "jahres_urlaubstage": _to_int(jahres_urlaubstage, _to_int(ma.get("jahres_urlaubstage"), 28)),
                 "resturlaub_vorjahr": float(resturlaub_vorjahr),
                 "sonntagszuschlag_aktiv": bool(sonntagszuschlag_aktiv),
                 "feiertagszuschlag_aktiv": bool(feiertagszuschlag_aktiv),
