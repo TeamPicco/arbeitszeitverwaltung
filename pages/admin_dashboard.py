@@ -128,6 +128,62 @@ def _to_float(value, default: float = 0.0) -> float:
         return default
 
 
+def _upload_status_key(mitarbeiter_id: int) -> str:
+    return f"personalakte_upload_status_{int(mitarbeiter_id)}"
+
+
+def _set_upload_status(
+    mitarbeiter_id: int,
+    *,
+    level: str,
+    message: str,
+    details: str = "",
+) -> None:
+    st.session_state[_upload_status_key(mitarbeiter_id)] = {
+        "level": str(level or "info"),
+        "message": str(message or ""),
+        "details": str(details or ""),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _clear_upload_status(mitarbeiter_id: int) -> None:
+    st.session_state.pop(_upload_status_key(mitarbeiter_id), None)
+
+
+def _render_upload_status(mitarbeiter_id: int) -> None:
+    status = st.session_state.get(_upload_status_key(mitarbeiter_id))
+    if not status:
+        return
+    level = str(status.get("level") or "info").lower()
+    message = str(status.get("message") or "")
+    details = str(status.get("details") or "")
+    ts = str(status.get("ts") or "")
+
+    if level == "error":
+        st.error(message or "Letzter Upload fehlgeschlagen.")
+    elif level == "warning":
+        st.warning(message or "Letzter Upload mit Hinweisen.")
+    elif level == "success":
+        st.success(message or "Letzter Upload erfolgreich.")
+    else:
+        st.info(message or "Letzte Upload-Meldung.")
+
+    if ts:
+        st.caption(f"Zeitpunkt: {ts}")
+    if details:
+        st.caption("Fehler-/Statusdetails (kopierbar):")
+        st.code(details, language="text")
+
+    if st.button(
+        "Upload-Meldung ausblenden",
+        key=f"clear_upload_status_{int(mitarbeiter_id)}",
+        use_container_width=True,
+    ):
+        _clear_upload_status(mitarbeiter_id)
+        st.rerun()
+
+
 def _show_zeitauswertung_tab():
     from pages import zeitauswertung
 
@@ -545,6 +601,7 @@ def _show_mitarbeiter_stammdaten_tab():
         key="stammdaten_ma",
     )
     ma = ma_options[selected_label]
+    _render_upload_status(int(ma["id"]))
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Personalnummer", ma.get("personalnummer") or "-")
@@ -739,7 +796,13 @@ def _show_mitarbeiter_stammdaten_tab():
             save_upload = st.form_submit_button("Dokument hochladen", type="primary", use_container_width=True)
 
             if save_upload:
+                _clear_upload_status(int(ma["id"]))
                 if upload is None:
+                    _set_upload_status(
+                        int(ma["id"]),
+                        level="error",
+                        message="Bitte zuerst eine Datei auswählen.",
+                    )
                     st.error("Bitte zuerst eine Datei auswählen.")
                 else:
                     file_bytes = upload.read()
@@ -753,6 +816,18 @@ def _show_mitarbeiter_stammdaten_tab():
                         fallback_buckets=["arbeitsvertraege"],
                     )
                     if not upload_result.get("ok"):
+                        details = (
+                            f"bucket=dokumente|arbeitsvertraege\n"
+                            f"path={file_path}\n"
+                            f"status_code={upload_result.get('status_code') or '-'}\n"
+                            f"error={upload_result.get('error') or 'unbekannt'}"
+                        )
+                        _set_upload_status(
+                            int(ma["id"]),
+                            level="error",
+                            message="Upload in Supabase Storage fehlgeschlagen.",
+                            details=details,
+                        )
                         st.error(
                             "Upload in Supabase Storage fehlgeschlagen. "
                             f"Details: {upload_result.get('status_code') or '-'} "
@@ -761,6 +836,8 @@ def _show_mitarbeiter_stammdaten_tab():
                     else:
                         used_bucket = upload_result.get("bucket") or "dokumente"
                         file_url = _storage_public_url(used_bucket, file_path)
+                        metadata_saved = True
+                        warning_details: list[str] = []
                         try:
                             supabase.table("mitarbeiter_dokumente").insert(
                                 {
@@ -780,9 +857,28 @@ def _show_mitarbeiter_stammdaten_tab():
                                 }
                             ).execute()
                         except Exception as e:
-                            st.warning(f"Dokument-Metadaten konnten nicht gespeichert werden: {e}")
+                            metadata_saved = False
+                            details = (
+                                f"bucket={used_bucket}\n"
+                                f"path={file_path}\n"
+                                f"file_name={safe_name}\n"
+                                f"metadata_error={str(e)}"
+                            )
+                            _set_upload_status(
+                                int(ma["id"]),
+                                level="error",
+                                message=(
+                                    "Datei wurde in Storage geladen, aber Dokument-Metadaten "
+                                    "konnten nicht gespeichert werden."
+                                ),
+                                details=details,
+                            )
+                            st.error(
+                                "Datei wurde hochgeladen, aber die Zuordnung zur Personalakte "
+                                "ist fehlgeschlagen. Details stehen oben dauerhaft."
+                            )
 
-                        if dokument_typ == "arbeitsvertrag":
+                        if metadata_saved and dokument_typ == "arbeitsvertrag":
                             try:
                                 payload_vertrag = {
                                     "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
@@ -797,6 +893,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                 }
                                 supabase.table("vertraege").insert(payload_vertrag).execute()
                             except Exception as e:
+                                warning_details.append(f"vertraege_insert_error={str(e)}")
                                 st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
 
                             # Legacy-Fallback-Felder
@@ -809,9 +906,30 @@ def _show_mitarbeiter_stammdaten_tab():
                             except Exception:
                                 pass
 
-                        _refresh_after_write()
-                        st.success("Dokument erfolgreich hochgeladen.")
-                        st.rerun()
+                        if metadata_saved:
+                            if warning_details:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="warning",
+                                    message=(
+                                        "Dokument hochgeladen, aber Vertrags-Metadaten konnten "
+                                        "nicht vollständig gespeichert werden."
+                                    ),
+                                    details=(
+                                        f"bucket={used_bucket}\npath={file_path}\n"
+                                        + "\n".join(warning_details)
+                                    ),
+                                )
+                            else:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="success",
+                                    message="Dokument erfolgreich hochgeladen.",
+                                    details=f"bucket={used_bucket}\npath={file_path}\nfile_name={safe_name}",
+                                )
+                            _refresh_after_write()
+                            st.success("Dokument erfolgreich hochgeladen.")
+                            st.rerun()
 
     st.markdown("#### Hinterlegte Verträge")
     try:
