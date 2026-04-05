@@ -12,8 +12,6 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from fpdf import FPDF
-
 from utils.branding import BRAND_LOGO_IMAGE
 
 
@@ -226,6 +224,9 @@ def _add_header(pdf: FPDF, payload: dict[str, Any]) -> None:
 
 
 def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
+    # Lazy-Import: fpdf2 wird erst bei tatsächlicher PDF-Erzeugung geladen.
+    from fpdf import FPDF
+
     payload = _to_payload(data)
 
     title = _safe(payload.get("contract_title")) or "Änderungsvertrag"

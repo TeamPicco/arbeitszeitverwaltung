@@ -792,7 +792,7 @@ def berechne_monat(
     }
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def berechne_monat_cached(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],

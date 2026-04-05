@@ -4,7 +4,6 @@ from datetime import date, datetime
 import streamlit as st
 from streamlit_option_menu import option_menu
 
-from pages import admin_dienstplan, zeitauswertung, vertraege
 from utils.absences import delete_absence, store_absence, update_absence
 from utils.cache_manager import clear_app_caches
 from utils.database import (
@@ -75,6 +74,8 @@ def _to_float(value, default: float = 0.0) -> float:
 
 
 def _show_zeitauswertung_tab():
+    from pages import zeitauswertung
+
     st.subheader("Zeitauswertung und Lohn")
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
@@ -890,6 +891,8 @@ def _show_mitarbeiter_stammdaten_tab():
 
 
 def _show_vertrag_generator_tab():
+    from pages import vertraege
+
     vertraege.show_vertraege_page()
 
 
@@ -1289,6 +1292,8 @@ def show_admin_dashboard():
 
     st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
     if selected == "Dienstplanung":
+        from pages import admin_dienstplan
+
         admin_dienstplan.show_dienstplanung()
     elif selected == "Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()

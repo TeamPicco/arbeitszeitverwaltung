@@ -117,11 +117,73 @@ def _cached_genehmigte_urlaube(betrieb_id: int, start_iso: str, end_iso: str) ->
     return resp.data or []
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_monthly_employee_summaries(
+    year: int,
+    month: int,
+    mitarbeiter_ids: tuple[int, ...],
+    dienstplaene_rows: tuple[tuple, ...],
+    urlaub_rows: tuple[tuple, ...],
+) -> dict[int, dict[str, int]]:
+    """
+    Gecachte Monatszusammenfassung pro Mitarbeiter für Expander-Labels.
+    Verhindert erneute Summenberechnung bei UI-Interaktionen ohne Datenänderung.
+    """
+    entries_by_ma: dict[int, list[dict]] = {}
+    for row in dienstplaene_rows:
+        if len(row) < 4:
+            continue
+        ma_id = int(row[0])
+        entry = {"mitarbeiter_id": ma_id, "datum": row[1], "schichttyp": row[2]}
+        entries_by_ma.setdefault(ma_id, []).append(entry)
+
+    urlaub_dates_by_ma: dict[int, set[str]] = {ma_id: set() for ma_id in mitarbeiter_ids}
+    month_start = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+    for row in urlaub_rows:
+        if len(row) < 3:
+            continue
+        ma_id = int(row[0])
+        try:
+            von = date.fromisoformat(str(row[1])[:10])
+            bis = date.fromisoformat(str(row[2])[:10])
+        except Exception:
+            continue
+        aktuell = von
+        while aktuell <= bis:
+            # Ruhetage (Mo/Di) nicht als Urlaubsverbrauch zählen.
+            if month_start <= aktuell <= month_end and aktuell.weekday() not in (0, 1):
+                urlaub_dates_by_ma.setdefault(ma_id, set()).add(aktuell.isoformat())
+            aktuell += timedelta(days=1)
+
+    result: dict[int, dict[str, int]] = {}
+    for ma_id in mitarbeiter_ids:
+        entries = entries_by_ma.get(ma_id, [])
+        genehmigt = urlaub_dates_by_ma.get(ma_id, set())
+        summary = summarize_employee_month(
+            year=year,
+            month=month,
+            entries=entries,
+            extra_urlaub_dates=genehmigt,
+        )
+        bereits_im_plan = len({e["datum"] for e in entries if e.get("schichttyp") == "urlaub"})
+        nicht_eingetragen = max(0, len(genehmigt) - bereits_im_plan)
+        result[ma_id] = {
+            "geplant": int(summary.geplant),
+            "urlaub": int(summary.urlaub),
+            "frei": int(summary.frei),
+            "krank": int(summary.krank),
+            "urlaub_offen": int(nicht_eingetragen),
+        }
+    return result
+
+
 def _clear_dienstplan_cache():
     _cached_mitarbeiter.clear()
     _cached_schichtvorlagen.clear()
     _cached_monatsdienste.clear()
     _cached_genehmigte_urlaube.clear()
+    _cached_monthly_employee_summaries.clear()
 
 
 def _refresh_after_write() -> None:
@@ -874,37 +936,52 @@ def show_monatsplan(supabase):
     st.markdown("---")
     st.markdown(f"### {MONATE_DE[monat]} {jahr}")
 
+    dienstplaene_for_summary = tuple(
+        (
+            int(d.get("mitarbeiter_id") or 0),
+            str(d.get("datum") or ""),
+            str(d.get("schichttyp") or "arbeit"),
+            int(d.get("id") or 0),
+        )
+        for d in (dienstplaene_rows or [])
+    )
+    urlaube_for_summary = tuple(
+        (
+            int(u.get("mitarbeiter_id") or 0),
+            str(u.get("von_datum") or ""),
+            str(u.get("bis_datum") or ""),
+        )
+        for u in (urlaub_rows or [])
+    )
+    summary_by_ma = _cached_monthly_employee_summaries(
+        year=jahr,
+        month=monat,
+        mitarbeiter_ids=tuple(int(m["id"]) for m in mitarbeiter_liste),
+        dienstplaene_rows=dienstplaene_for_summary,
+        urlaub_rows=urlaube_for_summary,
+    )
+
     # ── MITARBEITER-ÜBERSICHT ─────────────────────────────────
     for mitarbeiter in mitarbeiter_liste:
-        # Zähle Typen (einheitliche Monatslogik, inkl. Ruhetage als Frei ohne Eintrag)
+        # Detaildaten für die Tagesanzeige/PDF
         ma_dienste_flat = []
         for key, eintraege in dienste_map.items():
             if key[0] == mitarbeiter['id']:
                 ma_dienste_flat.extend(eintraege)
         ma_dienste = ma_dienste_flat
-        genehmigt_urlaub_dates = {
-            datum_iso
-            for (ma_id, datum_iso), _ in urlaub_map.items()
-            if ma_id == mitarbeiter['id']
-        }
-        counts = summarize_employee_month(
-            year=jahr,
-            month=monat,
-            entries=ma_dienste,
-            extra_urlaub_dates=genehmigt_urlaub_dates,
-        )
-
-        # Ausstehende Urlaube für diesen MA im Monat
-        ausstehend = len(genehmigt_urlaub_dates)
-        bereits_im_plan = len(set(d['datum'] for d in ma_dienste if d.get('schichttyp') == 'urlaub'))
-        nicht_eingetragen = max(0, ausstehend - bereits_im_plan)
+        summary_row = summary_by_ma.get(int(mitarbeiter["id"]), {})
+        geplant = int(summary_row.get("geplant", 0))
+        urlaub = int(summary_row.get("urlaub", 0))
+        frei = int(summary_row.get("frei", 0))
+        krank = int(summary_row.get("krank", 0))
+        nicht_eingetragen = int(summary_row.get("urlaub_offen", 0))
 
         summary_line = (
             f"{mitarbeiter['vorname']} {mitarbeiter['nachname']}: "
-            f"{counts.geplant} Geplant | "
-            f"{counts.urlaub} Urlaub | "
-            f"{counts.frei} Frei | "
-            f"{counts.krank} Krank"
+            f"{geplant} Geplant | "
+            f"{urlaub} Urlaub | "
+            f"{frei} Frei | "
+            f"{krank} Krank"
         )
         if nicht_eingetragen > 0:
             summary_line += f" | {nicht_eingetragen} Urlaub Offen"

@@ -219,9 +219,15 @@ def _render_form(prefill: ContractData) -> ContractData:
 
 def _try_embed_pdf(pdf_bytes: bytes) -> None:
     try:
-        st.components.v1.html(preview_pdf_html(pdf_bytes), height=980, scrolling=True)
+        st.components.v1.html(_cached_preview_html(pdf_bytes), height=980, scrolling=True)
     except Exception:
         st.info("PDF-Vorschau konnte nicht eingebettet werden. Bitte Download verwenden.")
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_preview_html(pdf_bytes: bytes) -> str:
+    # Base64-Encoding ist bei großen PDFs teuer – deshalb gecacht.
+    return preview_pdf_html(pdf_bytes)
 
 
 def show_vertraege_page() -> None:
@@ -248,6 +254,7 @@ def show_vertraege_page() -> None:
         try:
             pdf_bytes = generate_contract_pdf(contract_data)
             st.session_state["v4_contract_pdf"] = pdf_bytes
+            st.session_state["v4_contract_preview_enabled"] = False
             st.success("Vertrag-PDF wurde erzeugt.")
         except Exception as exc:
             st.error(f"PDF-Erzeugung fehlgeschlagen: {exc}")
@@ -256,7 +263,14 @@ def show_vertraege_page() -> None:
     pdf_bytes = st.session_state.get("v4_contract_pdf")
     if pdf_bytes:
         st.markdown("### PDF-Vorschau")
-        _try_embed_pdf(pdf_bytes)
+        preview_enabled = bool(st.session_state.get("v4_contract_preview_enabled", False))
+        if not preview_enabled:
+            st.info("Vorschau wird erst bei Bedarf geladen (Lazy Loading).")
+            if st.button("Vorschau laden", use_container_width=True, key="v4_contract_pdf_preview_load"):
+                st.session_state["v4_contract_preview_enabled"] = True
+                st.rerun()
+        else:
+            _try_embed_pdf(pdf_bytes)
         st.download_button(
             label="Vertrag herunterladen",
             data=pdf_bytes,
