@@ -304,25 +304,25 @@ else:
     st.markdown(
         """
         <style>
-        .st-key-logout_fixed {
+        .st-key-logout_fixed_wrap {
             position: fixed;
             top: 0.85rem;
             right: 1rem;
-            z-index: 1000;
+            z-index: 2000;
             width: 150px;
         }
-        .st-key-logout_fixed button {
+        .st-key-logout_fixed_wrap button {
             width: 100% !important;
             border-radius: 10px !important;
             font-weight: 600 !important;
         }
         @media (max-width: 768px) {
-            .st-key-logout_fixed {
+            .st-key-logout_fixed_wrap {
                 top: 0.6rem;
                 right: 0.6rem;
                 width: 132px;
             }
-            .st-key-logout_fixed button {
+            .st-key-logout_fixed_wrap button {
                 min-height: 38px !important;
                 font-size: 0.9rem !important;
             }
@@ -331,8 +331,9 @@ else:
         """,
         unsafe_allow_html=True,
     )
-    if st.button("Abmelden", key="logout_fixed"):
-        st.session_state.clear()
-        st.rerun()
+    with st.container(key="logout_fixed_wrap"):
+        if st.button("Abmelden", key="logout_fixed_btn", use_container_width=True):
+            st.session_state.clear()
+            st.rerun()
     from pages import admin_dashboard
     admin_dashboard.show_admin_dashboard()
