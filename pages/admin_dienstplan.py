@@ -1214,16 +1214,7 @@ def show_monatsuebersicht_tabelle(supabase):
     urlaub_map = _build_urlaub_map_from_rows(urlaub_rows, erster_tag, letzter_tag)
 
     vorlagen_arbeit = [v for v in vorlagen_dict.values() if not v.get("ist_urlaub")]
-    if vorlagen_arbeit:
-        vorlage_quickpick = st.selectbox(
-            "1-Klick-Vorlage für Monatsübersicht",
-            options=[None] + [v["id"] for v in vorlagen_arbeit],
-            format_func=lambda x: "Keine" if x is None else next((v["name"] for v in vorlagen_arbeit if v["id"] == x), ""),
-            help="Wenn gewählt, setzt ein Klick auf eine Tageszelle direkt diese Schichtvorlage.",
-            key="tabelle_quickpick_vorlage",
-        )
-    else:
-        vorlage_quickpick = None
+    if not vorlagen_arbeit:
         st.caption("Keine Arbeits-Schichtvorlagen vorhanden.")
 
     _render_download_center(mitarbeiter_liste, dienste_map, jahr, monat, key_prefix="tabelle")
@@ -1308,74 +1299,34 @@ def show_monatsuebersicht_tabelle(supabase):
             row_idx, col_name = selected_cells[0]
             row_idx = int(row_idx)
             if col_name in day_by_col and 0 <= row_idx < len(mitarbeiter_liste):
-                ma_clicked = mitarbeiter_liste[row_idx]
-                d_clicked = day_by_col[col_name]
-                st.session_state["tabelle_cell_editor"] = {
-                    "ma_id": int(ma_clicked["id"]),
-                    "datum": d_clicked.isoformat(),
-                    "jahr": int(jahr),
-                    "monat": int(monat),
-                }
-                # Auswahl zurücksetzen, damit derselbe Klick später erneut möglich ist.
+                selection_token = f"{jahr}:{monat}:{row_idx}:{col_name}"
+                if st.session_state.get("dp_last_selected_cell") == selection_token:
+                    pass
+                else:
+                    st.session_state["dp_last_selected_cell"] = selection_token
+                    ma_clicked = mitarbeiter_liste[row_idx]
+                    d_clicked = day_by_col[col_name]
+                    st.session_state["tabelle_cell_editor"] = {
+                        "ma_id": int(ma_clicked["id"]),
+                        "datum": d_clicked.isoformat(),
+                        "jahr": int(jahr),
+                        "monat": int(monat),
+                    }
+                # Auswahl bestmöglich zurücksetzen, damit der nächste Klick sauber verarbeitet wird.
                 try:
-                    st.session_state[matrix_key] = {"selection": {"rows": [], "columns": [], "cells": []}}
+                    st.session_state[matrix_key] = {
+                        "selection": {
+                            "rows": [],
+                            "columns": [],
+                            "cells": [],
+                        }
+                    }
                 except Exception:
                     pass
-                st.rerun()
         except Exception:
             pass
 
-    st.markdown("### Dienst im Feld bearbeiten")
-    b1, b2, b3 = st.columns([2, 2, 1.4], gap="small")
-    with b1:
-        selected_ma_id = st.selectbox(
-            "Mitarbeiter",
-            options=[m["id"] for m in mitarbeiter_liste],
-            format_func=lambda x: next((f"{m['vorname']} {m['nachname']}" for m in mitarbeiter_liste if m["id"] == x), ""),
-            key=f"table_edit_ma_{jahr}_{monat}",
-        )
-    with b2:
-        selected_day = st.date_input(
-            "Datum",
-            value=erster_tag,
-            min_value=erster_tag,
-            max_value=letzter_tag,
-            format="DD.MM.YYYY",
-            key=f"table_edit_day_{jahr}_{monat}",
-        )
-    with b3:
-        open_editor = st.button("Bearbeiten öffnen", use_container_width=True, key=f"table_edit_open_{jahr}_{monat}")
-
-    if open_editor:
-        if vorlage_quickpick is not None:
-            quick_vorlage = vorlagen_dict.get(vorlage_quickpick)
-            ma_sel = next((m for m in mitarbeiter_liste if m["id"] == selected_ma_id), None)
-            if quick_vorlage and ma_sel:
-                try:
-                    _apply_schichtvorlage_one_click(
-                        supabase=supabase,
-                        planning_table=planning_table,
-                        betrieb_id=st.session_state.betrieb_id,
-                        mitarbeiter=ma_sel,
-                        datum_iso=selected_day.isoformat(),
-                        vorlage=quick_vorlage,
-                    )
-                    _refresh_after_write()
-                    st.success(
-                        f"{quick_vorlage['name']} gesetzt: {ma_sel['vorname']} {ma_sel['nachname']} · {selected_day.strftime('%d.%m.%Y')}"
-                    )
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Vorlage konnte nicht gesetzt werden: {str(e)}")
-                    st.stop()
-
-        st.session_state["tabelle_cell_editor"] = {
-            "ma_id": int(selected_ma_id),
-            "datum": selected_day.isoformat(),
-            "jahr": jahr,
-            "monat": monat,
-        }
-        st.rerun()
+    st.caption("Direktbearbeitung: Einfach auf eine Tageszelle klicken, der Editor öffnet direkt im selben Fenster.")
 
     active_editor = st.session_state.get("tabelle_cell_editor")
     if active_editor and (
