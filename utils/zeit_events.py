@@ -164,6 +164,74 @@ def _last_shift_end(events: List[Dict[str, Any]]) -> Optional[datetime]:
     return None
 
 
+def _max_open_shift_age_hours() -> int:
+    # Harte Sicherung gegen Phantom-Status "eingestempelt seit gestern".
+    return 14
+
+
+def _close_stale_open_shift(
+    client,
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: Optional[int],
+    now_ts: datetime,
+    source: str,
+) -> None:
+    """
+    Schließt eine veraltete offene Schicht (ohne CLOCK_OUT) automatisch.
+    Endzeit = Start + MAX_OPEN_SHIFT_AGE, um Dauerläufer zu verhindern.
+    """
+    try:
+        cutoff = now_ts - timedelta(hours=_max_open_shift_age_hours())
+        # Letztes CLOCK_IN suchen.
+        in_res = (
+            client.table("zeit_eintraege")
+            .select("id, aktion, zeitpunkt_utc, betrieb_id, quelle, geraet_id, created_by")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("aktion", EVENT_CLOCK_IN)
+            .lte("zeitpunkt_utc", cutoff.isoformat())
+            .order("zeitpunkt_utc", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not (in_res.data or []):
+            return
+        last_in = in_res.data[0]
+        in_ts = datetime.fromisoformat(str(last_in["zeitpunkt_utc"]).replace("Z", "+00:00"))
+        if in_ts.tzinfo is None:
+            in_ts = in_ts.replace(tzinfo=timezone.utc)
+
+        # Gibt es nach diesem IN schon ein OUT? Dann nichts tun.
+        out_res = (
+            client.table("zeit_eintraege")
+            .select("id")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("aktion", EVENT_CLOCK_OUT)
+            .gte("zeitpunkt_utc", in_ts.isoformat())
+            .order("zeitpunkt_utc")
+            .limit(1)
+            .execute()
+        )
+        if out_res.data:
+            return
+
+        forced_out = in_ts + timedelta(hours=_max_open_shift_age_hours())
+        insert_payload = {
+            "betrieb_id": int(last_in.get("betrieb_id") or betrieb_id or 0) or None,
+            "mitarbeiter_id": mitarbeiter_id,
+            "aktion": EVENT_CLOCK_OUT,
+            "zeitpunkt_utc": forced_out.isoformat(),
+            "quelle": source,
+            "geraet_id": last_in.get("geraet_id"),
+            "created_by": last_in.get("created_by"),
+            "notiz": "Auto-Close: offene Schicht > 14h wurde systemseitig beendet",
+        }
+        _insert_event_with_rls_fallback(client, insert_payload)
+    except Exception:
+        # Kein Hard-Fail im Stempelworkflow.
+        return
+
+
 def validate_event_transition(events: List[Dict[str, Any]], action: str) -> Tuple[bool, str]:
     open_shift = _last_open_shift(events)
 
@@ -213,8 +281,17 @@ def get_event_state_for_day(
     end_local = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=tz_berlin)
     start = to_utc(start_local).isoformat()
     end = to_utc(end_local).isoformat()
+    read_client = _service_role_client_or_none() or supabase
+    _close_stale_open_shift(
+        read_client,
+        mitarbeiter_id=mitarbeiter_id,
+        betrieb_id=None,
+        now_ts=now_utc(),
+        source="system_auto_close",
+    )
+
     ev_res = (
-        supabase.table("zeit_eintraege")
+        read_client.table("zeit_eintraege")
         .select("aktion, zeitpunkt_utc")
         .eq("mitarbeiter_id", mitarbeiter_id)
         .gte("zeitpunkt_utc", start)
@@ -293,6 +370,14 @@ def register_time_event(
     # Historie laden (letzte 7 Tage reichen für Restzeitchecks).
     since = (event_time - timedelta(days=7)).isoformat()
     read_client = service_client or supabase
+    # Vor dem Übergangscheck veraltete offene Schichten automatisch schließen.
+    _close_stale_open_shift(
+        read_client,
+        mitarbeiter_id=mitarbeiter_id,
+        betrieb_id=betrieb_id,
+        now_ts=event_time,
+        source=source,
+    )
     try:
         ev_res = (
             read_client.table("zeit_eintraege")

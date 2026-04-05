@@ -589,6 +589,9 @@ def berechne_eintrag(
             # Falls eine Legacy-Instanz inkonsistente Zeitwerte enthält, nicht hard-failen.
             start_zeit_fuer_berechnung = start_zeit
 
+    # Für UI/Reports transparent machen, welche Startzeit tatsächlich berechnet wurde.
+    capped_start_time = start_zeit_fuer_berechnung
+
     # Sicherheitsgrenze: Arbeitszeit über 14h nur bei expliziter Admin-Freigabe zulassen.
     # So verhindern wir Phantom-Schichten durch fehlendes Ausstempeln.
     try:
@@ -657,6 +660,7 @@ def berechne_eintrag(
     return {
         "id": eintrag.get("id"),
         "datum": datum,
+        "berechneter_start_zeit": capped_start_time,
         "netto_stunden": round(netto_h, 4),
         "pause_minuten": verwendete_pause,
         "grundlohn": round(grundlohn, 2),

@@ -72,30 +72,80 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
 def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
     """Lädt pro Datum die früheste geplante Startzeit (für Kappungslogik)."""
     supabase = get_supabase_client()
-    planning_table = resolve_planning_table(supabase)
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    r = (
-        supabase.table(planning_table)
-        .select("datum,schichttyp,start_zeit")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .gte("datum", erster)
-        .lte("datum", letzter)
-        .order("datum")
-        .order("start_zeit")
-        .execute()
-    )
     start_map: dict[str, str] = {}
-    for row in (r.data or []):
-        if str(row.get("schichttyp") or "arbeit") != "arbeit":
+    # Rückwärtskompatibel beide möglichen Tabellen lesen.
+    # So greift die Kappung auch dann korrekt, wenn die Instanz noch Legacy-Daten nutzt.
+    for planning_table in ("dienstplaene", "dienstplan"):
+        try:
+            r = (
+                supabase.table(planning_table)
+                .select("datum,schichttyp,start_zeit")
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .gte("datum", erster)
+                .lte("datum", letzter)
+                .order("datum")
+                .order("start_zeit")
+                .execute()
+            )
+        except Exception:
             continue
-        d = str(row.get("datum") or "")
-        s = str(row.get("start_zeit") or "")
-        if not d or not s:
-            continue
-        if d not in start_map:
-            start_map[d] = s
+        for row in (r.data or []):
+            if str(row.get("schichttyp") or "arbeit") != "arbeit":
+                continue
+            d = str(row.get("datum") or "")
+            s = str(row.get("start_zeit") or "")
+            if not d or not s:
+                continue
+            if d not in start_map or s < start_map[d]:
+                start_map[d] = s
     return start_map
+
+
+def _cached_dienstplan_startzeiten_with_fallback(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
+    """
+    Lädt Kappungs-Startzeiten robust aus beiden Tabellenvarianten:
+    - bevorzugt neue Tabelle via resolve_planning_table
+    - fallback auf jeweils andere Variante, falls leer
+    """
+    supabase = get_supabase_client()
+    primary = resolve_planning_table(supabase)
+    fallback = "dienstplan" if primary == "dienstplaene" else "dienstplaene"
+    start_map = _cached_dienstplan_startzeiten(mitarbeiter_id, monat, jahr)
+    # Ergänzend immer auch die alternative Struktur lesen, damit tageweise Lücken
+    # (z. B. gemischte Legacy-Daten in dienstplan/dienstplaene) geschlossen werden.
+    try:
+        erster = date(jahr, monat, 1).isoformat()
+        letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
+        r = (
+            supabase.table(fallback)
+            .select("datum,schichttyp,start_zeit")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .gte("datum", erster)
+            .lte("datum", letzter)
+            .order("datum")
+            .order("start_zeit")
+            .execute()
+        )
+        fb_map: dict[str, str] = {}
+        for row in (r.data or []):
+            if str(row.get("schichttyp") or "arbeit") != "arbeit":
+                continue
+            d = str(row.get("datum") or "")
+            s = str(row.get("start_zeit") or "")
+            if not d or not s:
+                continue
+            if d not in fb_map or s < fb_map[d]:
+                fb_map[d] = s
+        # Merge: pro Tag immer die früheste Startzeit.
+        merged = dict(start_map or {})
+        for d, s in fb_map.items():
+            if d not in merged or s < merged[d]:
+                merged[d] = s
+        return merged
+    except Exception:
+        return start_map
 
 
 def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
@@ -710,7 +760,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Daten laden ──────────────────────────────────────────────────────────
     zeiterfassungen = _lade_zeiterfassungen(aktiver_ma['id'], monat, jahr)
-    dienstplan_start_map = _cached_dienstplan_startzeiten(aktiver_ma['id'], monat, jahr)
+    dienstplan_start_map = _cached_dienstplan_startzeiten_with_fallback(aktiver_ma['id'], monat, jahr)
 
     # ── Lohnberechnung mit neuem Modul ───────────────────────────────────────
     data_hash = _build_data_hash(zeiterfassungen, dienstplan_start_map)
@@ -802,7 +852,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                 start_str = "LFZ"
                 ende_str = "LFZ"
             else:
-                start_str = str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–"
+                calc_start = str(z.get("berechneter_start_zeit") or "")[:5] if z.get("berechneter_start_zeit") else ""
+                start_str = calc_start or (str(raw.get("start_zeit", "–"))[:5] if raw.get("start_zeit") else "–")
                 ende_str = str(raw.get("ende_zeit", ""))[:5] if raw.get("ende_zeit") else "Offen"
 
             # Typ
