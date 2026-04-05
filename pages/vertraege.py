@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 from datetime import date
 
 import streamlit as st
@@ -51,6 +52,33 @@ def _to_date(value: object, fallback: date | None = None) -> date:
     return fallback or date.today()
 
 
+def _plus_months(src: date, months: int) -> date:
+    month_idx = src.month - 1 + months
+    year = src.year + month_idx // 12
+    month = month_idx % 12 + 1
+    day = min(src.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _fmt_date_long_de(d: date) -> str:
+    months = [
+        "",
+        "Januar",
+        "Februar",
+        "März",
+        "April",
+        "Mai",
+        "Juni",
+        "Juli",
+        "August",
+        "September",
+        "Oktober",
+        "November",
+        "Dezember",
+    ]
+    return f"{d.day:02d}. {months[d.month]} {d.year}"
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _load_mitarbeiter_for_contracts(betrieb_id: int | None):
     supabase = get_supabase_client()
@@ -89,15 +117,18 @@ def _build_prefill(ma: dict) -> ContractData:
 
     today = date.today()
     start_date = _to_date(ma.get("eintrittsdatum"), fallback=today)
-    monthly_hours = _safe_float(ma.get("monatliche_soll_stunden"), 130.0)
+    monthly_hours = _safe_float(ma.get("monatliche_soll_stunden"), 160.0)
     monthly_gross = _safe_float(ma.get("monatliche_brutto_verguetung"), 0.0)
     if monthly_gross <= 0:
         monthly_gross = round(monthly_hours * 15.0, 2)
-    annual_vacation = _safe_float(ma.get("jahres_urlaubstage"), 20.0)
+    annual_vacation = _safe_float(ma.get("jahres_urlaubstage"), 28.0)
+    probe_start = start_date
+    probe_end = _plus_months(probe_start, 6) - date.resolution
+    reference_contract_date = date(2025, 10, 15)
 
     return ContractData(
         contract_title="Änderungsvertrag",
-        prior_contract_date_text="15. Oktober 2025",
+        prior_contract_date_text=_fmt_date_long_de(reference_contract_date),
         employer_name="Steakhouse Piccolo",
         employer_represented_by="Silvana Lasinski",
         employer_street="Gustav-Adolf-Straße 17",
@@ -108,9 +139,19 @@ def _build_prefill(ma: dict) -> ContractData:
         employee_city_line=city_line,
         employment_start_date=start_date,
         amendment_effective_date=start_date,
+        probe_start_date=probe_start,
+        probe_end_date=probe_end,
+        probe_notice_period_text="2 Wochen",
         monthly_target_hours=monthly_hours,
+        working_days_per_week_text="4-5",
+        fixed_rest_days_text="Montag, Dienstag",
+        duty_planning_lead_days=4,
+        activity_tasks=["Beikoch", "Küchenhilfe", "Reinigung", "Logistik"],
+        activity_free_text="",
         monthly_gross_salary=monthly_gross,
+        salary_payment_day=15,
         annual_vacation_days=annual_vacation,
+        account_settlement_deadline_text="31. März des Folgejahres",
         additional_agreements="",
         logo_path=_resolve_logo_path(),
     )
@@ -141,10 +182,11 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
     st.markdown("#### Vertragsdetails")
     d1, d2, d3 = st.columns(3, gap="large")
     with d1:
-        prior_contract_date_text = st.text_input(
+        prior_contract_date = st.date_input(
             "Datum ursprünglicher Arbeitsvertrag",
-            value=prefill.prior_contract_date_text,
-            key=f"{key_prefix}_prior_contract_date_text",
+            value=date(2025, 10, 15),
+            format="DD.MM.YYYY",
+            key=f"{key_prefix}_prior_contract_date",
             help="Default: 15. Oktober 2025",
         )
         amendment_effective_date = st.date_input(
@@ -157,7 +199,7 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
         monthly_target_hours = st.number_input(
             "Monatliche Sollarbeitszeit (h)",
             min_value=0.0,
-            value=float(prefill.monthly_target_hours),
+            value=float(prefill.monthly_target_hours or 160.0),
             step=0.5,
             format="%.2f",
             key=f"{key_prefix}_monthly_hours",
@@ -174,7 +216,7 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
         annual_vacation_days = st.number_input(
             "Urlaubsanspruch (Tage/Jahr)",
             min_value=0.0,
-            value=float(prefill.annual_vacation_days),
+            value=float(prefill.annual_vacation_days or 28.0),
             step=0.5,
             format="%.1f",
             key=f"{key_prefix}_vacation_days",
@@ -186,6 +228,98 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
             key=f"{key_prefix}_start_employment",
         )
 
+    st.markdown("#### Probezeit")
+    p1, p2, p3 = st.columns(3, gap="large")
+    with p1:
+        probe_start_date = st.date_input(
+            "Probezeit Start",
+            value=_to_date(prefill.probe_start_date, fallback=_to_date(prefill.employment_start_date)),
+            format="DD.MM.YYYY",
+            key=f"{key_prefix}_probe_start",
+        )
+    with p2:
+        probe_end_date = st.date_input(
+            "Probezeit Ende",
+            value=_to_date(prefill.probe_end_date, fallback=_plus_months(_to_date(prefill.employment_start_date), 6) - date.resolution),
+            format="DD.MM.YYYY",
+            key=f"{key_prefix}_probe_end",
+        )
+    with p3:
+        probe_notice_period_text = st.text_input(
+            "Kündigungsfrist Probezeit",
+            value=_safe_text(prefill.probe_notice_period_text) or "2 Wochen",
+            key=f"{key_prefix}_probe_notice",
+            help="Standard: 2 Wochen",
+        )
+    if probe_end_date < probe_start_date:
+        st.warning("Probezeit Ende liegt vor Probezeit Start. Ende wird auf Start gesetzt.")
+        probe_end_date = probe_start_date
+
+    st.markdown("#### Arbeitszeit & Dienstplanung")
+    a1, a2, a3 = st.columns(3, gap="large")
+    with a1:
+        working_days_per_week_text = st.text_input(
+            "Arbeitstage pro Woche",
+            value=_safe_text(prefill.working_days_per_week_text) or "4-5",
+            key=f"{key_prefix}_working_days_per_week",
+            help="z. B. 4-5",
+        )
+    with a2:
+        fixed_rest_days_text = st.text_input(
+            "Fixe Ruhetage",
+            value=_safe_text(prefill.fixed_rest_days_text) or "Montag, Dienstag",
+            key=f"{key_prefix}_fixed_rest_days",
+        )
+    with a3:
+        duty_planning_lead_days = st.number_input(
+            "Dienstplanung Vorlaufzeit (Tage)",
+            min_value=0,
+            max_value=31,
+            value=int(prefill.duty_planning_lead_days or 4),
+            step=1,
+            key=f"{key_prefix}_duty_planning_lead_days",
+        )
+
+    st.markdown("#### Tätigkeit")
+    activity_options = ["Beikoch", "Küchenhilfe", "Reinigung", "Logistik"]
+    prefill_tasks = [t for t in (prefill.activity_tasks or []) if t in activity_options]
+    if not prefill_tasks:
+        prefill_tasks = activity_options.copy()
+    activity_tasks = st.multiselect(
+        "Aufgaben (Mehrfachauswahl)",
+        options=activity_options,
+        default=prefill_tasks,
+        key=f"{key_prefix}_activity_tasks",
+    )
+    activity_free_text = st.text_area(
+        "Weitere Tätigkeiten (optional)",
+        value=_safe_text(prefill.activity_free_text),
+        key=f"{key_prefix}_activity_free_text",
+        height=70,
+        placeholder="Zusätzliche Aufgaben als Freitext ...",
+    )
+
+    st.markdown("#### Vergütung & Arbeitszeitkonto")
+    v1, v2, v3 = st.columns(3, gap="large")
+    with v1:
+        salary_payment_day = st.number_input(
+            "Auszahlungstag im Monat",
+            min_value=1,
+            max_value=31,
+            value=int(prefill.salary_payment_day or 15),
+            step=1,
+            key=f"{key_prefix}_salary_payment_day",
+        )
+    with v2:
+        account_settlement_deadline_text = st.text_input(
+            "Ausgleichsfrist Arbeitszeitkonto",
+            value=_safe_text(prefill.account_settlement_deadline_text) or "31. März des Folgejahres",
+            key=f"{key_prefix}_account_deadline",
+            help="Standard: 31. März des Folgejahres",
+        )
+    with v3:
+        st.caption("Arbeitgeberdaten sind fix hinterlegt: Steakhouse Piccolo / Silvana Lasinski / Leipzig")
+
     additional_agreements = st.text_area(
         "Sonstige Vereinbarungen (§ 8)",
         value=prefill.additional_agreements,
@@ -195,7 +329,7 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
     )
     return ContractData(
         contract_title="Änderungsvertrag",
-        prior_contract_date_text=prior_contract_date_text,
+        prior_contract_date_text=_fmt_date_long_de(prior_contract_date),
         employer_name=prefill.employer_name,
         employer_represented_by=prefill.employer_represented_by,
         employer_street=prefill.employer_street,
@@ -206,9 +340,19 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
         employee_city_line=employee_city_line,
         employment_start_date=employment_start_date,
         amendment_effective_date=amendment_effective_date,
+        probe_start_date=probe_start_date,
+        probe_end_date=probe_end_date,
+        probe_notice_period_text=probe_notice_period_text,
         monthly_target_hours=float(monthly_target_hours),
+        working_days_per_week_text=working_days_per_week_text,
+        fixed_rest_days_text=fixed_rest_days_text,
+        duty_planning_lead_days=int(duty_planning_lead_days),
+        activity_tasks=list(activity_tasks),
+        activity_free_text=activity_free_text,
         monthly_gross_salary=float(monthly_gross_salary),
+        salary_payment_day=int(salary_payment_day),
         annual_vacation_days=float(annual_vacation_days),
+        account_settlement_deadline_text=account_settlement_deadline_text,
         additional_agreements=additional_agreements,
         employer_signatory="Silvana Lasinski",
         signing_city="Leipzig",

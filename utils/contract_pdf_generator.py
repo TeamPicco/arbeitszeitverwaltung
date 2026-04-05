@@ -29,9 +29,19 @@ class ContractData:
     employee_city_line: str = ""
     employment_start_date: date = field(default_factory=date.today)
     amendment_effective_date: date = field(default_factory=date.today)
-    monthly_target_hours: float = 130.0
+    probe_start_date: date = field(default_factory=date.today)
+    probe_end_date: date = field(default_factory=lambda: _plus_months(date.today(), 6) - date.resolution)
+    probe_notice_period_text: str = "2 Wochen"
+    monthly_target_hours: float = 160.0
+    working_days_per_week_text: str = "4-5"
+    fixed_rest_days_text: str = "Montag, Dienstag"
+    duty_planning_lead_days: int = 4
+    activity_tasks: list[str] = field(default_factory=lambda: ["Beikoch", "Küchenhilfe", "Reinigung", "Logistik"])
+    activity_free_text: str = ""
     monthly_gross_salary: float = 0.0
-    annual_vacation_days: float = 20.0
+    salary_payment_day: int = 15
+    annual_vacation_days: float = 28.0
+    account_settlement_deadline_text: str = "31. März des Folgejahres"
     additional_agreements: str = ""
     employer_signatory: str = "Silvana Lasinski"
     signing_city: str = "Leipzig"
@@ -153,9 +163,19 @@ def _to_payload(data: ContractData | dict[str, Any]) -> dict[str, Any]:
             "employee_city_line": b["employee_city_line"],
             "employment_start_date": b["employment_start_date"],
             "amendment_effective_date": b["amendment_effective_date"],
+            "probe_start_date": b["probe_start_date"],
+            "probe_end_date": b["probe_end_date"],
+            "probe_notice_period_text": b["probe_notice_period_text"],
             "monthly_target_hours": b["monthly_target_hours"],
+            "working_days_per_week_text": b["working_days_per_week_text"],
+            "fixed_rest_days_text": b["fixed_rest_days_text"],
+            "duty_planning_lead_days": b["duty_planning_lead_days"],
+            "activity_tasks": b["activity_tasks"],
+            "activity_free_text": b["activity_free_text"],
             "monthly_gross_salary": b["monthly_gross_salary"],
+            "salary_payment_day": b["salary_payment_day"],
             "annual_vacation_days": b["annual_vacation_days"],
+            "account_settlement_deadline_text": b["account_settlement_deadline_text"],
             "additional_agreements": b["additional_agreements"],
             "employer_signatory": b["employer_signatory"],
             "signing_city": b["signing_city"],
@@ -264,12 +284,34 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
 
     employment_start = _to_date(payload.get("employment_start_date"))
     amendment_effective = _to_date(payload.get("amendment_effective_date"))
-    probe_start = employment_start
-    probe_end = _plus_months(employment_start, 6) - date.resolution
+    probe_start = _to_date(payload.get("probe_start_date"), fallback=employment_start)
+    probe_end = _to_date(
+        payload.get("probe_end_date"),
+        fallback=_plus_months(probe_start, 6) - date.resolution,
+    )
+    probe_notice_period = _safe(payload.get("probe_notice_period_text")) or "2 Wochen"
 
-    monthly_hours = _to_float(payload.get("monthly_target_hours"), 130.0)
+    monthly_hours = _to_float(payload.get("monthly_target_hours"), 160.0)
+    working_days_per_week_text = _safe(payload.get("working_days_per_week_text")) or "4-5"
+    fixed_rest_days_text = _safe(payload.get("fixed_rest_days_text")) or "Montag, Dienstag"
+    duty_planning_lead_days = int(_to_float(payload.get("duty_planning_lead_days"), 4))
+    if duty_planning_lead_days < 0:
+        duty_planning_lead_days = 0
+    task_options = payload.get("activity_tasks")
+    if not isinstance(task_options, list):
+        task_options = []
+    tasks_clean = [_safe(t) for t in task_options if _safe(t)]
+    activity_free_text = _safe(payload.get("activity_free_text"))
     monthly_gross = _to_float(payload.get("monthly_gross_salary"), 0.0)
-    annual_vacation = _to_float(payload.get("annual_vacation_days"), 20.0)
+    salary_payment_day = int(_to_float(payload.get("salary_payment_day"), 15))
+    if salary_payment_day < 1:
+        salary_payment_day = 1
+    if salary_payment_day > 31:
+        salary_payment_day = 31
+    annual_vacation = _to_float(payload.get("annual_vacation_days"), 28.0)
+    account_settlement_deadline_text = (
+        _safe(payload.get("account_settlement_deadline_text")) or "31. März des Folgejahres"
+    )
     additional = _safe(payload.get("additional_agreements")) or "Keine."
     signing_city = _safe(payload.get("signing_city")) or "Leipzig"
     signing_date = _to_date(payload.get("signing_date"), fallback=date.today())
@@ -338,24 +380,30 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
     _title(pdf, "§ 2 Probezeit")
     _para(
         pdf,
-        "Die ersten sechs Monate des Arbeitsverhältnisses "
+        "Die Probezeit im Arbeitsverhältnis "
         f"({_fmt_date(probe_start)} bis {_fmt_date(probe_end)}) gelten als Probezeit gemäß § 622 Abs. 3 BGB. "
-        "Während der Probezeit kann das Arbeitsverhältnis von beiden Parteien mit einer Frist von zwei Wochen "
+        "Während der Probezeit kann das Arbeitsverhältnis von beiden Parteien mit einer Frist von "
+        f"{probe_notice_period} "
         "zu jedem beliebigen Tag gekündigt werden.",
     )
 
     _title(pdf, "§ 3 Arbeitszeit")
-    _para(pdf, f"(1) Die monatliche Sollarbeitszeit beträgt {monthly_hours:.0f} Stunden. Die Verteilung erfolgt auf 4–5 Arbeitstage pro Woche.")
     _para(
         pdf,
-        "(2) Montag und Dienstag sind betriebliche Ruhetage; eine Einplanung an diesen Tagen erfolgt grundsätzlich nicht. "
+        f"(1) Die monatliche Sollarbeitszeit beträgt {monthly_hours:.0f} Stunden. "
+        f"Die Verteilung erfolgt auf {working_days_per_week_text} Arbeitstage pro Woche.",
+    )
+    _para(
+        pdf,
+        f"(2) {fixed_rest_days_text} sind betriebliche Ruhetage; eine Einplanung an diesen Tagen erfolgt grundsätzlich nicht. "
         "Da es sich um einen gastronomischen Betrieb handelt, kann die Arbeitsleistung an allen übrigen Wochentagen einschließlich "
         "Sonn- und Feiertagen erbracht werden, sofern die gesetzlichen Vorgaben des Arbeitszeitgesetzes (ArbZG) eingehalten werden.",
     )
     _para(
         pdf,
         "(3) Die Lage der Arbeitszeit wird vom Arbeitgeber entsprechend dem Arbeitsanfall festgelegt. Der Arbeitgeber teilt dem "
-        "Arbeitnehmer die Lage seiner Arbeitszeit jeweils mindestens 4 Tage im Voraus mit. In Krankheitsfällen oder anderen "
+        f"Arbeitnehmer die Lage seiner Arbeitszeit jeweils mindestens {duty_planning_lead_days} Tage im Voraus mit. "
+        "In Krankheitsfällen oder anderen "
         "betrieblichen Notfällen kann eine kurzfristige Änderung des Dienstes auch mit kürzerer Vorankündigungsfrist erfolgen.",
     )
     _para(
@@ -372,13 +420,12 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
     )
 
     _title(pdf, "§ 4 Tätigkeit")
+    task_line = "\n".join([f"• {t}" for t in tasks_clean]) or "• Beikoch\n• Kuechenhilfe\n• Reinigung\n• Logistik"
+    if activity_free_text:
+        task_line = f"{task_line}\n• {activity_free_text}"
     _para(
         pdf,
-        "Der Arbeitnehmer wird mit folgenden Aufgaben betraut:\n"
-        "• Beikoch und Koch\n"
-        "• Küchenhilfe\n"
-        "• Reinigung der Betriebsräume und des Inventars\n"
-        "• Logistik",
+        f"Der Arbeitnehmer wird mit folgenden Aufgaben betraut:\n{task_line}",
     )
 
     _title(pdf, "§ 5 Vergütung")
@@ -397,7 +444,11 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
         "(3) Die Zuschläge nach Abs. 2 sind freiwillige Leistungen des Arbeitgebers, auf die kein dauerhafter Rechtsanspruch "
         "für die Zukunft besteht. Der Arbeitgeber behält sich den Widerruf dieser Leistungen aus sachlichen Gründen vor.",
     )
-    _para(pdf, "(4) Die Auszahlung der Vergütung erfolgt jeweils zum 15. des Monats, spätestens jedoch bis zum nächsten Werktag.")
+    _para(
+        pdf,
+        f"(4) Die Auszahlung der Vergütung erfolgt jeweils zum {salary_payment_day}. des Monats, "
+        "spätestens jedoch bis zum nächsten Werktag.",
+    )
     _para(
         pdf,
         "(5) Die Anordnung von Überstunden ist bei betrieblicher Notwendigkeit zulässig. Angeordnete Überstunden werden dem "
@@ -430,7 +481,7 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
     _para(
         pdf,
         "(4) Der Ausgleichszeitraum beträgt 12 Monate (Kalenderjahr). Aufgelaufene Plus- und Minusstunden sind bis "
-        "zum 31. März des Folgejahres auszugleichen.",
+        f"zum {account_settlement_deadline_text} auszugleichen.",
     )
     _para(
         pdf,
