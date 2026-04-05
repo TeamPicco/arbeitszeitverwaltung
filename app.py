@@ -177,10 +177,9 @@ if st.session_state.get("trigger_reset"):
     st.session_state["terminal_pin_entry"] = ""
     st.session_state["trigger_reset"] = False
 
-# --- HAUPTLOGIK ---
-if not st.session_state.get('logged_in'):
-    _render_login_branding()
-    _wrap_card_start()
+
+@st.fragment
+def _render_login_fragment() -> None:
     tab_stempel, tab_admin = st.tabs(["Mitarbeiter Stempeluhr", "Admin Login"])
 
     with tab_stempel:
@@ -293,6 +292,13 @@ if not st.session_state.get('logged_in'):
                     )
                     update_last_login(str(user.get("id")))
                     st.rerun()
+
+
+# --- HAUPTLOGIK ---
+if not st.session_state.get('logged_in'):
+    _render_login_branding()
+    _wrap_card_start()
+    _render_login_fragment()
     _wrap_card_end()
 else:
     st.markdown(

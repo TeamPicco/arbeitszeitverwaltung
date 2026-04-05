@@ -152,8 +152,8 @@ def erstelle_datev_lohnexport(
         'Beleginfo - Inhalt 2',           # Lohnart-Bezeichnung
         'Beleginfo - Art 3',              # Stunden
         'Beleginfo - Inhalt 3',           # Stundenzahl
-        'Beleginfo - Art 4',              # Stundenlohn
-        'Beleginfo - Inhalt 4',           # Stundenlohn-Betrag
+        'Beleginfo - Art 4',              # Referenzsatz
+        'Beleginfo - Inhalt 4',           # Referenzsatz-Betrag
         'Beleginfo - Art 5',              # Monat
         'Beleginfo - Inhalt 5',           # Monat-Wert
     ]
@@ -177,7 +177,9 @@ def erstelle_datev_lohnexport(
         
         ma_name = f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip()
         personalnummer = ma.get('personalnummer', str(ma_id)[:8])
-        stundenlohn = float(ma.get('stundenlohn_brutto', 0))
+        soll_stunden = float(ma.get('monatliche_soll_stunden') or 0.0)
+        monatsbrutto = float(ma.get('monatliche_brutto_verguetung') or 0.0)
+        referenzsatz = (monatsbrutto / soll_stunden) if soll_stunden > 0 else 0.0
         
         grundlohn = float(abrechnung.get('grundlohn', 0))
         sonntagszuschlag = float(abrechnung.get('sonntagszuschlag', 0))
@@ -220,8 +222,8 @@ def erstelle_datev_lohnexport(
                 f"{LOHNART_GRUNDLOHN} Grundlohn",  # Inhalt 2
                 'Stunden',                   # Art 3
                 _format_stunden(ist_stunden - sonntagsstunden - feiertagsstunden),  # Inhalt 3
-                'Stundenlohn',               # Art 4
-                _format_betrag(stundenlohn), # Inhalt 4
+                'Referenzsatz',              # Art 4
+                _format_betrag(referenzsatz), # Inhalt 4
                 'Monat',                     # Art 5
                 f"{monat:02d}/{jahr}",       # Inhalt 5
             ])
@@ -245,7 +247,7 @@ def erstelle_datev_lohnexport(
                 'Mitarbeiter', ma_name,
                 'Lohnart', f"{LOHNART_SONNTAGSZUSCHLAG} Sonntagszuschlag 50%",
                 'Stunden', _format_stunden(sonntagsstunden),
-                'Stundenlohn', _format_betrag(stundenlohn * 0.5),
+                'Referenzsatz', _format_betrag(referenzsatz * 0.5),
                 'Monat', f"{monat:02d}/{jahr}",
             ])
         
@@ -268,7 +270,7 @@ def erstelle_datev_lohnexport(
                 'Mitarbeiter', ma_name,
                 'Lohnart', f"{LOHNART_FEIERTAGSZUSCHLAG} Feiertagszuschlag 100%",
                 'Stunden', _format_stunden(feiertagsstunden),
-                'Stundenlohn', _format_betrag(stundenlohn * 1.0),
+                'Referenzsatz', _format_betrag(referenzsatz * 1.0),
                 'Monat', f"{monat:02d}/{jahr}",
             ])
     
@@ -314,7 +316,7 @@ def erstelle_lohnuebersicht_csv(
         'Personalnummer',
         'Nachname',
         'Vorname',
-        'Stundenlohn (€)',
+        'Referenzsatz (€)',
         'Soll-Stunden',
         'Ist-Stunden',
         'Differenz',
@@ -359,7 +361,14 @@ def erstelle_lohnuebersicht_csv(
             ma.get('personalnummer', ''),
             ma.get('nachname', ''),
             ma.get('vorname', ''),
-            _format_betrag(float(ma.get('stundenlohn_brutto', 0))),
+            _format_betrag(
+                (
+                    float(ma.get('monatliche_brutto_verguetung') or 0.0)
+                    / float(ma.get('monatliche_soll_stunden') or 0.0)
+                )
+                if float(ma.get('monatliche_soll_stunden') or 0.0) > 0
+                else 0.0
+            ),
             _format_stunden(soll_stunden),
             _format_stunden(ist_stunden),
             _format_stunden(ist_stunden - soll_stunden),

@@ -592,7 +592,7 @@ def berechne_eintrag(
     # Für UI/Reports transparent machen, welche Startzeit tatsächlich berechnet wurde.
     capped_start_time = start_zeit_fuer_berechnung
 
-    # Sicherheitsgrenze: Arbeitszeit über 14h nur bei expliziter Admin-Freigabe zulassen.
+    # Sicherheitsgrenze: Arbeitszeit über 10h nur bei expliziter Admin-Freigabe zulassen.
     # So verhindern wir Phantom-Schichten durch fehlendes Ausstempeln.
     try:
         start_guard = _parse_zeit_zu_datetime(start_zeit_fuer_berechnung, datum)
@@ -600,7 +600,7 @@ def berechne_eintrag(
         if end_guard <= start_guard:
             end_guard += timedelta(days=1)
         planned_minutes = int((end_guard - start_guard).total_seconds() // 60)
-        if planned_minutes > (14 * 60):
+        if planned_minutes > (10 * 60):
             override = bool(eintrag.get("admin_override_long_shift"))
             if not override:
                 return {
@@ -620,9 +620,9 @@ def berechne_eintrag(
                     "feiertag_name": ft_name,
                     "hat_zuschlag_aber_kein_haekchen": False,
                     "audit_log": audit_log + [
-                        f"Sicherheitsstopp: Schichtdauer {planned_minutes/60:.2f}h > 14h ohne Admin-Freigabe."
+                        f"Sicherheitsstopp: Schichtdauer {planned_minutes/60:.2f}h > 10h ohne Admin-Freigabe."
                     ],
-                    "fehler": "Schicht über 14h erkannt – Admin-Freigabe erforderlich",
+                    "fehler": "Schicht ueber 10h erkannt - Admin-Pruefung erforderlich",
                 }
     except Exception:
         pass
@@ -1012,8 +1012,8 @@ def validiere_zeiterfassung(eintrag: Dict[str, Any]) -> List[str]:
 
         brutto_h = (ende_dt - start_dt).total_seconds() / 3600.0
 
-        if brutto_h > 24:
-            fehler.append(f"Schichtdauer > 24 Stunden ({brutto_h:.1f} Std) – bitte prüfen")
+        if brutto_h > 10:
+            fehler.append(f"Schichtdauer > 10 Stunden ({brutto_h:.1f} Std) - Admin-Pruefung erforderlich")
         if brutto_h < 0.1:
             fehler.append(f"Schichtdauer < 6 Minuten – möglicherweise Fehleingabe")
 

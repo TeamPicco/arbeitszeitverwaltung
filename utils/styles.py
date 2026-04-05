@@ -4,14 +4,14 @@ import streamlit as st
 
 COLORS = {
     "app_bg": "#000000",
-    "surface": "#0B0B0B",
-    "surface_alt": "#121212",
+    "surface": "#000000",
+    "surface_alt": "#000000",
     "surface_light": "#FFFFFF",
-    "border": "#2A2A2A",
+    "border": "#FFFFFF",
     "text_on_light": "#000000",
     "text_on_dark": "#FFFFFF",
-    "muted_on_light": "#111111",
-    "muted_on_dark": "#E6E6E6",
+    "muted_on_light": "#000000",
+    "muted_on_dark": "#FFFFFF",
     "primary": "#2563EB",
     "primary_hover": "#1D4ED8",
 }
@@ -54,7 +54,7 @@ def apply_custom_css() -> None:
             background: {COLORS["surface"]};
             border: 1px solid {COLORS["border"]};
             border-radius: 12px;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+            box-shadow: none;
             padding: 1rem;
             margin-bottom: 1rem;
         }}
@@ -102,7 +102,7 @@ def apply_custom_css() -> None:
             background: {COLORS["surface"]} !important;
             border: 1px solid {COLORS["border"]} !important;
             border-radius: 12px !important;
-            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04) !important;
+            box-shadow: none !important;
             color: {COLORS["text_on_dark"]} !important;
         }}
 
@@ -251,11 +251,11 @@ def create_card(title: str, content: str) -> None:
             background:{COLORS["surface"]};
             border:1px solid {COLORS["border"]};
             border-radius:12px;
-            box-shadow:0 2px 10px rgba(15,23,42,0.04);
+            box-shadow:none;
             padding:1rem 1.1rem;
             margin:0.5rem 0;">
             <h4 style="margin:0 0 0.35rem 0; color:{COLORS["text_on_dark"]};">{title}</h4>
-            <div style="color:{COLORS["muted_on_dark"]};">{content}</div>
+            <div style="color:{COLORS["text_on_dark"]};">{content}</div>
         </div>
         """,
         unsafe_allow_html=True,

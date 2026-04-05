@@ -18,11 +18,6 @@ MITARBEITER_SELECT_COLUMNS = (
     "strasse, plz, ort, geburtsdatum, eintrittsdatum, "
     "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage"
 )
-MITARBEITER_SELECT_COLUMNS_LEGACY = (
-    "id, betrieb_id, vorname, nachname, personalnummer, "
-    "strasse, plz, ort, geburtsdatum, eintrittsdatum, "
-    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage"
-)
 
 
 def _safe_text(value: object) -> str:
@@ -56,30 +51,14 @@ def _to_date(value: object, fallback: date | None = None) -> date:
     return fallback or date.today()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _load_mitarbeiter_for_contracts(betrieb_id: int | None):
     supabase = get_supabase_client()
-    try:
-        q = supabase.table("mitarbeiter").select(MITARBEITER_SELECT_COLUMNS).order("nachname")
-        if betrieb_id is not None:
-            q = q.eq("betrieb_id", betrieb_id)
-        res = q.execute()
-        return res.data or []
-    except Exception:
-        q = supabase.table("mitarbeiter").select(MITARBEITER_SELECT_COLUMNS_LEGACY).order("nachname")
-        if betrieb_id is not None:
-            q = q.eq("betrieb_id", betrieb_id)
-        res = q.execute()
-        rows = res.data or []
-        for r in rows:
-            try:
-                r["monatliche_brutto_verguetung"] = round(
-                    float(r.get("monatliche_soll_stunden") or 0.0) * float(r.get("stundenlohn_brutto") or 0.0),
-                    2,
-                )
-            except Exception:
-                r["monatliche_brutto_verguetung"] = 0.0
-        return rows
+    q = supabase.table("mitarbeiter").select(MITARBEITER_SELECT_COLUMNS).order("nachname")
+    if betrieb_id is not None:
+        q = q.eq("betrieb_id", betrieb_id)
+    res = q.execute()
+    return res.data or []
 
 
 def _resolve_logo_path() -> str:
@@ -137,6 +116,7 @@ def _build_prefill(ma: dict) -> ContractData:
     )
 
 
+@st.fragment
 def _render_form(prefill: ContractData) -> ContractData:
     st.markdown("### Mitarbeiter-Sync")
     st.caption("Name, Anschrift und Geburtsdatum werden automatisch aus der Datenbank vorgeladen und können angepasst werden.")

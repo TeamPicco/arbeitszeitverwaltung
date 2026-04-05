@@ -207,24 +207,7 @@ def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any]) -> bool:
         query.execute()
         return True
     except Exception:
-        # Rückwärtskompatibilität für ältere Schemas ohne monatliche_brutto_verguetung.
-        try:
-            if "monatliche_brutto_verguetung" not in values:
-                return False
-            fallback = dict(values)
-            monatsbrutto = float(fallback.pop("monatliche_brutto_verguetung") or 0.0)
-            soll = float(fallback.get("monatliche_soll_stunden") or 0.0)
-            fallback["stundenlohn_brutto"] = round(monatsbrutto / soll, 4) if soll > 0 else 0.0
-
-            supabase = get_supabase_client()
-            query = supabase.table("mitarbeiter").update(fallback).eq("id", mitarbeiter_id)
-            betrieb_id = st.session_state.get("betrieb_id")
-            if betrieb_id is not None:
-                query = query.eq("betrieb_id", betrieb_id)
-            query.execute()
-            return True
-        except Exception:
-            return False
+        return False
 
 
 def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) -> float:

@@ -10,10 +10,12 @@ import streamlit as st
 from datetime import datetime, date, time, timedelta
 from calendar import monthrange
 import io
+import os
 
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.audit_log import log_aktion, log_zeitkorrektur, log_zeitloeschung
+from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 from utils.lohnberechnung import (
     berechne_monat_cached,
     berechne_eintrag,
@@ -55,7 +57,8 @@ def _effective_hourly_rate(ma: dict) -> float:
 # DATEN LADEN
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     """Lädt alle Zeiterfassungen für einen Mitarbeiter in einem Monat."""
     supabase = get_supabase_client()
     erster = date(jahr, monat, 1).isoformat()
@@ -68,7 +71,11 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     return r.data or []
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
+    return _cached_zeiterfassungen(mitarbeiter_id, monat, jahr)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
     """Lädt pro Datum die früheste geplante Startzeit (für Kappungslogik)."""
     supabase = get_supabase_client()
@@ -103,6 +110,7 @@ def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -
     return start_map
 
 
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_dienstplan_startzeiten_with_fallback(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
     """
     Lädt Kappungs-Startzeiten robust aus beiden Tabellenvarianten:
@@ -146,6 +154,46 @@ def _cached_dienstplan_startzeiten_with_fallback(mitarbeiter_id: int, monat: int
         return merged
     except Exception:
         return start_map
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_admin_mitarbeiter_za(betrieb_id: int) -> list:
+    supabase = get_supabase_client()
+    query = (
+        supabase.table("mitarbeiter")
+        .select(
+            "id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung,"
+            "sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart"
+        )
+        .eq("betrieb_id", betrieb_id)
+        .order("nachname")
+    )
+    try:
+        return query.execute().data or []
+    except Exception:
+        # Nur verpflichtende Kernfelder laden (kein Legacy-Lohnfeld-Fallback).
+        fallback = (
+            supabase.table("mitarbeiter")
+            .select(
+                "id,vorname,nachname,monatliche_soll_stunden,"
+                "sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart"
+            )
+            .eq("betrieb_id", betrieb_id)
+            .order("nachname")
+            .execute()
+        )
+        rows = fallback.data or []
+        for row in rows:
+            row["monatliche_brutto_verguetung"] = float(row.get("monatliche_brutto_verguetung") or 0.0)
+        return rows
+
+
+def _clear_zeitauswertung_caches() -> None:
+    _cached_zeiterfassungen.clear()
+    _cached_dienstplan_startzeiten.clear()
+    _cached_dienstplan_startzeiten_with_fallback.clear()
+    _cached_admin_mitarbeiter_za.clear()
+    berechne_monat_cached.clear()
 
 
 def _build_data_hash(zeiterfassungen: list, dienstplan_start_map: dict) -> str:
@@ -359,6 +407,7 @@ def _show_manual_account_adjustment(
                 except Exception:
                     pass
 
+                _clear_zeitauswertung_caches()
                 st.success("Korrektur gespeichert.")
                 st.rerun()
             except Exception as exc:
@@ -451,7 +500,7 @@ def _korrigiere_zeiterfassung_popup(
                             begruendung=reason.strip(),
                             betrieb_id=int(st.session_state.get("betrieb_id") or 0),
                         )
-                        _cached_dienstplan_startzeiten.clear()
+                        _clear_zeitauswertung_caches()
                         st.success("Zeiteintrag gespeichert.")
                         st.session_state.pop("za_edit_entry", None)
                         st.rerun()
@@ -478,7 +527,7 @@ def _korrigiere_zeiterfassung_popup(
                             begruendung=reason.strip(),
                             betrieb_id=int(st.session_state.get("betrieb_id") or 0),
                         )
-                        _cached_dienstplan_startzeiten.clear()
+                        _clear_zeitauswertung_caches()
                         st.success("Zeiteintrag gelöscht.")
                         st.session_state.pop("za_edit_entry", None)
                         st.rerun()
@@ -516,7 +565,7 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     from reportlab.lib.pagesizes import A4
     from reportlab.lib import colors
     from reportlab.lib.units import cm
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 
@@ -545,6 +594,15 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
                             topMargin=2*cm, bottomMargin=2*cm)
     styles = getSampleStyleSheet()
     story = []
+
+    if BRAND_LOGO_IMAGE and os.path.exists(BRAND_LOGO_IMAGE):
+        try:
+            logo = Image(BRAND_LOGO_IMAGE, width=4.5 * cm, height=2.5 * cm)
+            logo.hAlign = "LEFT"
+            story.append(logo)
+            story.append(Spacer(1, 0.2 * cm))
+        except Exception:
+            pass
 
     titel_style = ParagraphStyle('titel', parent=styles['Heading1'],
                                   fontSize=16, alignment=TA_CENTER, spaceAfter=6)
@@ -630,15 +688,17 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
     col_widths = [1.9*cm, 0.9*cm, 1.2*cm, 1.2*cm, 1.5*cm, 1.4*cm, 1.8*cm, 2.0*cm, 1.8*cm, 2.0*cm]
     t = Table(data, colWidths=col_widths, repeatRows=1)
     ts = TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1a1a2e')),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.black),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 7.5),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTSIZE', (0, 1), (-1, -1), 7),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8f9fa')]),
-        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#dee2e6')),
-        ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#e8f4f8')),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.white]),
+        ('TEXTCOLOR', (0, 1), (-1, -2), colors.black),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+        ('BACKGROUND', (0, -1), (-1, -1), colors.white),
+        ('TEXTCOLOR', (0, -1), (-1, -1), colors.black),
         ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
         ('TOPPADDING', (0, 0), (-1, -1), 3),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
@@ -686,9 +746,9 @@ def _erstelle_pdf(mitarbeiter: dict, monat: int, jahr: int, monat_ergebnis: dict
 
     story.append(Paragraph(
         f"Erstellt am: {date.today().strftime('%d.%m.%Y')} | "
-        f"Bundesland: Sachsen (SN) | CrewBase Arbeitszeitverwaltung",
+        f"Bundesland: Sachsen (SN) | {BRAND_COMPANY_NAME}",
         ParagraphStyle('footer', parent=styles['Normal'], fontSize=7,
-                       alignment=TA_CENTER, textColor=colors.grey)
+                       alignment=TA_CENTER, textColor=colors.black)
     ))
 
     doc.build(story)
@@ -723,28 +783,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Mitarbeiter-Auswahl (nur Admin) ──────────────────────────────────────
     if admin_modus:
-        supabase = get_supabase_client()
-        try:
-            alle_ma = supabase.table('mitarbeiter').select(
-                'id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung,'
-                'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
-            ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
-            ma_liste = alle_ma.data or []
-        except Exception:
-            # Rückwärtskompatibilität: ältere DBs mit stundenlohn_brutto statt Monatsbrutto.
-            alle_ma = supabase.table('mitarbeiter').select(
-                'id,vorname,nachname,monatliche_soll_stunden,stundenlohn_brutto,'
-                'sonntagszuschlag_aktiv,feiertagszuschlag_aktiv,personalnummer,beschaeftigungsart'
-            ).eq('betrieb_id', st.session_state.betrieb_id).order('nachname').execute()
-            ma_liste = alle_ma.data or []
-            for m in ma_liste:
-                try:
-                    m["monatliche_brutto_verguetung"] = round(
-                        float(m.get("monatliche_soll_stunden") or 0.0) * float(m.get("stundenlohn_brutto") or 0.0),
-                        2,
-                    )
-                except Exception:
-                    m["monatliche_brutto_verguetung"] = 0.0
+        ma_liste = _cached_admin_mitarbeiter_za(int(st.session_state.betrieb_id))
         ma_optionen = {f"{m['vorname']} {m['nachname']}": m for m in ma_liste}
 
         ausgewaehlter_name = st.selectbox(
@@ -1037,19 +1076,19 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
-        <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid #1f2937;">
-            <div style="font-size:0.85rem;color:#1f2937;">Soll-Stunden (Dienstplan/Profil)</div>
-            <div style="font-size:1.5rem;font-weight:700;">{soll_stunden:.2f} h</div>
+        <div style="background:#000000;color:#ffffff;padding:1rem;border-radius:8px;border:1px solid #ffffff;border-left:4px solid #ffffff;">
+            <div style="font-size:0.85rem;color:#ffffff;">Soll-Stunden (Dienstplan/Profil)</div>
+            <div style="font-size:1.5rem;font-weight:700;color:#ffffff;">{soll_stunden:.2f} h</div>
         </div>
         """, unsafe_allow_html=True)
     with col_b:
         diff_color = "#198754" if differenz >= 0 else "#dc3545"
         diff_icon = "▲" if differenz >= 0 else "▼"
         st.markdown(f"""
-        <div style="background:#f8f9fa;padding:1rem;border-radius:8px;border-left:4px solid {diff_color};">
-            <div style="font-size:0.85rem;color:#1f2937;">Ist-Stunden vs. Soll</div>
+        <div style="background:#000000;color:#ffffff;padding:1rem;border-radius:8px;border:1px solid #ffffff;border-left:4px solid {diff_color};">
+            <div style="font-size:0.85rem;color:#ffffff;">Ist-Stunden vs. Soll</div>
             <div style="font-size:1.5rem;font-weight:700;color:{diff_color};">{diff_icon} {abs(differenz):.2f} h</div>
-            <div style="font-size:0.8rem;color:#1f2937;">{'Überstunden' if differenz >= 0 else 'Minusstunden'}</div>
+            <div style="font-size:0.8rem;color:#ffffff;">{'Überstunden' if differenz >= 0 else 'Minusstunden'}</div>
         </div>
         """, unsafe_allow_html=True)
 
@@ -1154,10 +1193,10 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         for ft_datum, ft_name in sorted(feiertage_monat.items()):
             wt = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"][ft_datum.weekday()]
             ruhetag = ft_datum.weekday() in (0, 1)
-            bg = "#dee2e6" if ruhetag else "#dc3545"
-            opacity = "0.5" if ruhetag else "1"
+            bg = "#000000" if ruhetag else "#dc3545"
+            border = "1px solid #ffffff" if ruhetag else "1px solid #dc3545"
             hinweis = " (Ruhetag)" if ruhetag else ""
-            ft_html += f'<span style="background:{bg};color:white;padding:4px 10px;border-radius:6px;font-size:0.82rem;opacity:{opacity};">{ft_datum.strftime("%d.%m.")} {wt} – {ft_name}{hinweis}</span>'
+            ft_html += f'<span style="background:{bg};border:{border};color:#ffffff;padding:4px 10px;border-radius:6px;font-size:0.82rem;">{ft_datum.strftime("%d.%m.")} {wt} - {ft_name}{hinweis}</span>'
         ft_html += '</div>'
         st.markdown(ft_html, unsafe_allow_html=True)
         st.markdown("---")
@@ -1166,8 +1205,8 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     if admin_modus:
         with st.expander("Audit-Log (Berechnungsprotokoll)", expanded=False):
             st.markdown("""
-            <div style="background:#f8f9fa;padding:0.5rem;border-radius:6px;margin-bottom:0.5rem;">
-                <small style="color:#1f2937;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
+            <div style="background:#000000;color:#ffffff;padding:0.5rem;border-radius:6px;border:1px solid #ffffff;margin-bottom:0.5rem;">
+                <small style="color:#ffffff;">Das Audit-Log protokolliert jeden Rechenschritt für Revisionszwecke.
                 Es zeigt welcher Zuschlag an welchem Tag durch welche Regel ausgelöst wurde.</small>
             </div>
             """, unsafe_allow_html=True)
@@ -1215,10 +1254,10 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     if korrektur_count > 0:
         st.markdown(f"""
-        <div style="background:#fff3cd;color:#000000;padding:0.8rem;border-radius:6px;border-left:4px solid #ffc107;margin-top:0.5rem;">
+        <div style="background:#000000;color:#ffffff;padding:0.8rem;border-radius:6px;border:1px solid #ffffff;border-left:4px solid #ffffff;margin-top:0.5rem;">
             <strong>Hinweis zu Korrekturen:</strong> {korrektur_count} Zeiterfassung(en)
             wurden in diesem Monat durch den Administrator angepasst.
-            Diese sind in der Tabelle gelb markiert.
+            Diese sind in der Tabelle markiert.
         </div>
         """, unsafe_allow_html=True)
 

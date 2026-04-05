@@ -21,6 +21,19 @@ from utils.calculations import (
 from utils.lohnberechnung import summarize_employee_month
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 
+
+def _resolve_pdf_logo_path() -> str:
+    candidates = [
+        "/workspace/assets/Piccolo Logo.jpeg",
+        "/workspace/assets/Piccolo Logo.jpg",
+        "/workspace/assets/piccolo_logo.jpeg",
+        "/workspace/assets/piccolo_logo.jpg",
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return BRAND_LOGO_IMAGE
+
 # Deutsche Monatsnamen
 MONATE_DE = [
     "",  # Index 0
@@ -48,7 +61,7 @@ except:
         pass
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_mitarbeiter(betrieb_id: int) -> list:
     supabase = get_supabase_client()
     resp = (
@@ -61,7 +74,7 @@ def _cached_mitarbeiter(betrieb_id: int) -> list:
     return resp.data or []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_schichtvorlagen(betrieb_id: int) -> list:
     supabase = get_supabase_client()
     resp = (
@@ -73,7 +86,7 @@ def _cached_schichtvorlagen(betrieb_id: int) -> list:
     return resp.data or []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_monatsdienste(planning_table: str, betrieb_id: int, start_iso: str, end_iso: str) -> list:
     supabase = get_supabase_client()
     resp = (
@@ -90,7 +103,7 @@ def _cached_monatsdienste(planning_table: str, betrieb_id: int, start_iso: str, 
     return resp.data or []
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_genehmigte_urlaube(betrieb_id: int, start_iso: str, end_iso: str) -> list:
     supabase = get_supabase_client()
     resp = (
@@ -330,7 +343,7 @@ def erstelle_einzelner_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jah
                             rightMargin=2*cm, leftMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
     elements = []
-    logo_path = BRAND_LOGO_IMAGE
+    logo_path = _resolve_pdf_logo_path()
     name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}"
 
     _pdf_header(elements, logo_path, monat, jahr, name)
@@ -361,7 +374,7 @@ def erstelle_admin_dienstplan_pdf(mitarbeiter_liste: list, dienste_map: dict, ja
                             rightMargin=2*cm, leftMargin=2*cm,
                             topMargin=2*cm, bottomMargin=2*cm)
     elements = []
-    logo_path = BRAND_LOGO_IMAGE
+    logo_path = _resolve_pdf_logo_path()
 
     for idx, mitarbeiter in enumerate(mitarbeiter_liste):
         if idx > 0:
@@ -512,6 +525,7 @@ def setze_urlaub_automatisch(
     erster_tag: date,
     letzter_tag: date,
     mitarbeiter_soll_stunden: float,
+    existing_dates_by_ma: dict[int, set[str]] | None = None,
 ) -> int:
     """
     Trägt genehmigte Urlaubstage automatisch in den Dienstplan ein.
@@ -522,16 +536,7 @@ def setze_urlaub_automatisch(
     tage_pro_woche = 5  # Mi-So = 5 Arbeitstage
     stunden_pro_tag = mitarbeiter_soll_stunden / (tage_pro_woche * 4.33) if mitarbeiter_soll_stunden > 0 else 8.0
 
-    # N+1-Fix: Vorhandene Tage im Zielmonat einmalig laden und lokal prüfen.
-    existing_res = (
-        supabase.table(planning_table)
-        .select("datum")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .gte("datum", erster_tag.isoformat())
-        .lte("datum", letzter_tag.isoformat())
-        .execute()
-    )
-    existing_dates = {str(r.get("datum")) for r in (existing_res.data or []) if r.get("datum")}
+    existing_dates = set((existing_dates_by_ma or {}).get(int(mitarbeiter_id), set()))
 
     for (ma_id, datum_str), urlaub in urlaub_map.items():
         if ma_id != mitarbeiter_id:
@@ -632,6 +637,16 @@ def show_monatsplan(supabase):
             if key not in dienste_map:
                 dienste_map[key] = []
             dienste_map[key].append(d)
+    existing_dates_by_ma: dict[int, set[str]] = {}
+    for d in dienstplaene_rows:
+        try:
+            ma_id = int(d.get("mitarbeiter_id"))
+        except Exception:
+            continue
+        datum_val = str(d.get("datum") or "")
+        if not datum_val:
+            continue
+        existing_dates_by_ma.setdefault(ma_id, set()).add(datum_val)
 
     # Lade genehmigte Urlaube
     urlaub_rows = _cached_genehmigte_urlaube(
@@ -679,6 +694,7 @@ def show_monatsplan(supabase):
                     erster_tag,
                     letzter_tag,
                     soll,
+                    existing_dates_by_ma=existing_dates_by_ma,
                 )
                 gesamt += n
             if gesamt > 0:
@@ -1145,9 +1161,9 @@ def show_monatsuebersicht_tabelle(supabase):
         .dp-month-table-wrap {
             overflow-x: auto;
             overflow-y: hidden;
-            border: 1px solid #2a2a2a;
+            border: 1px solid #ffffff;
             border-radius: 10px;
-            background: #0b0b0b;
+            background: #000000;
             padding: 0;
             margin: 0.35rem 0 0.6rem 0;
         }
@@ -1159,14 +1175,14 @@ def show_monatsuebersicht_tabelle(supabase):
             table-layout: fixed;
         }
         .dp-month-table th, .dp-month-table td {
-            min-width: 112px;
-            max-width: 112px;
-            width: 112px;
+            min-width: 100px;
+            max-width: 100px;
+            width: 100px;
             padding: 6px 8px;
             text-align: center;
             vertical-align: middle;
-            border-bottom: 1px solid #1f2937;
-            border-right: 1px solid #1f2937;
+            border-bottom: 1px solid #ffffff;
+            border-right: 1px solid #ffffff;
             font-size: 0.78rem;
             line-height: 1.15rem;
             white-space: nowrap;
@@ -1175,7 +1191,7 @@ def show_monatsuebersicht_tabelle(supabase):
             position: sticky;
             top: 0;
             z-index: 3;
-            background: #111827;
+            background: #000000;
             color: #ffffff;
             font-weight: 700;
         }
@@ -1189,15 +1205,15 @@ def show_monatsuebersicht_tabelle(supabase):
             width: 230px;
             text-align: left;
             font-weight: 700;
-            background: #0f172a;
+            background: #000000;
             color: #ffffff;
         }
         .dp-cell-geplant { background: #1e3a8a; color: #ffffff; font-weight: 600; }
         .dp-cell-urlaub  { background: #fde68a; color: #000000; font-weight: 600; }
-        .dp-cell-frei    { background: #e5e7eb; color: #000000; font-weight: 600; }
+        .dp-cell-frei    { background: #ffffff; color: #000000; font-weight: 600; }
         .dp-cell-krank   { background: #fdba74; color: #000000; font-weight: 600; }
-        .dp-cell-ruhetag { background: #1f2937; color: #ffffff; }
-        .dp-cell-leer    { background: #111827; color: #ffffff; }
+        .dp-cell-ruhetag { background: #000000; color: #ffffff; }
+        .dp-cell-leer    { background: #000000; color: #ffffff; }
         .dp-month-table tr:last-child td { border-bottom: none; }
         .dp-month-table th:last-child, .dp-month-table td:last-child { border-right: none; }
         </style>
@@ -1328,16 +1344,22 @@ def show_monatsuebersicht_tabelle(supabase):
 
             st.markdown(f"**{ma['vorname']} {ma['nachname']}** – {datum_obj.strftime('%d.%m.%Y')} ({WOCHENTAGE_DE[datum_obj.weekday()]})")
 
-            fresh_resp = (
-                supabase.table(planning_table)
-                .select("id, schichttyp, start_zeit, ende_zeit, pause_minuten, urlaub_stunden")
-                .eq("betrieb_id", st.session_state.betrieb_id)
-                .eq("mitarbeiter_id", ma_id)
-                .eq("datum", datum_iso)
-                .order("start_zeit")
-                .execute()
+            bestehende = sorted(
+                [
+                    {
+                        "id": d.get("id"),
+                        "datum": datum_iso,
+                        "schichttyp": d.get("schichttyp"),
+                        "start_zeit": d.get("start_zeit"),
+                        "ende_zeit": d.get("ende_zeit"),
+                        "pause_minuten": d.get("pause_minuten"),
+                        "urlaub_stunden": d.get("urlaub_stunden"),
+                    }
+                    for d in (dienste_map.get((ma_id, datum_iso)) or [])
+                    if d.get("id") is not None
+                ],
+                key=lambda x: str(x.get("start_zeit") or "00:00:00"),
             )
-            bestehende = fresh_resp.data or []
 
             if bestehende:
                 st.success(f"{len(bestehende)} bestehende(r) Dienst(e) gefunden.")
@@ -1669,11 +1691,8 @@ def show_schichtvorlagen(supabase):
     st.subheader("Schichtvorlagen")
     st.info("Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
 
-    vorlagen = supabase.table('schichtvorlagen').select(
-        'id,name,beschreibung,start_zeit,ende_zeit,pause_minuten,farbe,ist_urlaub'
-    ).eq(
-        'betrieb_id', st.session_state.betrieb_id
-    ).order('name').execute()
+    vorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    vorlagen_rows = sorted(vorlagen_rows, key=lambda v: str(v.get("name") or ""))
 
     with st.expander("Neue Schichtvorlage erstellen", expanded=False):
         with st.form("neue_vorlage_form"):
@@ -1728,9 +1747,9 @@ def show_schichtvorlagen(supabase):
 
     st.markdown("---")
 
-    if vorlagen.data:
-        st.markdown(f"**{len(vorlagen.data)} Schichtvorlagen**")
-        for vorlage in vorlagen.data:
+    if vorlagen_rows:
+        st.markdown(f"**{len(vorlagen_rows)} Schichtvorlagen**")
+        for vorlage in vorlagen_rows:
             with st.expander(f"{vorlage['name']}", expanded=False):
                 edit_mode = st.session_state.get(f"edit_vorlage_{vorlage['id']}", False)
 

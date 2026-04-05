@@ -28,12 +28,6 @@ ADMIN_MITARBEITER_COLUMNS = (
     "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage, resturlaub_vorjahr, "
     "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
 )
-ADMIN_MITARBEITER_COLUMNS_LEGACY = (
-    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
-    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
-    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage, resturlaub_vorjahr, "
-    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
-)
 
 
 def _load_admin_mitarbeiter():
@@ -41,29 +35,14 @@ def _load_admin_mitarbeiter():
     return _cached_admin_mitarbeiter(betrieb_id)
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _cached_admin_mitarbeiter(betrieb_id):
     supabase = get_supabase_client()
-    try:
-        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
-        if betrieb_id is not None:
-            query = query.eq("betrieb_id", betrieb_id)
-        res = query.execute()
-        return res.data or []
-    except Exception:
-        # Rückwärtskompatibilität: ältere DBs ohne monatliche_brutto_verguetung.
-        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS_LEGACY).order("nachname")
-        if betrieb_id is not None:
-            query = query.eq("betrieb_id", betrieb_id)
-        res = query.execute()
-        rows = res.data or []
-        for r in rows:
-            try:
-                monatsbrutto = float(r.get("monatliche_soll_stunden") or 0.0) * float(r.get("stundenlohn_brutto") or 0.0)
-            except Exception:
-                monatsbrutto = 0.0
-            r["monatliche_brutto_verguetung"] = round(monatsbrutto, 2)
-        return rows
+    query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
+    if betrieb_id is not None:
+        query = query.eq("betrieb_id", betrieb_id)
+    res = query.execute()
+    return res.data or []
 
 
 def _refresh_after_write() -> None:
@@ -470,15 +449,7 @@ def _show_mitarbeiter_stammdaten_tab():
                         "feiertagszuschlag_aktiv": False,
                     }
                     try:
-                        try:
-                            supabase.table("mitarbeiter").insert(payload).execute()
-                        except Exception:
-                            # Rückwärtskompatibilität: ältere DBs erwarten stundenlohn_brutto.
-                            payload_legacy = dict(payload)
-                            monatsbrutto = float(payload_legacy.pop("monatliche_brutto_verguetung") or 0.0)
-                            soll = float(payload_legacy.get("monatliche_soll_stunden") or 0.0)
-                            payload_legacy["stundenlohn_brutto"] = round(monatsbrutto / soll, 4) if soll > 0 else 0.0
-                            supabase.table("mitarbeiter").insert(payload_legacy).execute()
+                        supabase.table("mitarbeiter").insert(payload).execute()
                         _refresh_after_write()
                         st.success("Mitarbeiter erfolgreich angelegt.")
                         st.rerun()
@@ -731,14 +702,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                     "monatsbrutto_verguetung": float(vertrag_monatsbrutto or 0.0),
                                     "vertrag_dokument_pfad": file_path,
                                 }
-                                try:
-                                    supabase.table("vertraege").insert(payload_vertrag).execute()
-                                except Exception:
-                                    legacy_payload = dict(payload_vertrag)
-                                    monatsbrutto = float(legacy_payload.pop("monatsbrutto_verguetung") or 0.0)
-                                    soll = float(legacy_payload.get("soll_stunden_monat") or 0.0)
-                                    legacy_payload["stundenlohn_brutto"] = round(monatsbrutto / soll, 4) if soll > 0 else 0.0
-                                    supabase.table("vertraege").insert(legacy_payload).execute()
+                                supabase.table("vertraege").insert(payload_vertrag).execute()
                             except Exception as e:
                                 st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
 
@@ -758,40 +722,18 @@ def _show_mitarbeiter_stammdaten_tab():
 
     st.markdown("#### Hinterlegte Verträge")
     try:
-        try:
-            vertr_res = (
-                supabase.table("vertraege")
-                .select(
-                    "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
-                    "wochenstunden, urlaubstage_jahr, monatsbrutto_verguetung"
-                )
-                .eq("mitarbeiter_id", ma["id"])
-                .order("gueltig_ab", desc=True)
-                .limit(20)
-                .execute()
+        vertr_res = (
+            supabase.table("vertraege")
+            .select(
+                "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
+                "wochenstunden, urlaubstage_jahr, monatsbrutto_verguetung"
             )
-            vertraege = vertr_res.data or []
-        except Exception:
-            vertr_res = (
-                supabase.table("vertraege")
-                .select(
-                    "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
-                    "wochenstunden, urlaubstage_jahr, stundenlohn_brutto"
-                )
-                .eq("mitarbeiter_id", ma["id"])
-                .order("gueltig_ab", desc=True)
-                .limit(20)
-                .execute()
-            )
-            vertraege = vertr_res.data or []
-            for v in vertraege:
-                try:
-                    v["monatsbrutto_verguetung"] = round(
-                        float(v.get("soll_stunden_monat") or 0.0) * float(v.get("stundenlohn_brutto") or 0.0),
-                        2,
-                    )
-                except Exception:
-                    v["monatsbrutto_verguetung"] = 0.0
+            .eq("mitarbeiter_id", ma["id"])
+            .order("gueltig_ab", desc=True)
+            .limit(20)
+            .execute()
+        )
+        vertraege = vertr_res.data or []
     except Exception:
         vertraege = []
 
@@ -896,14 +838,7 @@ def _show_mitarbeiter_stammdaten_tab():
                                 "urlaubstage_jahr": float(vg_urlaub),
                                 "monatsbrutto_verguetung": float(vg_monatsbrutto),
                             }
-                            try:
-                                supabase.table("vertraege").update(update_payload).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
-                            except Exception:
-                                legacy_update = dict(update_payload)
-                                monatsbrutto = float(legacy_update.pop("monatsbrutto_verguetung") or 0.0)
-                                soll = float(legacy_update.get("soll_stunden_monat") or 0.0)
-                                legacy_update["stundenlohn_brutto"] = round(monatsbrutto / soll, 4) if soll > 0 else 0.0
-                                supabase.table("vertraege").update(legacy_update).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            supabase.table("vertraege").update(update_payload).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
                             _refresh_after_write()
                             st.success("Vertrag aktualisiert.")
                             st.rerun()

@@ -11,7 +11,7 @@ from utils.compliance import (
 )
 from utils.time_utils import get_berlin_tz, now_utc, to_berlin, to_utc
 
-MAX_AUTO_SHIFT_HOURS = 14.0
+MAX_AUTO_SHIFT_HOURS = 10.0
 
 EVENT_CLOCK_IN = "clock_in"
 EVENT_CLOCK_OUT = "clock_out"
@@ -166,7 +166,7 @@ def _last_shift_end(events: List[Dict[str, Any]]) -> Optional[datetime]:
 
 def _max_open_shift_age_hours() -> int:
     # Harte Sicherung gegen Phantom-Status "eingestempelt seit gestern".
-    return 14
+    return int(MAX_AUTO_SHIFT_HOURS)
 
 
 def _close_stale_open_shift(
@@ -224,7 +224,7 @@ def _close_stale_open_shift(
             "quelle": source,
             "geraet_id": last_in.get("geraet_id"),
             "created_by": last_in.get("created_by"),
-            "notiz": "Auto-Close: offene Schicht > 14h wurde systemseitig beendet",
+            "notiz": "Auto-Close: offene Schicht > 10h wurde systemseitig beendet (Admin-Pruefung erforderlich)",
         }
         _insert_event_with_rls_fallback(client, insert_payload)
     except Exception:

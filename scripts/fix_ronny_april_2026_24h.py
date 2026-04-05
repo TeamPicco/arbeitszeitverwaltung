@@ -19,7 +19,7 @@ from supabase import create_client
 
 
 TARGET_DATES = ("2026-04-12", "2026-04-14")
-MAX_HOURS = 14.0
+MAX_HOURS = 10.0
 
 
 def _get_client():
@@ -113,8 +113,8 @@ def main() -> None:
         if net_h <= MAX_HOURS and logged_hours <= MAX_HOURS:
             continue
 
-        # 1) Falls Ende leer/00:00 ist -> auf max. 14h ab Start deckeln.
-        # 2) Falls netto > 14h -> Ende entsprechend zurücksetzen.
+        # 1) Falls Ende leer/00:00 ist -> auf max. 10h ab Start deckeln.
+        # 2) Falls netto > 10h -> Ende entsprechend zurücksetzen.
         capped_net_minutes = int(MAX_HOURS * 60)
         capped_gross_minutes = capped_net_minutes + pause
         new_end_min = (start_min + capped_gross_minutes) % (24 * 60)
@@ -125,7 +125,7 @@ def main() -> None:
             "ende_zeit": new_end,
             "arbeitsstunden": new_hours,
             "updated_at": datetime.utcnow().isoformat(),
-            "korrektur_grund": "Auto-Korrektur: fehlerhafter 24h-Dienst auf 14h gedeckelt",
+            "korrektur_grund": "Auto-Korrektur: fehlerhafter Dienst auf 10h gedeckelt",
         }
         sb.table("zeiterfassung").update(payload).eq("id", zid).execute()
         print(f"  -> korrigiert: ende_zeit={new_end}, arbeitsstunden={new_hours}")
