@@ -1271,6 +1271,17 @@ def show_monatsuebersicht_tabelle(supabase):
             overflow-wrap: anywhere;
             text-overflow: clip;
         }
+        .dp-cell-content {
+            display: block;
+            max-width: 100%;
+            max-height: 3.45rem;
+            line-height: 1.05rem;
+            white-space: pre-line;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+            overflow: hidden;
+            text-overflow: clip;
+        }
         .dp-month-table th {
             position: sticky;
             top: 0;
@@ -1350,7 +1361,12 @@ def show_monatsuebersicht_tabelle(supabase):
         for tag in range(1, anzahl_tage + 1):
             tag_datum = date(jahr, monat, tag)
             css_cls, label = _cell_state_label(ma, tag_datum)
-            table_parts.append(f"<td class='{css_cls}'>{html.escape(label)}</td>")
+            if css_cls == "dp-cell-geplant":
+                # In der Monatsübersicht nur reine Zeitfenster anzeigen, kein Status-Prefix.
+                label = label.replace("Geplant ", "")
+            table_parts.append(
+                f"<td class='{css_cls}'><span class='dp-cell-content'>{html.escape(label)}</span></td>"
+            )
         table_parts.append("</tr>")
 
     table_parts.append("</tbody></table></div>")
