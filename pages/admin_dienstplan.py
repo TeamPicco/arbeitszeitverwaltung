@@ -11,7 +11,6 @@ import locale
 import io
 import os
 import html
-from urllib.parse import urlencode
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
@@ -1283,15 +1282,26 @@ def show_monatsuebersicht_tabelle(supabase):
             overflow: hidden;
             text-overflow: clip;
         }
-        .dp-cell-link {
+        .dp-cell-form {
+            margin: 0;
+            padding: 0;
+        }
+        .dp-cell-btn {
             display: block;
-            color: inherit !important;
-            text-decoration: none !important;
             width: 100%;
             height: 100%;
             cursor: pointer;
+            border: none;
+            background: transparent;
+            color: inherit;
+            padding: 0;
+            text-align: center;
         }
-        .dp-cell-link:hover .dp-cell-content {
+        .dp-cell-btn:focus {
+            outline: 1px solid #ffffff;
+            outline-offset: -1px;
+        }
+        .dp-cell-btn:hover .dp-cell-content {
             filter: brightness(1.08);
         }
         .dp-month-table th {
@@ -1359,6 +1369,25 @@ def show_monatsuebersicht_tabelle(supabase):
             return ("dp-cell-ruhetag", "Ruhetag")
         return ("dp-cell-leer", "—")
 
+    # Bestehende URL-Parameter (z. B. locale) erhalten, Editor-Parameter dabei ausschließen.
+    preserved_hidden_inputs: list[str] = []
+    try:
+        qp_items = st.query_params.items()
+    except Exception:
+        qp_items = []
+    for qp_key, qp_value in qp_items:
+        if qp_key in ("dp_ma", "dp_date", "dp_year", "dp_month"):
+            continue
+        if isinstance(qp_value, list):
+            qp_values = qp_value
+        else:
+            qp_values = [qp_value]
+        for item in qp_values:
+            preserved_hidden_inputs.append(
+                f"<input type='hidden' name='{html.escape(str(qp_key))}' value='{html.escape(str(item or ''))}'>"
+            )
+    preserved_hidden_html = "".join(preserved_hidden_inputs)
+
     table_parts: list[str] = ["<div class='dp-month-table-wrap'><table class='dp-month-table'><thead><tr>"]
     table_parts.append("<th>Mitarbeiter</th>")
     for tag in range(1, anzahl_tage + 1):
@@ -1376,16 +1405,18 @@ def show_monatsuebersicht_tabelle(supabase):
             if css_cls == "dp-cell-geplant":
                 # In der Monatsübersicht nur reine Zeitfenster anzeigen, kein Status-Prefix.
                 label = label.replace("Geplant ", "")
-            query = urlencode(
-                {
-                    "dp_ma": int(ma["id"]),
-                    "dp_date": tag_datum.isoformat(),
-                    "dp_year": int(jahr),
-                    "dp_month": int(monat),
-                }
-            )
             table_parts.append(
-                f"<td class='{css_cls}'><a class='dp-cell-link' href='?{query}'><span class='dp-cell-content'>{html.escape(label)}</span></a></td>"
+                "<td class='"
+                + css_cls
+                + "'>"
+                + "<form class='dp-cell-form' method='get'>"
+                + preserved_hidden_html
+                + f"<input type='hidden' name='dp_ma' value='{int(ma['id'])}'>"
+                + f"<input type='hidden' name='dp_date' value='{tag_datum.isoformat()}'>"
+                + f"<input type='hidden' name='dp_year' value='{int(jahr)}'>"
+                + f"<input type='hidden' name='dp_month' value='{int(monat)}'>"
+                + f"<button class='dp-cell-btn' type='submit'><span class='dp-cell-content'>{html.escape(label)}</span></button>"
+                + "</form></td>"
             )
         table_parts.append("</tr>")
 
