@@ -19,6 +19,11 @@ MITARBEITER_SELECT_COLUMNS = (
     "strasse, plz, ort, geburtsdatum, eintrittsdatum, "
     "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage"
 )
+TEMPLATE_VOLLZEIT = "Vollzeit (Standard)"
+TEMPLATE_TEILZEIT = "Teilzeit / Aushilfe"
+TEMPLATE_SAISON = "Saisonkraft"
+TEMPLATE_OPTIONS = [TEMPLATE_VOLLZEIT, TEMPLATE_TEILZEIT, TEMPLATE_SAISON]
+MINDESTLOHN_TEMPLATE = 12.82
 
 
 def _safe_text(value: object) -> str:
@@ -157,6 +162,91 @@ def _build_prefill(ma: dict) -> ContractData:
     )
 
 
+def _template_payload(template_name: str, prefill: ContractData) -> dict:
+    """Liefert Preset-Werte für Vertrags-Templates."""
+    base_start = _to_date(prefill.employment_start_date)
+    base_effective = _to_date(prefill.amendment_effective_date, fallback=base_start)
+    probe_start = base_start
+    probe_end = _plus_months(probe_start, 6) - date.resolution
+
+    if template_name == TEMPLATE_TEILZEIT:
+        monthly_hours = 80.0  # editierbar auf 40/80 im Formular
+        return {
+            "monthly_target_hours": monthly_hours,
+            "annual_vacation_days": 12.0,  # pro rata (gesetzliches Minimum bei Teilzeit)
+            "working_days_per_week_text": "2-3",
+            "fixed_rest_days_text": "Montag, Dienstag",
+            "duty_planning_lead_days": 4,
+            "activity_tasks": ["Koch", "Reinigung", "Logistik"],
+            "activity_free_text": "",
+            "monthly_gross_salary": round(monthly_hours * MINDESTLOHN_TEMPLATE, 2),
+            "salary_payment_day": 15,
+            "probe_start_date": probe_start,
+            "probe_end_date": probe_end,
+            "probe_notice_period_text": "2 Wochen",
+            "account_settlement_deadline_text": "31. März des Folgejahres",
+            "additional_agreements": "",
+        }
+
+    if template_name == TEMPLATE_SAISON:
+        probe_start = base_effective
+        probe_end = _plus_months(probe_start, 3) - date.resolution
+        monthly_hours = 160.0
+        return {
+            "monthly_target_hours": monthly_hours,
+            "annual_vacation_days": 28.0,
+            "working_days_per_week_text": "4-5 (flexibel nach Saisonbedarf)",
+            "fixed_rest_days_text": "Montag, Dienstag (Abweichung nach Dienstplan möglich)",
+            "duty_planning_lead_days": 2,
+            "activity_tasks": ["Koch", "Reinigung", "Logistik"],
+            "activity_free_text": "Flexible Einsatzplanung entsprechend Saison- und Betriebsbedarf.",
+            "monthly_gross_salary": max(float(prefill.monthly_gross_salary or 0.0), round(monthly_hours * MINDESTLOHN_TEMPLATE, 2)),
+            "salary_payment_day": 15,
+            "probe_start_date": probe_start,
+            "probe_end_date": probe_end,
+            "probe_notice_period_text": "2 Wochen",
+            "account_settlement_deadline_text": "31. März des Folgejahres",
+            "additional_agreements": "Saisonkraft-Regelung: flexible Verteilung der Arbeitszeit gemäß Dienstplanung.",
+        }
+
+    # Vollzeit (Standard)
+    monthly_hours = 160.0
+    return {
+        "monthly_target_hours": monthly_hours,
+        "annual_vacation_days": 28.0,
+        "working_days_per_week_text": "4-5",
+        "fixed_rest_days_text": "Montag, Dienstag",
+        "duty_planning_lead_days": 4,
+        "activity_tasks": ["Koch", "Reinigung", "Logistik"],
+        "activity_free_text": "",
+        "monthly_gross_salary": max(float(prefill.monthly_gross_salary or 0.0), round(monthly_hours * MINDESTLOHN_TEMPLATE, 2)),
+        "salary_payment_day": 15,
+        "probe_start_date": probe_start,
+        "probe_end_date": probe_end,
+        "probe_notice_period_text": "2 Wochen",
+        "account_settlement_deadline_text": "31. März des Folgejahres",
+        "additional_agreements": "",
+    }
+
+
+def _apply_template_to_state(key_prefix: str, prefill: ContractData, template_name: str) -> None:
+    preset = _template_payload(template_name, prefill)
+    st.session_state[f"{key_prefix}_monthly_hours"] = float(preset["monthly_target_hours"])
+    st.session_state[f"{key_prefix}_vacation_days"] = float(preset["annual_vacation_days"])
+    st.session_state[f"{key_prefix}_working_days_per_week"] = str(preset["working_days_per_week_text"])
+    st.session_state[f"{key_prefix}_fixed_rest_days"] = str(preset["fixed_rest_days_text"])
+    st.session_state[f"{key_prefix}_duty_planning_lead_days"] = int(preset["duty_planning_lead_days"])
+    st.session_state[f"{key_prefix}_activity_tasks"] = list(preset["activity_tasks"])
+    st.session_state[f"{key_prefix}_activity_free_text"] = str(preset["activity_free_text"])
+    st.session_state[f"{key_prefix}_monthly_gross"] = float(preset["monthly_gross_salary"])
+    st.session_state[f"{key_prefix}_salary_payment_day"] = int(preset["salary_payment_day"])
+    st.session_state[f"{key_prefix}_probe_start"] = _to_date(preset["probe_start_date"])
+    st.session_state[f"{key_prefix}_probe_end"] = _to_date(preset["probe_end_date"])
+    st.session_state[f"{key_prefix}_probe_notice"] = str(preset["probe_notice_period_text"])
+    st.session_state[f"{key_prefix}_account_deadline"] = str(preset["account_settlement_deadline_text"])
+    st.session_state[f"{key_prefix}_additional_agreements"] = str(preset["additional_agreements"])
+
+
 @st.fragment
 def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
     st.markdown("### Mitarbeiter-Sync")
@@ -281,7 +371,7 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
         )
 
     st.markdown("#### Tätigkeit")
-    activity_options = ["Beikoch", "Küchenhilfe", "Reinigung", "Logistik"]
+    activity_options = ["Koch", "Beikoch", "Küchenhilfe", "Reinigung", "Logistik"]
     prefill_tasks = [t for t in (prefill.activity_tasks or []) if t in activity_options]
     if not prefill_tasks:
         prefill_tasks = activity_options.copy()
@@ -396,6 +486,33 @@ def show_vertraege_page() -> None:
         st.session_state["v4_selected_mitarbeiter_id"] = selected_employee_id
 
     prefill = _build_prefill(selected_employee)
+
+    st.markdown("### Vertrags-Template")
+    st.caption(
+        "Vorlage auswählen. Die Preset-Werte werden automatisch in das Formular übernommen "
+        "und bleiben danach vollständig editierbar."
+    )
+    template_key = f"{key_prefix}_template_select"
+    selected_template = st.selectbox(
+        "Template auswählen",
+        TEMPLATE_OPTIONS,
+        index=0,
+        key=template_key,
+    )
+    applied_template_key = f"{key_prefix}_template_applied"
+    if st.session_state.get(applied_template_key) != selected_template:
+        _apply_template_to_state(key_prefix, prefill, selected_template)
+        st.session_state[applied_template_key] = selected_template
+        st.rerun()
+
+    if st.button(
+        "Template erneut anwenden",
+        use_container_width=True,
+        key=f"{key_prefix}_template_reapply",
+    ):
+        _apply_template_to_state(key_prefix, prefill, selected_template)
+        st.rerun()
+
     contract_data = _render_form(prefill, key_prefix=key_prefix)
 
     pdf_by_ma = st.session_state.setdefault("v4_contract_pdf_by_ma", {})

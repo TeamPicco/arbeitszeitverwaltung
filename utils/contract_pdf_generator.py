@@ -381,7 +381,7 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
     _para(
         pdf,
         "Die Probezeit im Arbeitsverhältnis "
-        f"({_fmt_date(probe_start)} bis {_fmt_date(probe_end)}) gelten als Probezeit gemäß § 622 Abs. 3 BGB. "
+        f"({_fmt_date(probe_start)} bis {_fmt_date(probe_end)}) gilt als Probezeit gemäß § 622 Abs. 3 BGB. "
         "Während der Probezeit kann das Arbeitsverhältnis von beiden Parteien mit einer Frist von "
         f"{probe_notice_period} "
         "zu jedem beliebigen Tag gekündigt werden.",
