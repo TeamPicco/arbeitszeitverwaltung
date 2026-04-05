@@ -929,27 +929,38 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
         if admin_modus:
             st.markdown("#### Zeiteinträge interaktiv korrigieren")
-            st.caption("Klicken Sie auf einen Eintrag, um ihn in einem Popup zu bearbeiten oder zu löschen (mit Pflichtbegründung).")
-            edit_options = {}
+            st.caption("Direkt auf Bearbeiten klicken, um den Eintrag im Popup zu ändern oder zu löschen (mit Pflichtbegründung).")
+
+            editable_entries = []
             for raw in zeiterfassungen:
                 rid = raw.get("id")
                 if rid is None:
                     continue
-                d = str(raw.get("datum") or "")
-                s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
-                e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
-                label = f"#{rid} · {d} · {s}–{e}"
-                edit_options[label] = raw
+                editable_entries.append(raw)
 
-            if edit_options:
-                selected_label = st.selectbox(
-                    "Zeiteintrag auswählen",
-                    options=list(edit_options.keys()),
-                    key="za_edit_select",
-                )
-                if st.button("Eintrag öffnen", use_container_width=True, key="za_edit_open_btn"):
-                    st.session_state["za_edit_entry"] = edit_options[selected_label]
-                    st.rerun()
+            editable_entries.sort(
+                key=lambda x: (str(x.get("datum") or ""), str(x.get("start_zeit") or "")),
+                reverse=True,
+            )
+
+            if not editable_entries:
+                st.info("Keine Zeiteinträge für den gewählten Zeitraum vorhanden.")
+            else:
+                st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+                for raw in editable_entries:
+                    rid = int(raw.get("id"))
+                    d = str(raw.get("datum") or "")
+                    s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
+                    e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
+
+                    c_info, c_action = st.columns([5, 1])
+                    with c_info:
+                        st.markdown(f"**#{rid}** · {d} · {s}–{e}")
+                    with c_action:
+                        if st.button("Bearbeiten", key=f"za_edit_btn_{rid}", use_container_width=True):
+                            st.session_state["za_edit_entry"] = raw
+                            st.rerun()
+                st.markdown("</div>", unsafe_allow_html=True)
 
             active_edit = st.session_state.get("za_edit_entry")
             if active_edit:
