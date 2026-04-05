@@ -175,11 +175,31 @@ def as_download_filename(employee_name: str, effective_date: date) -> str:
 
 def preview_pdf_html(pdf_bytes: bytes) -> str:
     b64 = base64.b64encode(pdf_bytes).decode("ascii")
-    return (
-        "<iframe src='data:application/pdf;base64,"
-        + b64
-        + "' width='100%' height='980' style='border:1px solid #E2E8F0;border-radius:8px;'></iframe>"
-    )
+    # Robuste Vorschau:
+    # Statt data: URI (kann in einigen Browsern/Umgebungen fehlschlagen oder abgeschnitten werden)
+    # wird aus Base64 ein Blob erzeugt und als Object-URL in ein iframe gesetzt.
+    return f"""
+    <div style="width:100%;height:980px;border:1px solid #E2E8F0;border-radius:8px;overflow:hidden;">
+      <iframe id="contract-pdf-frame" width="100%" height="100%" style="border:0;" title="Vertragsvorschau"></iframe>
+    </div>
+    <script>
+    (function() {{
+      const b64 = "{b64}";
+      const binary = atob(b64);
+      const len = binary.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {{
+        bytes[i] = binary.charCodeAt(i);
+      }}
+      const blob = new Blob([bytes], {{ type: "application/pdf" }});
+      const url = URL.createObjectURL(blob);
+      const frame = document.getElementById("contract-pdf-frame");
+      if (frame) {{
+        frame.src = url;
+      }}
+    }})();
+    </script>
+    """
 
 
 def _title(pdf: FPDF, text: str) -> None:

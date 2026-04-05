@@ -219,14 +219,13 @@ def _render_form(prefill: ContractData, key_prefix: str) -> ContractData:
 
 def _try_embed_pdf(pdf_bytes: bytes) -> None:
     try:
-        st.components.v1.html(_cached_preview_html(pdf_bytes), height=980, scrolling=True)
-    except Exception:
-        st.info("PDF-Vorschau konnte nicht eingebettet werden. Bitte Download verwenden.")
+        st.components.v1.html(_preview_html(pdf_bytes), height=980, scrolling=True)
+    except Exception as exc:
+        st.warning(f"PDF-Vorschau konnte nicht eingebettet werden: {exc}")
+        st.info("Bitte Download verwenden.")
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def _cached_preview_html(pdf_bytes: bytes) -> str:
-    # Base64-Encoding ist bei großen PDFs teuer – deshalb gecacht.
+def _preview_html(pdf_bytes: bytes) -> str:
     return preview_pdf_html(pdf_bytes)
 
 
