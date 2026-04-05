@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import date, datetime
 
 import streamlit as st
@@ -183,6 +184,60 @@ def _render_upload_status(mitarbeiter_id: int) -> None:
     ):
         _clear_upload_status(mitarbeiter_id)
         st.rerun()
+
+
+def _update_mitarbeiter_stammdaten_robust(
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: int | None,
+    payload: dict,
+) -> tuple[bool, str, list[str]]:
+    """
+    Aktualisiert Stammdaten robust über unterschiedliche DB-Schemas:
+    - versucht primären Client + optional Service-Role-Client
+    - entfernt unbekannte Spalten automatisch aus dem Payload
+    """
+    working_payload = dict(payload)
+    dropped_columns: list[str] = []
+    last_error = "unbekannter Fehler"
+
+    clients: list[tuple[str, object]] = [("primary", get_supabase_client())]
+    try:
+        clients.append(("service_role", get_service_role_client()))
+    except Exception:
+        pass
+
+    max_attempts = max(1, len(working_payload) + 2)
+    for _ in range(max_attempts):
+        if not working_payload:
+            return False, "Keine speicherbaren Felder im Payload vorhanden.", dropped_columns
+
+        missing_column_handled = False
+        for client_name, client in clients:
+            try:
+                q = client.table("mitarbeiter").update(working_payload).eq("id", mitarbeiter_id)
+                if betrieb_id is not None:
+                    q = q.eq("betrieb_id", betrieb_id)
+                q.execute()
+                info = f"update_ok client={client_name}"
+                if dropped_columns:
+                    info += f" dropped={','.join(dropped_columns)}"
+                return True, info, dropped_columns
+            except Exception as exc:
+                last_error = f"update_fail client={client_name}: {exc}"
+                msg = str(exc)
+                col_match = re.search(r'column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist', msg, flags=re.IGNORECASE)
+                if col_match:
+                    col = str(col_match.group(1) or "").strip()
+                    if col and col in working_payload:
+                        working_payload.pop(col, None)
+                        dropped_columns.append(col)
+                        missing_column_handled = True
+                        break
+        if not missing_column_handled:
+            break
+
+    return False, last_error, dropped_columns
 
 
 def _insert_mitarbeiter_dokument_robust(
@@ -805,13 +860,24 @@ def _show_mitarbeiter_stammdaten_tab():
             }
             if stundenlohn_col:
                 payload[stundenlohn_col] = float(akten_stundenlohn)
-            ok = update_mitarbeiter(ma["id"], payload)
+            ok, info, dropped_columns = _update_mitarbeiter_stammdaten_robust(
+                mitarbeiter_id=int(ma["id"]),
+                betrieb_id=st.session_state.get("betrieb_id"),
+                payload=payload,
+            )
             if ok:
                 _refresh_after_write()
                 st.success("Stammdaten gespeichert.")
+                if dropped_columns:
+                    st.warning(
+                        "Speichern war nur teilweise möglich. Nicht im DB-Schema vorhandene Felder wurden ausgelassen: "
+                        + ", ".join(dropped_columns)
+                    )
                 st.rerun()
             else:
                 st.error("Speichern fehlgeschlagen. Bitte Felder/Schema prüfen.")
+                st.caption("Technische Details (kopierbar):")
+                st.code(info, language="text")
 
     with st.expander("Vertrag oder Dokument hochladen", expanded=True):
         with st.form(f"dokument_upload_form_{ma['id']}"):
