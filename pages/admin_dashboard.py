@@ -8,6 +8,7 @@ from utils.absences import delete_absence, store_absence, update_absence
 from utils.cache_manager import clear_app_caches
 from utils.database import (
     get_supabase_client,
+    get_service_role_client,
     update_mitarbeiter,
     upload_file_to_storage_result,
 )
@@ -182,6 +183,80 @@ def _render_upload_status(mitarbeiter_id: int) -> None:
     ):
         _clear_upload_status(mitarbeiter_id)
         st.rerun()
+
+
+def _insert_mitarbeiter_dokument_robust(
+    supabase,
+    base_payload: dict,
+) -> tuple[bool, str]:
+    """
+    Speichert Dokument-Metadaten robust über unterschiedliche DB-Schemas:
+    - versucht mehrere Payload-Varianten (legacy/new)
+    - versucht bei Bedarf Service-Role-Client
+    """
+    variants: list[tuple[str, dict]] = []
+    full = dict(base_payload)
+    variants.append(("full", full))
+
+    v_no_ersteller = dict(full)
+    v_no_ersteller.pop("erstellt_von", None)
+    variants.append(("no_erstellt_von", v_no_ersteller))
+
+    v_no_meta = dict(full)
+    v_no_meta.pop("metadaten", None)
+    variants.append(("no_metadaten", v_no_meta))
+
+    v_no_status = dict(full)
+    v_no_status.pop("status", None)
+    variants.append(("no_status", v_no_status))
+
+    v_status_aktiv = dict(full)
+    v_status_aktiv["status"] = "aktiv"
+    variants.append(("status_aktiv", v_status_aktiv))
+
+    v_minimal = {
+        k: full.get(k)
+        for k in ("betrieb_id", "mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal", v_minimal))
+
+    v_minimal_no_betrieb = {
+        k: full.get(k)
+        for k in ("mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal_no_betrieb", v_minimal_no_betrieb))
+
+    # Duplikate nach normalisierter Signatur vermeiden.
+    dedup_variants: list[tuple[str, dict]] = []
+    seen: set[tuple] = set()
+    for label, payload in variants:
+        sig = tuple(sorted(payload.items()))
+        if sig in seen:
+            continue
+        seen.add(sig)
+        dedup_variants.append((label, payload))
+
+    clients: list[tuple[str, object]] = [("primary", supabase)]
+    try:
+        svc = get_service_role_client()
+        clients.append(("service_role", svc))
+    except Exception:
+        pass
+
+    last_error = "unbekannter Fehler"
+    for client_name, client in clients:
+        for variant_name, payload in dedup_variants:
+            try:
+                client.table("mitarbeiter_dokumente").insert(payload).execute()
+                return True, f"insert_ok client={client_name} variant={variant_name}"
+            except Exception as exc:
+                last_error = (
+                    f"insert_fail client={client_name} variant={variant_name}: {exc}"
+                )
+                continue
+    return False, last_error
 
 
 def _show_zeitauswertung_tab():
@@ -838,31 +913,31 @@ def _show_mitarbeiter_stammdaten_tab():
                         file_url = _storage_public_url(used_bucket, file_path)
                         metadata_saved = True
                         warning_details: list[str] = []
-                        try:
-                            supabase.table("mitarbeiter_dokumente").insert(
-                                {
-                                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                                    "mitarbeiter_id": ma["id"],
-                                    "name": notiz or upload.name,
-                                    "typ": dokument_typ,
-                                    "file_path": file_path,
-                                    "file_url": file_url,
-                                    "status": dokument_status,
-                                    "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
-                                    "metadaten": {
-                                        "uploaded_at": datetime.now().isoformat(),
-                                        "source": "admin_dashboard",
-                                    },
-                                    "erstellt_von": st.session_state.get("user_id"),
-                                }
-                            ).execute()
-                        except Exception as e:
+                        meta_payload = {
+                            "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                            "mitarbeiter_id": ma["id"],
+                            "name": notiz or upload.name,
+                            "typ": dokument_typ,
+                            "file_path": file_path,
+                            "file_url": file_url,
+                            "status": dokument_status,
+                            "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
+                            "metadaten": {
+                                "uploaded_at": datetime.now().isoformat(),
+                                "source": "admin_dashboard",
+                            },
+                            "erstellt_von": st.session_state.get("user_id"),
+                        }
+                        meta_ok, meta_msg = _insert_mitarbeiter_dokument_robust(
+                            supabase, meta_payload
+                        )
+                        if not meta_ok:
                             metadata_saved = False
                             details = (
                                 f"bucket={used_bucket}\n"
                                 f"path={file_path}\n"
                                 f"file_name={safe_name}\n"
-                                f"metadata_error={str(e)}"
+                                f"metadata_error={meta_msg}"
                             )
                             _set_upload_status(
                                 int(ma["id"]),
@@ -877,6 +952,8 @@ def _show_mitarbeiter_stammdaten_tab():
                                 "Datei wurde hochgeladen, aber die Zuordnung zur Personalakte "
                                 "ist fehlgeschlagen. Details stehen oben dauerhaft."
                             )
+                        elif "variant=full" not in meta_msg or "client=primary" not in meta_msg:
+                            warning_details.append(f"metadata_fallback={meta_msg}")
 
                         if metadata_saved and dokument_typ == "arbeitsvertrag":
                             try:
