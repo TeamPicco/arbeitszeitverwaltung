@@ -10,7 +10,6 @@ import calendar
 import locale
 import io
 import os
-import html
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
@@ -1232,114 +1231,10 @@ def show_monatsuebersicht_tabelle(supabase):
 
     anzahl_tage = calendar.monthrange(jahr, monat)[1]
 
-    st.markdown(
-        """
-        <style>
-        .dp-month-table-wrap {
-            overflow-x: auto;
-            overflow-y: hidden;
-            border: 1px solid #ffffff;
-            border-radius: 10px;
-            background: #000000;
-            padding: 0;
-            margin: 0.35rem 0 0.6rem 0;
-        }
-        .dp-month-table {
-            border-collapse: separate;
-            border-spacing: 0;
-            width: max-content;
-            min-width: 100%;
-            table-layout: fixed;
-        }
-        .dp-month-table th, .dp-month-table td {
-            min-width: 100px;
-            max-width: 100px;
-            width: 100px;
-            padding: 6px 8px;
-            text-align: center;
-            vertical-align: middle;
-            border-bottom: 1px solid #ffffff;
-            border-right: 1px solid #ffffff;
-            font-size: 0.78rem;
-            line-height: 1.15rem;
-            overflow: hidden;
-        }
-        .dp-month-table th { white-space: nowrap; }
-        .dp-month-table td {
-            white-space: pre-line;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-            text-overflow: clip;
-        }
-        .dp-cell-content {
-            display: block;
-            max-width: 100%;
-            max-height: 3.45rem;
-            line-height: 1.05rem;
-            white-space: pre-line;
-            word-break: break-word;
-            overflow-wrap: anywhere;
-            overflow: hidden;
-            text-overflow: clip;
-        }
-        .dp-cell-form {
-            margin: 0;
-            padding: 0;
-        }
-        .dp-cell-btn {
-            display: block;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            color: inherit;
-            padding: 0;
-            text-align: center;
-        }
-        .dp-cell-btn:focus {
-            outline: 1px solid #ffffff;
-            outline-offset: -1px;
-        }
-        .dp-cell-btn:hover .dp-cell-content {
-            filter: brightness(1.08);
-        }
-        .dp-month-table th {
-            position: sticky;
-            top: 0;
-            z-index: 3;
-            background: #000000;
-            color: #ffffff;
-            font-weight: 700;
-        }
-        .dp-month-table th:first-child,
-        .dp-month-table td:first-child {
-            position: sticky;
-            left: 0;
-            z-index: 4;
-            min-width: 230px;
-            max-width: 230px;
-            width: 230px;
-            text-align: left;
-            font-weight: 700;
-            background: #000000;
-            color: #ffffff;
-            white-space: nowrap;
-        }
-        .dp-cell-geplant { background: #1e3a8a; color: #ffffff; font-weight: 600; }
-        .dp-cell-urlaub  { background: #fde68a; color: #000000; font-weight: 600; }
-        .dp-cell-frei    { background: #ffffff; color: #000000; font-weight: 600; }
-        .dp-cell-krank   { background: #fdba74; color: #000000; font-weight: 600; }
-        .dp-cell-ruhetag { background: #000000; color: #ffffff; }
-        .dp-cell-leer    { background: #000000; color: #ffffff; }
-        .dp-month-table tr:last-child td { border-bottom: none; }
-        .dp-month-table th:last-child, .dp-month-table td:last-child { border-right: none; }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    st.caption(
+        "Monatsübersicht ist horizontal scrollbar. "
+        "Zellklick in der Tabelle öffnet den Editor direkt im aktuellen Fenster."
     )
-
-    st.caption("Monatsübersicht ist horizontal scrollbar. Die Mitarbeiter-Spalte bleibt beim Scrollen fixiert.")
 
     def _cell_state_label(ma: dict, tag_datum: date) -> tuple[str, str]:
         key = (ma["id"], tag_datum.isoformat())
@@ -1369,94 +1264,63 @@ def show_monatsuebersicht_tabelle(supabase):
             return ("dp-cell-ruhetag", "Ruhetag")
         return ("dp-cell-leer", "—")
 
-    # Bestehende URL-Parameter (z. B. locale) erhalten, Editor-Parameter dabei ausschließen.
-    preserved_hidden_inputs: list[str] = []
-    try:
-        qp_items = st.query_params.items()
-    except Exception:
-        qp_items = []
-    for qp_key, qp_value in qp_items:
-        if qp_key in ("dp_ma", "dp_date", "dp_year", "dp_month"):
-            continue
-        if isinstance(qp_value, list):
-            qp_values = qp_value
-        else:
-            qp_values = [qp_value]
-        for item in qp_values:
-            preserved_hidden_inputs.append(
-                f"<input type='hidden' name='{html.escape(str(qp_key))}' value='{html.escape(str(item or ''))}'>"
-            )
-    preserved_hidden_html = "".join(preserved_hidden_inputs)
+    # Native Streamlit-Interaktion ohne URL-/GET-Navigation,
+    # damit kein Session-Reset zur Login-Maske entsteht.
+    import pandas as pd
 
-    table_parts: list[str] = ["<div class='dp-month-table-wrap'><table class='dp-month-table'><thead><tr>"]
-    table_parts.append("<th>Mitarbeiter</th>")
+    day_columns: list[tuple[str, date]] = []
     for tag in range(1, anzahl_tage + 1):
         tag_datum = date(jahr, monat, tag)
         wt_kurz = WOCHENTAGE_KURZ[tag_datum.weekday()]
-        table_parts.append(f"<th>{tag:02d}<br><span style='font-size:0.68rem;'>{wt_kurz}</span></th>")
-    table_parts.append("</tr></thead><tbody>")
+        day_columns.append((f"{tag:02d} {wt_kurz}", tag_datum))
+    day_by_col = {col: d for col, d in day_columns}
 
+    matrix_rows: list[dict] = []
     for ma in mitarbeiter_liste:
-        ma_name = html.escape(f"{ma['vorname']} {ma['nachname']}")
-        table_parts.append(f"<tr><td>{ma_name}</td>")
-        for tag in range(1, anzahl_tage + 1):
-            tag_datum = date(jahr, monat, tag)
+        row = {"Mitarbeiter": f"{ma['vorname']} {ma['nachname']}"}
+        for col_name, tag_datum in day_columns:
             css_cls, label = _cell_state_label(ma, tag_datum)
             if css_cls == "dp-cell-geplant":
-                # In der Monatsübersicht nur reine Zeitfenster anzeigen, kein Status-Prefix.
                 label = label.replace("Geplant ", "")
-            table_parts.append(
-                "<td class='"
-                + css_cls
-                + "'>"
-                + "<form class='dp-cell-form' method='get'>"
-                + preserved_hidden_html
-                + f"<input type='hidden' name='dp_ma' value='{int(ma['id'])}'>"
-                + f"<input type='hidden' name='dp_date' value='{tag_datum.isoformat()}'>"
-                + f"<input type='hidden' name='dp_year' value='{int(jahr)}'>"
-                + f"<input type='hidden' name='dp_month' value='{int(monat)}'>"
-                + f"<button class='dp-cell-btn' type='submit'><span class='dp-cell-content'>{html.escape(label)}</span></button>"
-                + "</form></td>"
-            )
-        table_parts.append("</tr>")
+            row[col_name] = label
+        matrix_rows.append(row)
 
-    table_parts.append("</tbody></table></div>")
-    st.markdown("".join(table_parts), unsafe_allow_html=True)
+    matrix_df = pd.DataFrame(matrix_rows, columns=["Mitarbeiter"] + [c for c, _ in day_columns])
+    matrix_key = f"dp_month_matrix_{jahr}_{monat}"
+    matrix_event = st.dataframe(
+        matrix_df,
+        use_container_width=True,
+        hide_index=True,
+        row_height=32,
+        on_select="rerun",
+        selection_mode="single-cell",
+        key=matrix_key,
+    )
 
-    # 1-Klick-Öffnung per Zellklick (Query-Param-Bridge aus HTML-Tabelle zum Dialog-Editor)
-    def _qp_scalar(name: str) -> str:
+    selected_cells = []
+    try:
+        selected_cells = list(getattr(matrix_event.selection, "cells", []) or [])
+    except Exception:
+        selected_cells = []
+
+    if selected_cells:
         try:
-            value = st.query_params.get(name)
-        except Exception:
-            return ""
-        if isinstance(value, list):
-            return str(value[0]) if value else ""
-        return str(value or "")
-
-    clicked_ma = _qp_scalar("dp_ma")
-    clicked_date = _qp_scalar("dp_date")
-    clicked_year = _qp_scalar("dp_year")
-    clicked_month = _qp_scalar("dp_month")
-    if clicked_ma and clicked_date and clicked_year and clicked_month:
-        try:
-            ma_id_clicked = int(clicked_ma)
-            y_clicked = int(clicked_year)
-            m_clicked = int(clicked_month)
-            d_clicked = date.fromisoformat(clicked_date)
-            valid_ma = any(int(m["id"]) == ma_id_clicked for m in mitarbeiter_liste)
-            if valid_ma and y_clicked == int(jahr) and m_clicked == int(monat) and d_clicked.month == int(monat):
+            row_idx, col_name = selected_cells[0]
+            row_idx = int(row_idx)
+            if col_name in day_by_col and 0 <= row_idx < len(mitarbeiter_liste):
+                ma_clicked = mitarbeiter_liste[row_idx]
+                d_clicked = day_by_col[col_name]
                 st.session_state["tabelle_cell_editor"] = {
-                    "ma_id": ma_id_clicked,
+                    "ma_id": int(ma_clicked["id"]),
                     "datum": d_clicked.isoformat(),
                     "jahr": int(jahr),
                     "monat": int(monat),
                 }
-                # Nur unsere Bridge-Parameter entfernen; andere URL-Parameter bleiben erhalten.
-                for key in ("dp_ma", "dp_date", "dp_year", "dp_month"):
-                    try:
-                        del st.query_params[key]
-                    except Exception:
-                        pass
+                # Auswahl zurücksetzen, damit derselbe Klick später erneut möglich ist.
+                try:
+                    st.session_state[matrix_key] = {"selection": {"rows": [], "columns": [], "cells": []}}
+                except Exception:
+                    pass
                 st.rerun()
         except Exception:
             pass
