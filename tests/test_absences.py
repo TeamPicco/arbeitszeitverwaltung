@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from utils.absences import calculate_absence_credit, delete_absence, store_absence, update_absence
+from utils.absences import _monthly_target_to_daily_hours, calculate_absence_credit, delete_absence, store_absence, update_absence
 
 
 class FakeResponse:

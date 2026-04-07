@@ -83,13 +83,27 @@ def _load_contract_rows(supabase, mitarbeiter_id: int) -> list[dict]:
     try:
         res = (
             supabase.table("vertraege")
-            .select("gueltig_ab,gueltig_bis,soll_stunden_monat,wochenstunden")
+            .select(
+                "gueltig_ab,gueltig_bis,soll_stunden_monat,wochenstunden,"
+                "arbeitstage_pro_woche,wochenarbeitstage"
+            )
             .eq("mitarbeiter_id", mitarbeiter_id)
             .execute()
         )
         return res.data or []
     except Exception:
         return []
+
+
+def _resolve_workdays_per_week(contract: dict) -> float:
+    for key in ("arbeitstage_pro_woche", "wochenarbeitstage"):
+        try:
+            v = float(contract.get(key) or 0.0)
+            if 0.0 < v <= 6.0:
+                return v
+        except Exception:
+            continue
+    return 5.0
 
 
 def _contract_active_on(contract: dict, day: date) -> bool:
@@ -126,8 +140,8 @@ def _resolve_daily_target_for_date(day: date, fallback_monthly_target: float, co
 
     wochenstunden = _to_float(active.get("wochenstunden"), 0.0)
     if wochenstunden > 0:
-        # Betriebsmodell: 5 Arbeitstage (Mi-So).
-        return round(wochenstunden / 5.0, 4)
+        workdays_per_week = _resolve_workdays_per_week(active)
+        return round(wochenstunden / float(workdays_per_week), 4)
 
     return round(fallback_daily, 4)
 
@@ -303,6 +317,75 @@ def _load_absence_by_id(supabase, absence_id: int) -> dict | None:
     return rows[0] if rows else None
 
 
+def _safe_date(value) -> Optional[date]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except Exception:
+        return None
+
+
+def _coerce_existing_absence_history(rows: list[dict]) -> list[dict]:
+    history: list[dict] = []
+    for r in rows or []:
+        s = _safe_date((r or {}).get("start_datum") or (r or {}).get("datum"))
+        e = _safe_date((r or {}).get("ende_datum") or (r or {}).get("datum")) or s
+        if s is None:
+            continue
+        if e is None or e < s:
+            e = s
+        grund_raw = str((r or {}).get("grund") or "").strip()
+        diag_from_grund = None
+        if "diag:" in grund_raw.lower():
+            try:
+                diag_from_grund = grund_raw.split("diag:", 1)[1].strip()
+            except Exception:
+                diag_from_grund = None
+        history.append(
+            {
+                "start_datum": s.isoformat(),
+                "ende_datum": e.isoformat(),
+                "diagnose": diag_from_grund or (r or {}).get("diagnose"),
+                "diagnose_schluessel": diag_from_grund or (r or {}).get("diagnose_schluessel"),
+                "diagnose_code": (r or {}).get("diagnose_code"),
+                "icd10": (r or {}).get("icd10"),
+            }
+        )
+    return history
+
+
+def _load_existing_sick_episodes_same_diagnosis(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    current_absence_id: int | None = None,
+) -> list[dict]:
+    select_variants = [
+        "id,typ,start_datum,ende_datum,grund,diagnose,diagnose_schluessel,diagnose_code,icd10",
+        "id,typ,start_datum,ende_datum,grund",
+        "id,typ,start_datum,ende_datum,diagnose",
+        "id,typ,start_datum,ende_datum",
+    ]
+    for cols in select_variants:
+        try:
+            res = (
+                supabase.table("abwesenheiten")
+                .select(cols)
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .execute()
+            )
+            rows = res.data or []
+            if current_absence_id is not None:
+                rows = [r for r in rows if int(r.get("id") or 0) != int(current_absence_id)]
+            rows = [r for r in rows if str(r.get("typ") or "").strip().lower() in {"krankheit", "krank"}]
+            return _coerce_existing_absence_history(rows)
+        except Exception:
+            continue
+    return []
+
+
 def _insert_absence_compat(supabase, base_payload: dict, start: date) -> str:
     attempts: list[dict] = []
     for db_typ in _candidate_db_types(base_payload["typ"]):
@@ -357,6 +440,13 @@ def store_absence(
         typ=normalized_typ,
     )
 
+    diagnose_schluessel = ""
+    grund_with_diag = grund
+    if normalized_typ == "krankheit":
+        diagnose_schluessel = str((grund or "")).strip()
+        if diagnose_schluessel:
+            base = str(grund or "").strip()
+            grund_with_diag = f"{base} | diag:{diagnose_schluessel}" if base else f"diag:{diagnose_schluessel}"
     payload = {
         "betrieb_id": betrieb_id,
         "mitarbeiter_id": mitarbeiter_id,
@@ -366,7 +456,7 @@ def store_absence(
         "bezahlte_zeit": paid,
         "stunden_gutschrift": result.credited_hours,
         "attest_pfad": attest_pfad,
-        "grund": grund,
+        "grund": grund_with_diag,
         "created_by": created_by,
     }
     _insert_absence_compat(supabase, payload, start)
@@ -433,6 +523,14 @@ def update_absence(
     mitarbeiter_id = int(current.get("mitarbeiter_id"))
     betrieb_id = int(current.get("betrieb_id") or 0)
 
+    diagnose_schluessel = ""
+    grund_with_diag = grund
+    if normalized_typ == "krankheit":
+        diagnose_schluessel = str((grund or "")).strip()
+        if diagnose_schluessel:
+            base = str(grund or "").strip()
+            grund_with_diag = f"{base} | diag:{diagnose_schluessel}" if base else f"diag:{diagnose_schluessel}"
+
     attempts = []
     for db_typ in _candidate_db_types(normalized_typ):
         payload = {
@@ -442,7 +540,7 @@ def update_absence(
             "bezahlte_zeit": paid,
             "stunden_gutschrift": result.credited_hours,
             "attest_pfad": attest_pfad,
-            "grund": grund,
+            "grund": grund_with_diag,
         }
         attempts.append(payload)
         attempts.append({**payload, "datum": start.isoformat()})
@@ -497,6 +595,54 @@ def update_absence(
         "stunden_gutschrift": result.credited_hours,
         "typ": normalized_typ,
     }
+
+
+def build_efzg_episode_history(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    bis_datum: date,
+    max_lookback_days: int = 540,
+) -> list[dict]:
+    """
+    Baut eine einfache Episoden-Historie aus abwesenheiten (Typ Krankheit).
+    Ergebnis kompatibel zu utils.efzg.berechne_efzg_status(..., vorerkrankungen=...).
+    """
+    start_lookback = bis_datum - timedelta(days=max(1, int(max_lookback_days)))
+    try:
+        res = (
+            supabase.table("abwesenheiten")
+            .select("start_datum,ende_datum,grund")
+            .eq("mitarbeiter_id", int(mitarbeiter_id))
+            .in_("typ", ["krankheit", "krank"])
+            .gte("start_datum", start_lookback.isoformat())
+            .lte("start_datum", bis_datum.isoformat())
+            .order("start_datum")
+            .execute()
+        )
+        rows = res.data or []
+    except Exception:
+        rows = []
+
+    episodes: list[dict] = []
+    for row in rows:
+        s = _parse_iso_date(row.get("start_datum"))
+        e = _parse_iso_date(row.get("ende_datum")) or s
+        if s is None:
+            continue
+        if e is None or e < s:
+            e = s
+        episodes.append(
+            {
+                "start_datum": s.isoformat(),
+                "ende_datum": e.isoformat(),
+                # Diagnose-Schlüssel nur wenn im Feld grund explizit als Prefix mitgegeben.
+                # Beispiel: "diag:M54.5"
+                "diagnose_schluessel": (str(row.get("grund") or "").strip().split("diag:", 1)[1].strip()
+                                        if "diag:" in str(row.get("grund") or "") else None),
+            }
+        )
+    return episodes
 
 
 def delete_absence(
