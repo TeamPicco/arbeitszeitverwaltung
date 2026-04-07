@@ -260,3 +260,96 @@ def test_validate_work_account_cycle_flags_purpose_mismatch():
     )
     assert checks["ok"] is False
     assert checks["invalid_purpose_rows"] >= 1
+
+
+def test_vacation_entitlement_partial_year_uses_burlg_month_rule():
+    sb = FakeSupabase()
+    sb.table("mitarbeiter").rows = [
+        {
+            "id": 1,
+            "monatliche_soll_stunden": 150.0,
+            "jahres_urlaubstage": 30.0,
+            "resturlaub_vorjahr": 2.0,
+            "eintrittsdatum": "2026-03-15",
+            "austrittsdatum": None,
+        }
+    ]
+    sb.table("vertraege").rows = [
+        {
+            "mitarbeiter_id": 1,
+            "gueltig_ab": "2026-01-01",
+            "gueltig_bis": None,
+            "soll_stunden_monat": 120.0,
+            "wochenstunden": 30.0,
+            "urlaubstage_jahr": 24.0,
+            "arbeitstage_pro_woche": 5.0,
+            "urlaubstage_sind_basis_6tage": "true",
+        }
+    ]
+    sb.table("abwesenheiten").rows = []
+    snap = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=6,
+        jahr=2026,
+    )
+    # 24 Basis-Tage (6-Tage-Woche) -> 20 Zieltage bei 5 Arbeitstagen/Woche.
+    # Teilurlaub (Eintritt im März): volle Monate bis Ende Juni = Apr, Mai, Jun = 3 Monate.
+    # 20 * 3/12 = 5 Tage + 2 Resturlaub Vorjahr = 7 Tage Anspruch.
+    assert snap.urlaubstage_gesamt == 7.0
+
+
+def test_sick_days_with_proof_not_counted_as_vacation_used():
+    sb = FakeSupabase()
+    sb.table("abwesenheiten").rows = [
+        {
+            "mitarbeiter_id": 1,
+            "typ": "urlaub",
+            "start_datum": "2026-03-10",
+            "ende_datum": "2026-03-12",
+        },
+        {
+            "mitarbeiter_id": 1,
+            "typ": "krankheit",
+            "start_datum": "2026-03-11",
+            "ende_datum": "2026-03-11",
+            "attest_pfad": "storage/au/ma1_2026-03-11.pdf",
+        },
+    ]
+    snap = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=3,
+        jahr=2026,
+    )
+    # Im Betriebsmodell (Mi-So) sind hier 2 Urlaubs-Arbeitstage betroffen (11./12.03.),
+    # davon 1 Tag krank mit Nachweis (§ 9 BUrlG) => nur 1 Urlaubstag angerechnet.
+    assert snap.urlaubstage_genommen == 1.0
+    assert snap.krankheitstage_gesamt >= 1.0
+
+
+def test_vacation_taken_is_cumulative_until_selected_month():
+    sb = FakeSupabase()
+    sb.table("abwesenheiten").rows = [
+        {"mitarbeiter_id": 1, "typ": "urlaub", "start_datum": "2026-01-08", "ende_datum": "2026-01-08"},
+        {"mitarbeiter_id": 1, "typ": "urlaub", "start_datum": "2026-03-04", "ende_datum": "2026-03-04"},
+    ]
+    snap_mar = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=3,
+        jahr=2026,
+    )
+    snap_apr = sync_work_account_for_month(
+        sb,
+        betrieb_id=1,
+        mitarbeiter_id=1,
+        monat=4,
+        jahr=2026,
+    )
+    assert snap_mar.urlaubstage_genommen == 2.0
+    # Fortlaufender Abzug: April bleibt mindestens auf diesem Stand (ohne neue Urlaube).
+    assert snap_apr.urlaubstage_genommen == 2.0

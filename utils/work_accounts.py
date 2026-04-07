@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+import math
+import re
 from typing import Dict, Iterable, Optional
 
 from utils.lohnberechnung import berechne_arbeitszeitkonto_saldo
@@ -203,29 +205,52 @@ def calculate_absence_days(start: date, end: date) -> float:
 
 
 def _load_mitarbeiter_defaults(supabase, mitarbeiter_id: int) -> dict:
-    res = (
-        supabase.table("mitarbeiter")
-        .select("monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr")
-        .eq("id", mitarbeiter_id)
-        .limit(1)
-        .execute()
-    )
+    try:
+        res = (
+            supabase.table("mitarbeiter")
+            .select(
+                "monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, "
+                "eintrittsdatum, austrittsdatum, arbeitstage_pro_woche, urlaub_berechnungsbasis"
+            )
+            .eq("id", mitarbeiter_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        # Legacy-Fallback mit konservativem Basissatz
+        res = (
+            supabase.table("mitarbeiter")
+            .select("monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, eintrittsdatum, austrittsdatum")
+            .eq("id", mitarbeiter_id)
+            .limit(1)
+            .execute()
+        )
     rows = res.data or []
     return rows[0] if rows else {}
 
 
 def _load_contract_rows(supabase, mitarbeiter_id: int) -> list[dict]:
-    try:
-        res = (
-            supabase.table("vertraege")
-            .select("gueltig_ab, gueltig_bis, soll_stunden_monat, wochenstunden, urlaubstage_jahr")
-            .eq("mitarbeiter_id", mitarbeiter_id)
-            .execute()
-        )
-        return res.data or []
-    except Exception:
-        # Vor Migrationstabelle oder ältere Instanzen ohne Verträge
-        return []
+    select_variants = [
+        (
+            "gueltig_ab, gueltig_bis, soll_stunden_monat, wochenstunden, urlaubstage_jahr, "
+            "arbeitstage_pro_woche, wochenarbeitstage, urlaubstage_basis_werktage, "
+            "urlaubstage_sind_basis_6tage, urlaub_berechnungsbasis"
+        ),
+        "gueltig_ab, gueltig_bis, soll_stunden_monat, wochenstunden, urlaubstage_jahr",
+    ]
+    for columns in select_variants:
+        try:
+            res = (
+                supabase.table("vertraege")
+                .select(columns)
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            continue
+    # Vor Migrationstabelle oder ältere Instanzen ohne Verträge
+    return []
 
 
 def _contract_active_on(contract: dict, day: date) -> bool:
@@ -295,6 +320,257 @@ def _resolve_month_soll_and_vacation(
     return round(soll_hours, 2), round(urlaubstage_gesamt, 2)
 
 
+def _safe_date(value) -> Optional[date]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return date.fromisoformat(raw[:10])
+    except Exception:
+        return None
+
+
+def _parse_numeric_from_text(value) -> list[float]:
+    raw = str(value or "").strip()
+    if not raw:
+        return []
+    nums = re.findall(r"\d+(?:[.,]\d+)?", raw)
+    parsed: list[float] = []
+    for n in nums:
+        try:
+            parsed.append(float(n.replace(",", ".")))
+        except Exception:
+            continue
+    return parsed
+
+
+def _resolve_actual_workdays_per_week(active_contract: Optional[dict], mitarbeiter_defaults: dict) -> float:
+    candidates: list[float] = []
+    for src in (active_contract or {}, mitarbeiter_defaults or {}):
+        for key in ("arbeitstage_pro_woche", "wochenarbeitstage"):
+            candidates.extend(_parse_numeric_from_text(src.get(key)))
+    valid = [v for v in candidates if 0.0 < v <= 6.0]
+    if not valid:
+        # Betriebsmodell der App ist Mi-So, also 5 Arbeitstage.
+        return 5.0
+    # Bei Bereichsangaben wie "4-5" arbeitnehmerfreundlich die obere Grenze nutzen.
+    return float(max(valid))
+
+
+def _is_basis_six_day_week(active_contract: Optional[dict], mitarbeiter_defaults: dict) -> bool:
+    """
+    Prüft, ob hinterlegte Urlaubstage als 6-Tage-Basis zu verstehen sind.
+    Ohne explizite Kennzeichnung wird aus Kompatibilitätsgründen von Ziel-Tagen
+    im aktuellen Arbeitsmodell ausgegangen.
+    """
+    truthy = {"1", "true", "ja", "yes", "y", "basis_6", "6_tage", "6-tage"}
+    falsy = {"0", "false", "nein", "no", "zieltage", "target"}
+    for src in (active_contract or {}, mitarbeiter_defaults or {}):
+        for key in ("urlaubstage_sind_basis_6tage", "urlaub_berechnungsbasis"):
+            raw = str(src.get(key) or "").strip().lower()
+            if not raw:
+                continue
+            if raw in truthy or ("6" in raw and "basis" in raw):
+                return True
+            if raw in falsy:
+                return False
+    return False
+
+
+def _apply_burlg_rounding(value: float) -> float:
+    if value <= 0:
+        return 0.0
+    whole = math.floor(value)
+    frac = value - whole
+    if frac >= 0.5:
+        return float(whole + 1)
+    # Kleinere Bruchteile bleiben als Bruchteil bestehen.
+    return round(value, 2)
+
+
+def _count_full_months(start: date, end: date) -> int:
+    if end < start:
+        return 0
+    count = 0
+    cur = date(start.year, start.month, 1)
+    while cur <= end:
+        month_end = date(
+            cur.year + (1 if cur.month == 12 else 0),
+            1 if cur.month == 12 else cur.month + 1,
+            1,
+        ) - timedelta(days=1)
+        if start <= cur and end >= month_end:
+            count += 1
+        cur = month_end + timedelta(days=1)
+    return count
+
+
+def _resolve_vacation_entitlement_until(
+    *,
+    jahr: int,
+    month_end: date,
+    mitarbeiter_defaults: dict,
+    contract_rows: list[dict],
+) -> float:
+    year_start = date(jahr, 1, 1)
+    year_end = date(jahr, 12, 31)
+    period_end = min(month_end, year_end)
+
+    active_contracts = [c for c in (contract_rows or []) if _contract_active_on(c, period_end)]
+    active_contract = _latest_row(
+        active_contracts,
+        key_fn=lambda c: (str(c.get("gueltig_ab") or "1900-01-01"), str(c.get("gueltig_bis") or "9999-12-31")),
+    )
+    if not active_contract:
+        active_contract = _latest_row(
+            [c for c in (contract_rows or []) if _to_float(c.get("urlaubstage_jahr")) > 0],
+            key_fn=lambda c: str(c.get("gueltig_ab") or "1900-01-01"),
+        )
+
+    base_urlaub = 0.0
+    if active_contract and _to_float(active_contract.get("urlaubstage_jahr")) > 0:
+        base_urlaub = _to_float(active_contract.get("urlaubstage_jahr"))
+    if base_urlaub <= 0:
+        base_urlaub = _to_float(mitarbeiter_defaults.get("jahres_urlaubstage"))
+    resturlaub = _to_float(mitarbeiter_defaults.get("resturlaub_vorjahr"))
+
+    workdays_per_week = _resolve_actual_workdays_per_week(active_contract, mitarbeiter_defaults)
+    is_six_day_basis = _is_basis_six_day_week(active_contract, mitarbeiter_defaults)
+    annual_target = base_urlaub * (workdays_per_week / 6.0) if is_six_day_basis else base_urlaub
+    annual_target = _apply_burlg_rounding(annual_target)
+
+    entry_date = _safe_date(mitarbeiter_defaults.get("eintrittsdatum"))
+    exit_date = _safe_date(mitarbeiter_defaults.get("austrittsdatum"))
+    employment_start = max(year_start, entry_date or year_start)
+    employment_end = min(period_end, exit_date or period_end)
+    if employment_end < employment_start:
+        return round(resturlaub, 2)
+
+    partial_year = (entry_date is not None and entry_date.year == jahr) or (exit_date is not None and exit_date.year == jahr)
+    if partial_year:
+        full_months = _count_full_months(employment_start, employment_end)
+        entitlement = annual_target * (full_months / 12.0)
+        entitlement = _apply_burlg_rounding(entitlement)
+    else:
+        entitlement = annual_target
+
+    return round(float(entitlement) + float(resturlaub), 2)
+
+
+def _load_absence_rows_overlap(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    period_start: date,
+    period_end: date,
+) -> list[dict]:
+    select_variants = [
+        "typ,start_datum,ende_datum,attest_pfad",
+        "typ,start_datum,ende_datum",
+    ]
+    for columns in select_variants:
+        try:
+            res = (
+                supabase.table("abwesenheiten")
+                .select(columns)
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .lte("start_datum", period_end.isoformat())
+                .gte("ende_datum", period_start.isoformat())
+                .execute()
+            )
+            return res.data or []
+        except Exception:
+            continue
+    return []
+
+
+def _load_year_absence_counters(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    jahr: int,
+    up_to: date,
+) -> tuple[float, float]:
+    """
+    Fortlaufende Jahreszähler:
+    - Urlaub genommen bis `up_to`
+    - Krankheitstage bis `up_to`
+    Berücksichtigt § 9 BUrlG: Nachgewiesene Krankheitstage im Urlaub
+    werden nicht auf den Urlaub angerechnet.
+    """
+    period_start = date(jahr, 1, 1)
+    period_end = min(up_to, date(jahr, 12, 31))
+    if period_end < period_start:
+        return 0.0, 0.0
+
+    abs_rows = _load_absence_rows_overlap(
+        supabase,
+        mitarbeiter_id=mitarbeiter_id,
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+    vacation_days: set[date] = set()
+    sick_days: set[date] = set()
+    sick_days_with_proof: set[date] = set()
+
+    for row in abs_rows:
+        start = _safe_date(row.get("start_datum"))
+        end = _safe_date(row.get("ende_datum"))
+        if start is None or end is None:
+            continue
+        overlap_start = max(start, period_start)
+        overlap_end = min(end, period_end)
+        if overlap_end < overlap_start:
+            continue
+        typ = str(row.get("typ") or "").strip().lower()
+        attest_raw = row.get("attest_pfad")
+        has_attest_field = "attest_pfad" in row
+        has_proof = bool(str(attest_raw or "").strip()) if has_attest_field else True
+        for d in _daterange(overlap_start, overlap_end):
+            if not _is_workday(d):
+                continue
+            if typ == "urlaub":
+                vacation_days.add(d)
+            elif typ in ("krankheit", "krank"):
+                sick_days.add(d)
+                if has_proof:
+                    sick_days_with_proof.add(d)
+
+    # § 9 BUrlG: nur nachgewiesene Krankheitstage im Urlaub mindern den Urlaubsverbrauch.
+    vacation_effective = vacation_days.difference(sick_days_with_proof)
+    urlaub_genommen = float(len(vacation_effective))
+    krank_tage = float(len(sick_days))
+
+    # Manuelle Korrekturmarker (GoBD) laufen fortlaufend innerhalb des Kalenderjahres.
+    try:
+        marker_res = (
+            supabase.table("zeiterfassung")
+            .select("manuell_kommentar, quelle")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("quelle", "manuell_admin")
+            .gte("datum", period_start.isoformat())
+            .lte("datum", period_end.isoformat())
+            .execute()
+        )
+        for mr in marker_res.data or []:
+            marker = str(mr.get("manuell_kommentar") or "").strip()
+            if marker.startswith("manuelle_korrektur_urlaub:"):
+                try:
+                    urlaub_genommen += float(marker.split(":", 1)[1])
+                except Exception:
+                    pass
+            elif marker.startswith("manuelle_korrektur_krank:"):
+                try:
+                    krank_tage += float(marker.split(":", 1)[1])
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return round(max(0.0, urlaub_genommen), 2), round(max(0.0, krank_tage), 2)
+
+
 def resolve_month_contract_targets(
     supabase,
     *,
@@ -316,8 +592,14 @@ def resolve_month_contract_targets(
     month_start, month_end = _month_bounds(monat, jahr)
     defaults = _load_mitarbeiter_defaults(supabase, mitarbeiter_id)
     contracts = _load_contract_rows(supabase, mitarbeiter_id)
-    soll_stunden, urlaubstage_gesamt = _resolve_month_soll_and_vacation(
+    soll_stunden, _urlaubstage_basis = _resolve_month_soll_and_vacation(
         month_start=month_start,
+        month_end=month_end,
+        mitarbeiter_defaults=defaults,
+        contract_rows=contracts,
+    )
+    urlaubstage_gesamt = _resolve_vacation_entitlement_until(
+        jahr=int(jahr),
         month_end=month_end,
         mitarbeiter_defaults=defaults,
         contract_rows=contracts,
@@ -752,8 +1034,14 @@ def _build_month_snapshot(
     defaults = _load_mitarbeiter_defaults(supabase, mitarbeiter_id)
     contracts = _load_contract_rows(supabase, mitarbeiter_id)
 
-    soll_stunden, urlaubstage_gesamt = _resolve_month_soll_and_vacation(
+    soll_stunden, _urlaubstage_basis = _resolve_month_soll_and_vacation(
         month_start=month_start,
+        month_end=month_end,
+        mitarbeiter_defaults=defaults,
+        contract_rows=contracts,
+    )
+    urlaubstage_gesamt = _resolve_vacation_entitlement_until(
+        jahr=int(jahr),
         month_end=month_end,
         mitarbeiter_defaults=defaults,
         contract_rows=contracts,
@@ -766,7 +1054,12 @@ def _build_month_snapshot(
         mitarbeiter_defaults=defaults,
         contract_rows=contracts,
     )
-    urlaub_genommen, krank_tage = _load_month_absence_counters(supabase, mitarbeiter_id, month_start, month_end)
+    urlaub_genommen, krank_tage = _load_year_absence_counters(
+        supabase,
+        mitarbeiter_id=mitarbeiter_id,
+        jahr=int(jahr),
+        up_to=month_end,
+    )
 
     diff = round(ist_stunden - soll_stunden, 2)
     saldo_vormonat = _load_previous_balance(supabase, mitarbeiter_id, monat, jahr)
