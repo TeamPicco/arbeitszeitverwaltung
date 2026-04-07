@@ -63,20 +63,32 @@ def _cached_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     supabase = get_supabase_client()
     erster = date(jahr, monat, 1).isoformat()
     letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-    try:
-        r = supabase.table('zeiterfassung').select(
-            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,abwesenheitstyp,created_at,updated_at,manuell_kommentar,korrektur_grund'
-        ).eq(
-            'mitarbeiter_id', mitarbeiter_id
-        ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
-    except Exception:
-        # Legacy-Fallback ohne neue Audit-Felder
-        r = supabase.table('zeiterfassung').select(
-            'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at'
-        ).eq(
-            'mitarbeiter_id', mitarbeiter_id
-        ).gte('datum', erster).lte('datum', letzter).order('datum').execute()
-    return r.data or []
+    select_variants = [
+        # Vollsatz für korrekte Urlaub/Krank-Bewertung inkl. Stunden-Gutschrift.
+        (
+            'id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,'
+            'quelle,ist_krank,abwesenheitstyp,created_at,updated_at,manuell_kommentar,korrektur_grund'
+        ),
+        # Legacy ohne abwesenheitstyp / Korrekturfelder.
+        'id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,quelle,ist_krank,created_at,updated_at',
+        # Minimal-Fallback.
+        'id,datum,start_zeit,ende_zeit,pause_minuten,quelle,ist_krank,created_at,updated_at',
+    ]
+    for cols in select_variants:
+        try:
+            r = (
+                supabase.table('zeiterfassung')
+                .select(cols)
+                .eq('mitarbeiter_id', mitarbeiter_id)
+                .gte('datum', erster)
+                .lte('datum', letzter)
+                .order('datum')
+                .execute()
+            )
+            return r.data or []
+        except Exception:
+            continue
+    return []
 
 
 def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
