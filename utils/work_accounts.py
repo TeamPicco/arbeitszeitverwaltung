@@ -635,10 +635,11 @@ def _resolve_daily_target_for_day(
 def _is_krank_row(row: dict) -> bool:
     source = str(row.get("quelle") or "").strip().lower()
     abw_typ = str(row.get("abwesenheitstyp") or "").strip().lower()
-    return bool(row.get("ist_krank")) or source in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+    kommentar = str(row.get("manuell_kommentar") or "").strip().lower()
+    return bool(row.get("ist_krank")) or source == "au_bescheinigung" or abw_typ in {
         "krank",
         "krankheit",
-    }
+    } or kommentar.startswith("manuelle_korrektur_krank:")
 
 
 def _load_month_ist_hours(

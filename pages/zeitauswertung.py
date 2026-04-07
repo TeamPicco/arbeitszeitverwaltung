@@ -245,10 +245,11 @@ def _is_auto_timeout_entry(raw: dict) -> bool:
 def _is_sick_row(raw: dict) -> bool:
     quelle = str(raw.get("quelle") or "").strip().lower()
     abw_typ = str(raw.get("abwesenheitstyp") or "").strip().lower()
-    return bool(raw.get("ist_krank")) or quelle in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+    kommentar = str(raw.get("manuell_kommentar") or "").strip().lower()
+    return bool(raw.get("ist_krank")) or quelle == "au_bescheinigung" or abw_typ in {
         "krank",
         "krankheit",
-    }
+    } or kommentar.startswith("manuelle_korrektur_krank:")
 
 
 def _collect_sick_day_conflicts(rows: list[dict]) -> tuple[set[int], dict[str, int]]:
@@ -887,7 +888,7 @@ def _erstelle_pdf(
         else:
             tag = "-"
         raw = raw_map.get(int(z.get("id") or 0), {})
-        ist_krank = bool(z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung")
+        ist_krank = bool(z.get("ist_krank") or _is_sick_row(raw))
 
         if ist_krank:
             von, bis = "LFZ", "LFZ"
@@ -1163,7 +1164,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             datum_str = datum.strftime('%d.%m.%Y') if isinstance(datum, date) else str(datum)
             wochentag = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"][datum.weekday()] if isinstance(datum, date) else "–"
 
-            ist_krank_eintrag = z.get("ist_krank") or raw.get("ist_krank") or raw.get("quelle") == "au_bescheinigung"
+            ist_krank_eintrag = bool(z.get("ist_krank") or _is_sick_row(raw))
             if ist_krank_eintrag:
                 start_str = "LFZ"
                 ende_str = "LFZ"

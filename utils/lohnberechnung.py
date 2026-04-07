@@ -474,6 +474,10 @@ def berechne_eintrag(
     datum_str = eintrag.get("datum", "")
     start_zeit = eintrag.get("start_zeit")
     ende_zeit = eintrag.get("ende_zeit")
+    quelle = str(eintrag.get("quelle") or "").strip().lower()
+    abw_typ = str(eintrag.get("abwesenheitstyp") or "").strip().lower()
+    kommentar = str(eintrag.get("manuell_kommentar") or "").strip().lower()
+    gutschrift_h = safe_float(eintrag.get("arbeitsstunden") or eintrag.get("stunden"), 0.0)
     start_zeit_fuer_berechnung = start_zeit
 
     try:
@@ -503,8 +507,60 @@ def berechne_eintrag(
     if ist_so and not mitarbeiter.get("sonntagszuschlag_aktiv", False):
         audit_log.append("ℹ️ Sonntag, aber sonntagszuschlag_aktiv=False → kein Zuschlag")
 
+    # Reine Markerzeilen dürfen keine Stunden in die Monatsberechnung einbringen.
+    if quelle == "historischer_saldo" or kommentar.startswith("manuelle_korrektur_"):
+        audit_log.append("Markerzeile erkannt (historischer Saldo / manuelle Korrektur) – 0h")
+        return {
+            "id": eintrag.get("id"),
+            "datum": datum,
+            "netto_stunden": 0.0,
+            "pause_minuten": 0,
+            "grundlohn": 0.0,
+            "sonntags_stunden": 0.0,
+            "feiertags_stunden": 0.0,
+            "sonntagszuschlag": 0.0,
+            "feiertagszuschlag": 0.0,
+            "gesamt_zuschlag": 0.0,
+            "gesamtlohn": 0.0,
+            "ist_sonntag": ist_so,
+            "ist_feiertag": ist_ft,
+            "feiertag_name": ft_name,
+            "hat_zuschlag_aber_kein_haekchen": False,
+            "audit_log": audit_log,
+            "fehler": None,
+        }
+
+    # Abwesenheits-Spiegel (z. B. Urlaub) mit Stunden-Gutschrift statt Zeitdifferenz auswerten.
+    if quelle == "abwesenheit_system" and not (
+        bool(eintrag.get("ist_krank")) or abw_typ in {"krank", "krankheit"}
+    ):
+        netto_h = max(0.0, gutschrift_h)
+        grundlohn = round(netto_h * stundenlohn, 2)
+        label = abw_typ if abw_typ else "abwesenheit"
+        audit_log.append(f"Abwesenheitssystem ({label}) erkannt – Gutschrift {netto_h:.2f} h")
+        return {
+            "id": eintrag.get("id"),
+            "datum": datum,
+            "netto_stunden": round(netto_h, 4),
+            "pause_minuten": 0,
+            "grundlohn": grundlohn,
+            "sonntags_stunden": 0.0,
+            "feiertags_stunden": 0.0,
+            "sonntagszuschlag": 0.0,
+            "feiertagszuschlag": 0.0,
+            "gesamt_zuschlag": 0.0,
+            "gesamtlohn": grundlohn,
+            "ist_sonntag": ist_so,
+            "ist_feiertag": ist_ft,
+            "feiertag_name": ft_name,
+            "hat_zuschlag_aber_kein_haekchen": False,
+            "audit_log": audit_log,
+            "fehler": None,
+            "ist_urlaub": abw_typ == "urlaub",
+        }
+
     # ── Krankheitstag: Lohnfortzahlung nach EFZG § 4 (Ansatz A: Tages-Soll) ──
-    if eintrag.get('ist_krank') or eintrag.get('quelle') == 'au_bescheinigung':
+    if bool(eintrag.get("ist_krank")) or quelle == "au_bescheinigung" or abw_typ in {"krank", "krankheit"}:
         # Soll-Stunden pro Tag = monatliche Soll-Stunden ÷ Arbeitstage im Monat
         # Arbeitstage = alle Tage im Monat OHNE Montag (0) und Dienstag (1)
         monatliche_soll = float(mitarbeiter.get('monatliche_soll_stunden') or 0.0)
@@ -514,6 +570,9 @@ def berechne_eintrag(
             if date(datum.year, datum.month, t).weekday() not in (0, 1)
         )
         lfz_stunden = round(monatliche_soll / arbeitstage_monat, 4) if arbeitstage_monat > 0 else 0.0
+        # Wenn der Abwesenheits-Spiegel bereits eine Stunden-Gutschrift liefert, diese bevorzugen.
+        if gutschrift_h > 0:
+            lfz_stunden = round(gutschrift_h, 4)
         lfz_grundlohn = round(lfz_stunden * stundenlohn, 2)
         audit_log.append(
             f"→ Krankheitstag (AU-Bescheinigung) – Lohnfortzahlung nach EFZG § 4"
@@ -686,10 +745,11 @@ def berechne_eintrag(
 def _is_krank_row(entry: Dict[str, Any]) -> bool:
     quelle = str(entry.get("quelle") or "").strip().lower()
     abw_typ = str(entry.get("abwesenheitstyp") or "").strip().lower()
-    return bool(entry.get("ist_krank")) or quelle in {"au_bescheinigung", "abwesenheit_system"} or abw_typ in {
+    kommentar = str(entry.get("manuell_kommentar") or "").strip().lower()
+    return bool(entry.get("ist_krank")) or quelle == "au_bescheinigung" or abw_typ in {
         "krank",
         "krankheit",
-    }
+    } or kommentar.startswith("manuelle_korrektur_krank:")
 
 
 def _sort_key_for_entry(entry: Dict[str, Any]) -> tuple:
