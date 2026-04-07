@@ -330,10 +330,9 @@ def _show_zeitauswertung_tab():
         st.info("Keine Mitarbeiter für die Auswertung gefunden.")
         return
 
-    ma_options = {f"{m['vorname']} {m['nachname']}": m for m in alle_ma}
-    selected_label = st.selectbox("Mitarbeiter auswählen", list(ma_options.keys()))
-    aktiver_ma = ma_options[selected_label]
-    zeitauswertung.show_zeitauswertung(aktiver_ma, admin_modus=True)
+    # Mitarbeiterauswahl erfolgt innerhalb von show_zeitauswertung (admin_modus=True).
+    # So vermeiden wir doppelte Selectboxen mit widersprüchlichem Verhalten.
+    zeitauswertung.show_zeitauswertung(alle_ma[0], admin_modus=True)
 
 
 def _show_absenzen_tab():
