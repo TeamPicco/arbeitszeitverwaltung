@@ -1,3 +1,4 @@
+import json
 import os
 import re
 from datetime import date, datetime
@@ -291,10 +292,15 @@ def _insert_mitarbeiter_dokument_robust(
     variants.append(("minimal_no_betrieb", v_minimal_no_betrieb))
 
     # Duplikate nach normalisierter Signatur vermeiden.
+    # Payload kann verschachtelte dicts enthalten (z. B. metadaten) und ist
+    # damit nicht direkt als tuple(payload.items()) hashbar.
     dedup_variants: list[tuple[str, dict]] = []
-    seen: set[tuple] = set()
+    seen: set[str] = set()
     for label, payload in variants:
-        sig = tuple(sorted(payload.items()))
+        try:
+            sig = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
+        except Exception:
+            sig = str(payload)
         if sig in seen:
             continue
         seen.add(sig)
