@@ -24,6 +24,64 @@ from utils.work_accounts import (
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _load_absence_paid_policy(betrieb_id: int | None) -> dict:
+    """Lädt konfigurierbare Bezahl-Logik für Abwesenheitstypen."""
+    defaults = {
+        "urlaub": True,
+        "krankheit": True,
+        "sonderurlaub": True,
+        "unbezahlter_urlaub": False,
+    }
+    if betrieb_id is None:
+        return defaults
+    supabase = get_supabase_client()
+    try:
+        res = (
+            supabase.table("betriebe")
+            .select("id, metadaten")
+            .eq("id", int(betrieb_id))
+            .limit(1)
+            .execute()
+        )
+        row = (res.data or [{}])[0] if res.data else {}
+        meta = row.get("metadaten") if isinstance(row, dict) else None
+        if not isinstance(meta, dict):
+            return defaults
+        cfg = meta.get("abwesenheit_bezahlt")
+        if not isinstance(cfg, dict):
+            return defaults
+        merged = dict(defaults)
+        for k, v in cfg.items():
+            merged[str(k)] = bool(v)
+        return merged
+    except Exception:
+        return defaults
+
+
+def _save_absence_paid_policy(betrieb_id: int | None, policy: dict) -> tuple[bool, str]:
+    if betrieb_id is None:
+        return False, "betrieb_id fehlt"
+    supabase = get_supabase_client()
+    try:
+        existing = (
+            supabase.table("betriebe")
+            .select("id, metadaten")
+            .eq("id", int(betrieb_id))
+            .limit(1)
+            .execute()
+        )
+        row = (existing.data or [{}])[0] if existing.data else {}
+        meta = row.get("metadaten") if isinstance(row, dict) and isinstance(row.get("metadaten"), dict) else {}
+        updated = dict(meta)
+        updated["abwesenheit_bezahlt"] = {str(k): bool(v) for k, v in (policy or {}).items()}
+        supabase.table("betriebe").update({"metadaten": updated}).eq("id", int(betrieb_id)).execute()
+        _load_absence_paid_policy.clear()
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+
+
 ADMIN_MITARBEITER_COLUMNS = (
     "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
     "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
@@ -350,6 +408,32 @@ def _show_absenzen_tab():
         return
 
     betrieb_id = st.session_state.get("betrieb_id")
+    # Konfigurierbare Bezahl-Logik pro Betrieb (Default: Urlaub/Krank/Sonderurlaub bezahlt).
+    paid_types = load_absence_paid_type_config(
+        supabase,
+        betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+    )
+    with st.expander("Bezahl-Logik konfigurieren", expanded=False):
+        st.caption("Diese Einstellung steuert, welche Abwesenheitstypen als bezahlt gelten.")
+        paid_options = ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"]
+        paid_selected = st.multiselect(
+            "Als bezahlt werten",
+            options=paid_options,
+            default=[t for t in paid_options if t in paid_types],
+            help="Standard: Urlaub, Krankheit, Sonderurlaub = bezahlt. Unbezahlter Urlaub = nicht bezahlt.",
+            key="abwesen_paid_types_cfg",
+        )
+        if st.button("Bezahl-Logik speichern", key="abwesen_paid_types_save", use_container_width=True):
+            try:
+                save_absence_paid_type_config(
+                    supabase,
+                    betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+                    paid_types=set(paid_selected),
+                )
+                st.success("Bezahl-Logik gespeichert.")
+                st.rerun()
+            except Exception as cfg_exc:
+                st.error(f"Konfiguration konnte nicht gespeichert werden: {cfg_exc}")
     abs_query = (
         supabase.table("abwesenheiten")
         .select(
@@ -387,7 +471,7 @@ def _show_absenzen_tab():
         with st.form("abwesenheit_form"):
             c1, c2, c3 = st.columns([1, 1, 1.2])
             with c1:
-                typ = st.selectbox("Typ", ["urlaub", "krankheit", "sonderurlaub"])
+                typ = st.selectbox("Typ", ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"])
             with c2:
                 start = st.date_input("Von", value=date.today(), format="DD.MM.YYYY")
             with c3:
@@ -431,6 +515,7 @@ def _show_absenzen_tab():
                         monthly_target_hours=float(mitarbeiter.get("monatliche_soll_stunden") or 0.0),
                         attest_pfad=attest_pfad,
                         grund=grund or None,
+                        paid_type_config=paid_types,
                         created_by=st.session_state.get("user_id"),
                     )
                     st.success(
@@ -449,6 +534,7 @@ def _show_absenzen_tab():
         "urlaub": "Urlaub",
         "krankheit": "Krankheit",
         "krank": "Krankheit",
+        "unbezahlter_urlaub": "Unbezahlter Urlaub",
         "sonderurlaub": "Sonderurlaub",
     }
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
@@ -510,8 +596,8 @@ def _show_absenzen_tab():
             st.caption(f"Aktuelles Attest: {existing_attest or 'kein Attest hinterlegt'}")
             new_typ = st.selectbox(
                 "Typ",
-                ["urlaub", "krankheit", "sonderurlaub"],
-                index=["urlaub", "krankheit", "sonderurlaub"].index(default_typ),
+                ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"],
+                index=["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"].index(default_typ),
                 key=f"abwesen_update_typ_{selected_id}",
             )
             new_start = st.date_input(
@@ -586,6 +672,7 @@ def _show_absenzen_tab():
                             changed_by=st.session_state.get("user_id"),
                             attest_pfad=attest_pfad,
                             grund=new_grund or None,
+                            paid_type_config=paid_types,
                         )
                         st.success("Abwesenheit wurde aktualisiert.")
                         _refresh_after_write()
@@ -1626,7 +1713,7 @@ def show_admin_dashboard():
         with st.container(key="header_logo"):
             st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
-        nav_options = ["Dienstplanung", "Personalakte", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
+        nav_options = ["Dienstplanung", "Personalakte", "Abwesenheiten", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
         current_nav = st.session_state.get("admin_nav", "Dienstplanung")
         if current_nav == "Vertraege":
             current_nav = "Verträge"
@@ -1636,7 +1723,7 @@ def show_admin_dashboard():
         selected = option_menu(
             menu_title=None,
             options=nav_options,
-            icons=["calendar", "people", "clock", "bar-chart-2", "file-text"],
+            icons=["calendar", "people", "calendar-x", "clock", "bar-chart-2", "file-text"],
             orientation="horizontal",
             default_index=default_idx,
             key="admin_top_option_menu",
@@ -1666,6 +1753,8 @@ def show_admin_dashboard():
         admin_dienstplan.show_dienstplanung()
     elif selected == "Personalakte":
         _show_mitarbeiter_stammdaten_tab()
+    elif selected == "Abwesenheiten":
+        _show_absenzen_tab()
     elif selected == "Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()
     elif selected == "Zeitauswertung":

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, Optional
 
 
@@ -10,6 +10,101 @@ class AbsenceResult:
     days: float
     credited_hours: float
     typ: str
+
+
+ABSENCE_TYPE_LABELS: dict[str, str] = {
+    "krankheit": "Krank",
+    "urlaub": "Urlaub",
+    "unbezahlter_urlaub": "Unbezahlter Urlaub",
+    "sonderurlaub": "Sonderurlaub",
+}
+
+DEFAULT_ABSENCE_PAYMENT_RULES: dict[str, bool] = {
+    "krankheit": True,
+    "urlaub": True,
+    "unbezahlter_urlaub": False,
+    "sonderurlaub": True,
+}
+
+
+def get_absence_type_options() -> list[str]:
+    """Relevante Typen für die UI (erweiterbar)."""
+    return ["krankheit", "urlaub", "unbezahlter_urlaub"]
+
+
+def get_absence_type_label(absence_type: str) -> str:
+    raw = str(absence_type or "").strip().lower()
+    return ABSENCE_TYPE_LABELS.get(raw, raw or "-")
+
+
+def resolve_absence_payment_rules(supabase, betrieb_id: int | None) -> dict[str, bool]:
+    """
+    Lädt konfigurierbare Bezahl-Logik pro Abwesenheitstyp.
+    Fallback auf rechtssichere Defaults bei fehlender Tabelle/Schema.
+    """
+    rules = dict(DEFAULT_ABSENCE_PAYMENT_RULES)
+    if betrieb_id is None:
+        return rules
+    try:
+        res = (
+            supabase.table("betrieb_absence_rules")
+            .select("typ, ist_bezahlt")
+            .eq("betrieb_id", int(betrieb_id))
+            .execute()
+        )
+        for row in res.data or []:
+            typ = _normalize_absence_type(row.get("typ"))
+            if not typ:
+                continue
+            if row.get("ist_bezahlt") is None:
+                continue
+            rules[typ] = bool(row.get("ist_bezahlt"))
+    except Exception:
+        pass
+    return rules
+
+
+def save_absence_payment_rules(
+    supabase,
+    *,
+    betrieb_id: int,
+    rules: dict[str, bool],
+    changed_by: int | None = None,
+) -> tuple[bool, str]:
+    """
+    Persistiert Bezahl-Regeln je Typ.
+    """
+    try:
+        payload = []
+        now_iso = datetime.utcnow().isoformat()
+        for typ, bezahlt in (rules or {}).items():
+            n_typ = _normalize_absence_type(typ)
+            if not n_typ:
+                continue
+            payload.append(
+                {
+                    "betrieb_id": int(betrieb_id),
+                    "typ": n_typ,
+                    "ist_bezahlt": bool(bezahlt),
+                    "updated_by": changed_by,
+                    "updated_at": now_iso,
+                }
+            )
+        if not payload:
+            return False, "Keine gültigen Regelwerte."
+        supabase.table("betrieb_absence_rules").upsert(payload, on_conflict="betrieb_id,typ").execute()
+        return True, "Regeln gespeichert."
+    except Exception as exc:
+        return False, f"Regeln konnten nicht gespeichert werden: {exc}"
+
+
+def is_absence_paid(absence_type: str, rules: dict[str, bool] | None = None) -> bool:
+    n_typ = _normalize_absence_type(absence_type)
+    merged = dict(DEFAULT_ABSENCE_PAYMENT_RULES)
+    if rules:
+        for k, v in rules.items():
+            merged[_normalize_absence_type(k)] = bool(v)
+    return bool(merged.get(n_typ, False))
 
 
 def _to_float(value, default: float = 0.0) -> float:

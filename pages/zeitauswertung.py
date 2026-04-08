@@ -16,6 +16,11 @@ from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.audit_log import log_aktion, log_zeitkorrektur, log_zeitloeschung
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
+from utils.absence_policy import (
+    evaluate_paid_absence_credit,
+    include_paid_absence_in_reports,
+    load_absence_compensation_policy,
+)
 from utils.lohnberechnung import (
     berechne_monat_cached,
     berechne_eintrag,
@@ -262,6 +267,16 @@ def _is_sick_row(raw: dict) -> bool:
         "krank",
         "krankheit",
     } or kommentar.startswith("manuelle_korrektur_krank:")
+
+
+def _is_paid_absence_row(raw: dict, policy_map: dict[str, bool]) -> bool:
+    quelle = str(raw.get("quelle") or "").strip().lower()
+    if quelle != "abwesenheit_system":
+        return False
+    abw_typ = str(raw.get("abwesenheitstyp") or "").strip().lower()
+    if not abw_typ:
+        return False
+    return bool(policy_map.get(abw_typ, False))
 
 
 def _collect_sick_day_conflicts(rows: list[dict]) -> tuple[set[int], dict[str, int]]:
@@ -1112,6 +1127,20 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         )
         st.markdown("---")
 
+    policy_map = load_absence_compensation_policy(
+        get_supabase_client(),
+        betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+    )
+    include_paid = include_paid_absence_in_reports("mit")
+    report_mode = st.radio(
+        "Abwesenheiten in Auswertung",
+        options=["Mit bezahlten Abwesenheiten", "Ohne bezahlte Abwesenheiten"],
+        horizontal=True,
+        key=f"za_abs_mode_{int(aktiver_ma.get('id') or 0)}_{jahr}_{monat}",
+    )
+    if report_mode == "Ohne bezahlte Abwesenheiten":
+        include_paid = include_paid_absence_in_reports("ohne")
+
     # ── Daten laden ──────────────────────────────────────────────────────────
     zeiterfassungen = _lade_zeiterfassungen(aktiver_ma['id'], monat, jahr)
     dienstplan_start_map = _cached_dienstplan_startzeiten_with_fallback(aktiver_ma['id'], monat, jahr)
@@ -1142,7 +1171,13 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         snap_preview = None
     soll_stunden = float(snap_preview.soll_stunden) if snap_preview else float(aktiver_ma.get('monatliche_soll_stunden', 0) or 0)
 
-    ist_stunden = monat_ergebnis["gesamt_stunden"]
+    ist_stunden = float(monat_ergebnis["gesamt_stunden"] or 0.0)
+    if not include_paid:
+        paid_abs_credit = 0.0
+        for raw in zeiterfassungen:
+            if _is_paid_absence_row(raw, policy_map):
+                paid_abs_credit += evaluate_paid_absence_credit(raw, policy_map)
+        ist_stunden = round(max(0.0, ist_stunden - paid_abs_credit), 2)
     differenz = ist_stunden - soll_stunden
     gesamtbrutto = monat_ergebnis["gesamtbrutto"]
     zeilen = monat_ergebnis["zeilen"]
