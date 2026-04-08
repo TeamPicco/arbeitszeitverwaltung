@@ -7,6 +7,10 @@ import streamlit as st
 from streamlit_option_menu import option_menu
 
 from utils.absences import delete_absence, store_absence, update_absence
+from utils.absence_policy import (
+    load_absence_compensation_policy,
+    save_absence_compensation_policy,
+)
 from utils.cache_manager import clear_app_caches
 from utils.database import (
     get_supabase_client,
@@ -22,64 +26,6 @@ from utils.work_accounts import (
     validate_work_account_month,
 )
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _load_absence_paid_policy(betrieb_id: int | None) -> dict:
-    """Lädt konfigurierbare Bezahl-Logik für Abwesenheitstypen."""
-    defaults = {
-        "urlaub": True,
-        "krankheit": True,
-        "sonderurlaub": True,
-        "unbezahlter_urlaub": False,
-    }
-    if betrieb_id is None:
-        return defaults
-    supabase = get_supabase_client()
-    try:
-        res = (
-            supabase.table("betriebe")
-            .select("id, metadaten")
-            .eq("id", int(betrieb_id))
-            .limit(1)
-            .execute()
-        )
-        row = (res.data or [{}])[0] if res.data else {}
-        meta = row.get("metadaten") if isinstance(row, dict) else None
-        if not isinstance(meta, dict):
-            return defaults
-        cfg = meta.get("abwesenheit_bezahlt")
-        if not isinstance(cfg, dict):
-            return defaults
-        merged = dict(defaults)
-        for k, v in cfg.items():
-            merged[str(k)] = bool(v)
-        return merged
-    except Exception:
-        return defaults
-
-
-def _save_absence_paid_policy(betrieb_id: int | None, policy: dict) -> tuple[bool, str]:
-    if betrieb_id is None:
-        return False, "betrieb_id fehlt"
-    supabase = get_supabase_client()
-    try:
-        existing = (
-            supabase.table("betriebe")
-            .select("id, metadaten")
-            .eq("id", int(betrieb_id))
-            .limit(1)
-            .execute()
-        )
-        row = (existing.data or [{}])[0] if existing.data else {}
-        meta = row.get("metadaten") if isinstance(row, dict) and isinstance(row.get("metadaten"), dict) else {}
-        updated = dict(meta)
-        updated["abwesenheit_bezahlt"] = {str(k): bool(v) for k, v in (policy or {}).items()}
-        supabase.table("betriebe").update({"metadaten": updated}).eq("id", int(betrieb_id)).execute()
-        _load_absence_paid_policy.clear()
-        return True, "ok"
-    except Exception as exc:
-        return False, str(exc)
 
 
 ADMIN_MITARBEITER_COLUMNS = (
@@ -408,32 +354,54 @@ def _show_absenzen_tab():
         return
 
     betrieb_id = st.session_state.get("betrieb_id")
-    # Konfigurierbare Bezahl-Logik pro Betrieb (Default: Urlaub/Krank/Sonderurlaub bezahlt).
-    paid_types = load_absence_paid_type_config(
+    # Konfigurierbare Bezahl-Logik pro Betrieb.
+    paid_types = load_absence_compensation_policy(
         supabase,
         betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
     )
     with st.expander("Bezahl-Logik konfigurieren", expanded=False):
         st.caption("Diese Einstellung steuert, welche Abwesenheitstypen als bezahlt gelten.")
-        paid_options = ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"]
-        paid_selected = st.multiselect(
-            "Als bezahlt werten",
-            options=paid_options,
-            default=[t for t in paid_options if t in paid_types],
-            help="Standard: Urlaub, Krankheit, Sonderurlaub = bezahlt. Unbezahlter Urlaub = nicht bezahlt.",
-            key="abwesen_paid_types_cfg",
-        )
+        c1, c2 = st.columns(2)
+        with c1:
+            paid_urlaub = st.checkbox(
+                "Urlaub ist bezahlt",
+                value=bool(paid_types.get("urlaub", True)),
+                key="abwesen_paid_cfg_urlaub",
+            )
+            paid_krankheit = st.checkbox(
+                "Krankheit (LFZ) ist bezahlt",
+                value=bool(paid_types.get("krankheit", True)),
+                key="abwesen_paid_cfg_krankheit",
+            )
+        with c2:
+            paid_sonderurlaub = st.checkbox(
+                "Sonderurlaub ist bezahlt",
+                value=bool(paid_types.get("sonderurlaub", True)),
+                key="abwesen_paid_cfg_sonderurlaub",
+            )
+            paid_unbezahlt = st.checkbox(
+                "Unbezahlter Urlaub ist bezahlt",
+                value=bool(paid_types.get("unbezahlter_urlaub", False)),
+                key="abwesen_paid_cfg_unbezahlter",
+            )
         if st.button("Bezahl-Logik speichern", key="abwesen_paid_types_save", use_container_width=True):
-            try:
-                save_absence_paid_type_config(
-                    supabase,
-                    betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
-                    paid_types=set(paid_selected),
-                )
+            policy_payload = {
+                "urlaub": bool(paid_urlaub),
+                "krankheit": bool(paid_krankheit),
+                "sonderurlaub": bool(paid_sonderurlaub),
+                "unbezahlter_urlaub": bool(paid_unbezahlt),
+            }
+            ok, msg = save_absence_compensation_policy(
+                supabase,
+                betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+                policy=policy_payload,
+            )
+            if ok:
                 st.success("Bezahl-Logik gespeichert.")
+                paid_types = dict(policy_payload)
                 st.rerun()
-            except Exception as cfg_exc:
-                st.error(f"Konfiguration konnte nicht gespeichert werden: {cfg_exc}")
+            else:
+                st.error(f"Konfiguration konnte nicht gespeichert werden: {msg}")
     abs_query = (
         supabase.table("abwesenheiten")
         .select(

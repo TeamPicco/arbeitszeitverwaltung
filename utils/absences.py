@@ -289,6 +289,17 @@ def _normalize_absence_type(typ: str) -> str:
     return normalized
 
 
+def _resolve_paid_flag(normalized_typ: str, paid_type_config: dict[str, bool] | None = None) -> bool:
+    rules = dict(DEFAULT_ABSENCE_PAYMENT_RULES)
+    if isinstance(paid_type_config, dict):
+        for k, v in paid_type_config.items():
+            key = _normalize_absence_type(str(k or ""))
+            if not key:
+                continue
+            rules[key] = bool(v)
+    return bool(rules.get(normalized_typ, False))
+
+
 def _candidate_db_types(normalized_typ: str) -> list[str]:
     # Legacy-Instanzen akzeptieren teils "krank" statt "krankheit".
     if normalized_typ == "krankheit":
@@ -516,10 +527,11 @@ def store_absence(
     monthly_target_hours: float,
     attest_pfad: str | None = None,
     grund: str | None = None,
+    paid_type_config: dict[str, bool] | None = None,
     created_by: int | None = None,
 ) -> Dict[str, float | str]:
     normalized_typ = _normalize_absence_type(typ)
-    paid = normalized_typ in ("urlaub", "krankheit", "sonderurlaub")
+    paid = _resolve_paid_flag(normalized_typ, paid_type_config)
     fallback_monthly_target = _load_default_monthly_target_hours(supabase, mitarbeiter_id, monthly_target_hours)
     contract_rows = _load_contract_rows(supabase, mitarbeiter_id)
     daily_credit_map = _calculate_daily_credit_map(
@@ -587,6 +599,7 @@ def update_absence(
     changed_by: int | None = None,
     attest_pfad: str | None = None,
     grund: str | None = None,
+    paid_type_config: dict[str, bool] | None = None,
 ) -> Dict[str, float | str]:
     reason = (change_reason or "").strip()
     if not reason:
@@ -597,7 +610,7 @@ def update_absence(
         raise ValueError("Abwesenheit nicht gefunden.")
 
     normalized_typ = _normalize_absence_type(typ)
-    paid = normalized_typ in ("urlaub", "krankheit", "sonderurlaub")
+    paid = _resolve_paid_flag(normalized_typ, paid_type_config)
     fallback_monthly_target = _load_default_monthly_target_hours(supabase, int(current.get("mitarbeiter_id")), monthly_target_hours)
     contract_rows = _load_contract_rows(supabase, int(current.get("mitarbeiter_id")))
     daily_credit_map = _calculate_daily_credit_map(
