@@ -508,7 +508,14 @@ def berechne_eintrag(
         audit_log.append("ℹ️ Sonntag, aber sonntagszuschlag_aktiv=False → kein Zuschlag")
 
     # Reine Markerzeilen dürfen keine Stunden in die Monatsberechnung einbringen.
-    if quelle == "historischer_saldo" or kommentar.startswith("manuelle_korrektur_"):
+    # Legacy-Fallback: manuell_admin mit 0h und identischer Start-/Endzeit ist ebenfalls Marker.
+    is_legacy_marker = (
+        quelle == "manuell_admin"
+        and gutschrift_h == 0.0
+        and str(start_zeit or "").strip() != ""
+        and str(start_zeit or "").strip() == str(ende_zeit or "").strip()
+    )
+    if quelle == "historischer_saldo" or kommentar.startswith("manuelle_korrektur_") or is_legacy_marker:
         audit_log.append("Markerzeile erkannt (historischer Saldo / manuelle Korrektur) – 0h")
         return {
             "id": eintrag.get("id"),

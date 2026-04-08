@@ -493,6 +493,41 @@ def _show_manual_account_adjustment(
     saldo: float,
 ) -> None:
     """Inline-Korrektur im Auswertungsflow mit Pflichtbegründung."""
+    def _next_unique_marker_start_time(mitarbeiter_id: int, datum_iso: str) -> str:
+        """
+        Ermittelt eine kollisionsfreie start_zeit für Markerzeilen
+        (UNIQUE-Key: mitarbeiter_id + datum + start_zeit).
+        """
+        try:
+            rows = (
+                supabase.table("zeiterfassung")
+                .select("start_zeit")
+                .eq("mitarbeiter_id", int(mitarbeiter_id))
+                .eq("datum", str(datum_iso))
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            rows = []
+
+        used = set()
+        for r in rows:
+            raw = str((r or {}).get("start_zeit") or "").strip()
+            if not raw:
+                continue
+            used.add(raw[:8] if len(raw) >= 8 else raw)
+
+        for sec in range(0, 24 * 60 * 60):
+            h = sec // 3600
+            m = (sec % 3600) // 60
+            s = sec % 60
+            candidate = f"{h:02d}:{m:02d}:{s:02d}"
+            if candidate not in used:
+                return candidate
+        # Praktisch unerreichbar, aber defensiv:
+        return "23:59:59"
+
     with st.popover("Manuelle Korrektur (Stunden/Urlaub/Krankheit)"):
         st.caption("Jede manuelle Anpassung erfordert eine Begründung (Audit/GoBD).")
         supabase = get_supabase_client()
@@ -591,12 +626,13 @@ def _show_manual_account_adjustment(
                             supabase.table("azk_monatsabschluesse").insert(payload_legacy).execute()
                 else:
                     src = "manuelle_korrektur_urlaub" if corr_mode == "Urlaub genommen" else "manuelle_korrektur_krank"
+                    marker_start = _next_unique_marker_start_time(ma_id, month_start.isoformat())
                     z_payload = {
                         "betrieb_id": betrieb_id,
                         "mitarbeiter_id": ma_id,
                         "datum": month_start.isoformat(),
-                        "start_zeit": "00:00:00",
-                        "ende_zeit": "00:00:00",
+                        "start_zeit": marker_start,
+                        "ende_zeit": marker_start,
                         "pause_minuten": 0,
                         "arbeitsstunden": 0.0,
                         "quelle": "manuell_admin",
@@ -608,12 +644,14 @@ def _show_manual_account_adjustment(
                     try:
                         supabase.table("zeiterfassung").insert(z_payload).execute()
                     except Exception:
+                        # Bei Rennen auf UNIQUE-Key (gleicher Tag/Startzeit) einmal mit neuer Startzeit wiederholen.
+                        marker_start_retry = _next_unique_marker_start_time(ma_id, month_start.isoformat())
                         fallback_payload = {
                             "betrieb_id": betrieb_id,
                             "mitarbeiter_id": ma_id,
                             "datum": month_start.isoformat(),
-                            "start_zeit": "00:00:00",
-                            "ende_zeit": "00:00:00",
+                            "start_zeit": marker_start_retry,
+                            "ende_zeit": marker_start_retry,
                             "pause_minuten": 0,
                             "arbeitsstunden": 0.0,
                             "quelle": "manuell_admin",
