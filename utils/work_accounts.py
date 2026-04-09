@@ -6,7 +6,7 @@ import math
 import re
 from typing import Dict, Iterable, Optional
 
-from utils.lohnberechnung import berechne_arbeitszeitkonto_saldo
+from utils.lohnberechnung import berechne_arbeitszeitkonto_saldo, berechne_eintrag
 
 
 @dataclass
@@ -642,6 +642,86 @@ def _is_krank_row(row: dict) -> bool:
     } or kommentar.startswith("manuelle_korrektur_krank:")
 
 
+def _normalize_day_key(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    return raw[:10]
+
+
+def _normalize_time_value(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 8:
+        return raw[:8]
+    if len(raw) == 5:
+        return f"{raw}:00"
+    return raw
+
+
+def _is_work_shift_row(plan_row: dict) -> bool:
+    shift_type = str(plan_row.get("schichttyp") or plan_row.get("typ") or "").strip().lower()
+    non_work_types = {"urlaub", "krank", "krankheit", "frei", "unbezahlter_urlaub", "sonderurlaub"}
+    work_types = {"arbeit", "geplant", "dienst", "schicht", "arbeitszeit"}
+    if shift_type in non_work_types:
+        return False
+    start = _normalize_time_value(plan_row.get("start_zeit"))
+    if not start:
+        return False
+    if shift_type in work_types:
+        return True
+    if shift_type == "":
+        end = _normalize_time_value(plan_row.get("ende_zeit"))
+        if start == "00:00:00" and (not end or end == "00:00:00"):
+            return False
+        return True
+    return False
+
+
+def _load_dienstplan_start_map(
+    supabase,
+    *,
+    mitarbeiter_id: int,
+    month_start: date,
+    month_end: date,
+) -> dict[str, str]:
+    start_map: dict[str, str] = {}
+    for table_name in ("dienstplaene", "dienstplan"):
+        select_variants = [
+            "datum,schichttyp,typ,start_zeit,ende_zeit",
+            "datum,schichttyp,start_zeit,ende_zeit",
+            "datum,schichttyp,start_zeit",
+        ]
+        rows: list[dict] = []
+        for cols in select_variants:
+            try:
+                res = (
+                    supabase.table(table_name)
+                    .select(cols)
+                    .eq("mitarbeiter_id", mitarbeiter_id)
+                    .gte("datum", month_start.isoformat())
+                    .lte("datum", month_end.isoformat())
+                    .order("datum")
+                    .order("start_zeit")
+                    .execute()
+                )
+                rows = res.data or []
+                break
+            except Exception:
+                continue
+        for row in rows:
+            if not _is_work_shift_row(row):
+                continue
+            day_key = _normalize_day_key(row.get("datum"))
+            start_time = _normalize_time_value(row.get("start_zeit"))
+            if not day_key or not start_time:
+                continue
+            if day_key not in start_map or start_time < start_map[day_key]:
+                start_map[day_key] = start_time
+    return start_map
+
+
 def _load_month_ist_hours(
     supabase,
     mitarbeiter_id: int,
@@ -654,7 +734,10 @@ def _load_month_ist_hours(
     try:
         zeit_res = (
             supabase.table("zeiterfassung")
-            .select("datum,arbeitsstunden,stunden,quelle,ist_krank,abwesenheitstyp")
+            .select(
+                "id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,"
+                "quelle,ist_krank,abwesenheitstyp,manuell_kommentar"
+            )
             .eq("mitarbeiter_id", mitarbeiter_id)
             .gte("datum", month_start.isoformat())
             .lte("datum", month_end.isoformat())
@@ -664,7 +747,9 @@ def _load_month_ist_hours(
         # Legacy-Fallback mit reduziertem Feldsatz
         zeit_res = (
             supabase.table("zeiterfassung")
-            .select("datum,arbeitsstunden,stunden,quelle,ist_krank")
+            .select(
+                "id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,quelle,ist_krank"
+            )
             .eq("mitarbeiter_id", mitarbeiter_id)
             .gte("datum", month_start.isoformat())
             .lte("datum", month_end.isoformat())
@@ -687,6 +772,18 @@ def _load_month_ist_hours(
     contracts = list(contract_rows or [])
     if not contracts:
         contracts = _load_contract_rows(supabase, mitarbeiter_id)
+    dienstplan_start_map = _load_dienstplan_start_map(
+        supabase,
+        mitarbeiter_id=mitarbeiter_id,
+        month_start=month_start,
+        month_end=month_end,
+    )
+    calc_ma = {
+        "monatliche_soll_stunden": fallback_monthly_soll,
+        "monatliche_brutto_verguetung": 0.0,
+        "sonntagszuschlag_aktiv": False,
+        "feiertagszuschlag_aktiv": False,
+    }
 
     daily_target_cache: dict[str, float] = {}
     for wd in workdays:
@@ -710,6 +807,24 @@ def _load_month_ist_hours(
             continue
 
         for row in productive_rows:
+            start_zeit = _normalize_time_value(row.get("start_zeit"))
+            ende_zeit = _normalize_time_value(row.get("ende_zeit"))
+            if start_zeit and ende_zeit:
+                try:
+                    normalized_row = dict(row)
+                    normalized_row["start_zeit"] = start_zeit
+                    normalized_row["ende_zeit"] = ende_zeit
+                    calc_row = berechne_eintrag(
+                        normalized_row,
+                        calc_ma,
+                        auto_pause=False,
+                        dienstplan_start_zeit=dienstplan_start_map.get(day),
+                    )
+                    if not calc_row.get("fehler"):
+                        total += _to_float(calc_row.get("netto_stunden"))
+                        continue
+                except Exception:
+                    pass
             total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
     return round(total, 2)
 
