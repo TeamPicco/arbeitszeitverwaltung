@@ -851,7 +851,11 @@ def berechne_monat(
     audit_log_gesamt = []
 
     for eintrag in eintraege_bereinigt:
-        datum_key = str(eintrag.get("datum") or "")
+        raw_day = eintrag.get("datum")
+        if isinstance(raw_day, date):
+            datum_key = raw_day.isoformat()
+        else:
+            datum_key = str(raw_day or "").strip()[:10]
         planned_start = (dienstplan_start_map or {}).get(datum_key)
         zeile = berechne_eintrag(
             eintrag,

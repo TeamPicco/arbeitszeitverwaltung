@@ -100,6 +100,89 @@ def _lade_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
     return _cached_zeiterfassungen(mitarbeiter_id, monat, jahr)
 
 
+def _normalize_day_key(raw_value) -> str:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return ""
+    return raw[:10]
+
+
+def _normalize_time_value(raw_value) -> str:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) >= 8:
+        return raw[:8]
+    if len(raw) == 5:
+        return f"{raw}:00"
+    return raw
+
+
+def _is_work_shift_row(row: dict) -> bool:
+    shift_type = str(row.get("schichttyp") or row.get("typ") or "").strip().lower()
+    non_work_types = {"urlaub", "krank", "krankheit", "frei", "unbezahlter_urlaub", "sonderurlaub"}
+    work_types = {"arbeit", "geplant", "dienst", "schicht", "arbeitszeit"}
+    if shift_type in non_work_types:
+        return False
+    start = _normalize_time_value(row.get("start_zeit"))
+    if not start:
+        return False
+    if shift_type in work_types:
+        return True
+    if shift_type == "":
+        # Legacy-Zeilen ohne Typ: 00:00/00:00 sind i. d. R. Marker, keine Arbeitsschicht.
+        end = _normalize_time_value(row.get("ende_zeit"))
+        if start == "00:00:00" and (not end or end == "00:00:00"):
+            return False
+        return True
+    return False
+
+
+def _load_plan_rows_for_month(
+    supabase,
+    *,
+    planning_table: str,
+    mitarbeiter_id: int,
+    erster: str,
+    letzter: str,
+) -> list[dict]:
+    select_variants = [
+        "datum,schichttyp,typ,start_zeit,ende_zeit",
+        "datum,schichttyp,start_zeit,ende_zeit",
+        "datum,schichttyp,start_zeit",
+    ]
+    for cols in select_variants:
+        try:
+            r = (
+                supabase.table(planning_table)
+                .select(cols)
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .gte("datum", erster)
+                .lte("datum", letzter)
+                .order("datum")
+                .order("start_zeit")
+                .execute()
+            )
+            return r.data or []
+        except Exception:
+            continue
+    return []
+
+
+def _merge_start_times(start_map: dict[str, str], rows: list[dict]) -> dict[str, str]:
+    merged = dict(start_map or {})
+    for row in rows or []:
+        if not _is_work_shift_row(row):
+            continue
+        d = _normalize_day_key(row.get("datum"))
+        s = _normalize_time_value(row.get("start_zeit"))
+        if not d or not s:
+            continue
+        if d not in merged or s < merged[d]:
+            merged[d] = s
+    return merged
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -> dict:
     """Lädt pro Datum die früheste geplante Startzeit (für Kappungslogik)."""
@@ -110,28 +193,14 @@ def _cached_dienstplan_startzeiten(mitarbeiter_id: int, monat: int, jahr: int) -
     # Rückwärtskompatibel beide möglichen Tabellen lesen.
     # So greift die Kappung auch dann korrekt, wenn die Instanz noch Legacy-Daten nutzt.
     for planning_table in ("dienstplaene", "dienstplan"):
-        try:
-            r = (
-                supabase.table(planning_table)
-                .select("datum,schichttyp,start_zeit")
-                .eq("mitarbeiter_id", mitarbeiter_id)
-                .gte("datum", erster)
-                .lte("datum", letzter)
-                .order("datum")
-                .order("start_zeit")
-                .execute()
-            )
-        except Exception:
-            continue
-        for row in (r.data or []):
-            if str(row.get("schichttyp") or "arbeit") != "arbeit":
-                continue
-            d = str(row.get("datum") or "")
-            s = str(row.get("start_zeit") or "")
-            if not d or not s:
-                continue
-            if d not in start_map or s < start_map[d]:
-                start_map[d] = s
+        rows = _load_plan_rows_for_month(
+            supabase,
+            planning_table=planning_table,
+            mitarbeiter_id=mitarbeiter_id,
+            erster=erster,
+            letzter=letzter,
+        )
+        start_map = _merge_start_times(start_map, rows)
     return start_map
 
 
@@ -151,31 +220,15 @@ def _cached_dienstplan_startzeiten_with_fallback(mitarbeiter_id: int, monat: int
     try:
         erster = date(jahr, monat, 1).isoformat()
         letzter = date(jahr, monat, monthrange(jahr, monat)[1]).isoformat()
-        r = (
-            supabase.table(fallback)
-            .select("datum,schichttyp,start_zeit")
-            .eq("mitarbeiter_id", mitarbeiter_id)
-            .gte("datum", erster)
-            .lte("datum", letzter)
-            .order("datum")
-            .order("start_zeit")
-            .execute()
+        fallback_rows = _load_plan_rows_for_month(
+            supabase,
+            planning_table=fallback,
+            mitarbeiter_id=mitarbeiter_id,
+            erster=erster,
+            letzter=letzter,
         )
-        fb_map: dict[str, str] = {}
-        for row in (r.data or []):
-            if str(row.get("schichttyp") or "arbeit") != "arbeit":
-                continue
-            d = str(row.get("datum") or "")
-            s = str(row.get("start_zeit") or "")
-            if not d or not s:
-                continue
-            if d not in fb_map or s < fb_map[d]:
-                fb_map[d] = s
         # Merge: pro Tag immer die früheste Startzeit.
-        merged = dict(start_map or {})
-        for d, s in fb_map.items():
-            if d not in merged or s < merged[d]:
-                merged[d] = s
+        merged = _merge_start_times(start_map, fallback_rows)
         return merged
     except Exception:
         return start_map
