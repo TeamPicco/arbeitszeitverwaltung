@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import base64
 import mimetypes
+from typing import Any, Dict, Optional
 from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
@@ -28,6 +29,47 @@ def _get_supabase_client():
 
 supabase = _get_supabase_client()
 apply_custom_css()
+
+
+def _load_mitarbeiter_profile_for_user(user: Dict[str, Any], username: str) -> Optional[Dict[str, Any]]:
+    """
+    Lädt den Mitarbeiterdatensatz zum eingeloggten User.
+    Primär über user_id, fallback über username/email für Legacy-Daten.
+    """
+    try:
+        base_select = (
+            "id, betrieb_id, user_id, personalnummer, vorname, nachname, email, telefon, "
+            "strasse, plz, ort, geburtsdatum, eintrittsdatum, monatliche_soll_stunden, "
+            "jahres_urlaubstage, resturlaub_vorjahr"
+        )
+        q = (
+            supabase.table("mitarbeiter")
+            .select(base_select)
+            .eq("betrieb_id", user.get("betrieb_id"))
+            .eq("user_id", user.get("id"))
+            .limit(1)
+            .execute()
+        )
+        if q.data:
+            return q.data[0]
+    except Exception:
+        pass
+
+    # Legacy-Fallback: Zuordnung über email=username
+    try:
+        q = (
+            supabase.table("mitarbeiter")
+            .select(base_select)
+            .eq("betrieb_id", user.get("betrieb_id"))
+            .eq("email", username)
+            .limit(1)
+            .execute()
+        )
+        if q.data:
+            return q.data[0]
+    except Exception:
+        pass
+    return None
 
 
 def _wrap_card_start() -> None:
@@ -276,7 +318,7 @@ def _render_login_fragment() -> None:
     with tab_admin:
         with st.form("login"):
             bnr = st.text_input("Betriebsnummer", value="20262204")
-            usr = st.text_input("Admin")
+            usr = st.text_input("Benutzername")
             pwd = st.text_input("Passwort", type="password")
             if st.form_submit_button("Login", use_container_width=True):
                 user = verify_credentials_with_betrieb(bnr, usr, pwd)
@@ -285,13 +327,38 @@ def _render_login_fragment() -> None:
                         {
                             "logged_in": True,
                             "is_admin": True,
+                            "role": "admin",
                             "user_id": user.get("id"),
                             "betrieb_id": user.get("betrieb_id"),
                             "betrieb_name": user.get("betrieb_name"),
+                            "mitarbeiter_id": None,
                         }
                     )
                     update_last_login(str(user.get("id")))
                     st.rerun()
+                elif user and user.get("role") == "mitarbeiter":
+                    ma = _load_mitarbeiter_profile_for_user(user, usr)
+                    if not ma:
+                        st.error("Mitarbeiter-Profil konnte nicht geladen werden. Bitte Admin informieren.")
+                    else:
+                        st.session_state.update(
+                            {
+                                "logged_in": True,
+                                "is_admin": False,
+                                "role": "mitarbeiter",
+                                "user_id": user.get("id"),
+                                "betrieb_id": user.get("betrieb_id"),
+                                "betrieb_name": user.get("betrieb_name"),
+                                "mitarbeiter_id": ma.get("id"),
+                                "vorname": ma.get("vorname"),
+                                "nachname": ma.get("nachname"),
+                                "mitarbeiter_personalnummer": ma.get("personalnummer"),
+                            }
+                        )
+                        update_last_login(str(user.get("id")))
+                        st.rerun()
+                else:
+                    st.error("Login fehlgeschlagen. Bitte Zugangsdaten prüfen.")
 
 
 # --- HAUPTLOGIK ---
@@ -335,5 +402,9 @@ else:
         if st.button("Abmelden", key="logout_fixed_btn", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-    from pages import admin_dashboard
-    admin_dashboard.show_admin_dashboard()
+    if st.session_state.get("is_admin"):
+        from pages import admin_dashboard
+        admin_dashboard.show_admin_dashboard()
+    else:
+        from pages import mitarbeiter_dashboard
+        mitarbeiter_dashboard.show_mitarbeiter_dashboard()
