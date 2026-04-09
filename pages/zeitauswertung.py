@@ -39,6 +39,7 @@ from utils.calculations import (
     get_monatsnamen,
 )
 from utils.work_accounts import sync_work_account_for_month
+from utils.work_accounts import compute_work_account_snapshot
 
 MONATE = [
     "Januar", "Februar", "März", "April", "Mai", "Juni",
@@ -266,11 +267,30 @@ def _cached_admin_mitarbeiter_za(betrieb_id: int) -> list:
         return rows
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_work_account_snapshot_preview(
+    mitarbeiter_id: int,
+    monat: int,
+    jahr: int,
+) -> object:
+    """
+    Read-only Snapshot für Soll/Ist-Vorschau in der Zeitauswertung.
+    Vermeidet DB-Upserts bei jedem UI-Render.
+    """
+    return compute_work_account_snapshot(
+        get_supabase_client(),
+        mitarbeiter_id=int(mitarbeiter_id),
+        monat=int(monat),
+        jahr=int(jahr),
+    )
+
+
 def _clear_zeitauswertung_caches() -> None:
     _cached_zeiterfassungen.clear()
     _cached_dienstplan_startzeiten.clear()
     _cached_dienstplan_startzeiten_with_fallback.clear()
     _cached_admin_mitarbeiter_za.clear()
+    _cached_work_account_snapshot_preview.clear()
     berechne_monat_cached.clear()
 
 
@@ -1213,9 +1233,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     # Dadurch bleiben Zeitauswertung und Konto deterministisch synchron.
     snap_preview = None
     try:
-        snap_preview = sync_work_account_for_month(
-            get_supabase_client(),
-            betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+        snap_preview = _cached_work_account_snapshot_preview(
             mitarbeiter_id=int(aktiver_ma["id"]),
             monat=int(monat),
             jahr=int(jahr),

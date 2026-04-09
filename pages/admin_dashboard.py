@@ -106,6 +106,88 @@ def _cached_admin_mitarbeiter(betrieb_id):
     return rows
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_arbeitszeitkonten_rows(betrieb_id: int | None):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("arbeitszeit_konten")
+        .select(
+            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
+            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
+        )
+        .order("mitarbeiter_id")
+    )
+    q = base_q
+    if betrieb_id is not None:
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        # Legacy-Schema-Fallback ohne betrieb_id-Filter.
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_azk_closed_rows(betrieb_id: int | None, monat: int, jahr: int):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("azk_monatsabschluesse")
+        .select("mitarbeiter_id, ueberstunden_saldo_start, korrektur_grund, manuelle_korrektur_saldo")
+        .eq("monat", int(monat))
+        .eq("jahr", int(jahr))
+    )
+    q = base_q
+    if betrieb_id is not None:
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_existing_init_marker(mitarbeiter_id: int):
+    supabase = get_supabase_client()
+    try:
+        existing_init_res = (
+            supabase.table("azk_monatsabschluesse")
+            .select("id, monat, jahr")
+            .eq("mitarbeiter_id", int(mitarbeiter_id))
+            .eq("jahr", 2026)
+            .eq("ist_initialisierung", True)
+            .limit(1)
+            .execute()
+        )
+        return (existing_init_res.data or [None])[0]
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_system_counts(betrieb_id: int | None) -> tuple[int, int, int]:
+    supabase = get_supabase_client()
+    try:
+        users_q = supabase.table("users").select("id", count="exact")
+        ma_q = supabase.table("mitarbeiter").select("id", count="exact")
+        zeit_q = supabase.table("zeiterfassung").select("id", count="exact")
+        if betrieb_id is not None:
+            users_q = users_q.eq("betrieb_id", int(betrieb_id))
+            ma_q = ma_q.eq("betrieb_id", int(betrieb_id))
+            zeit_q = zeit_q.eq("betrieb_id", int(betrieb_id))
+        users_count = users_q.limit(1).execute().count or 0
+        ma_count = ma_q.limit(1).execute().count or 0
+        zeit_count = zeit_q.limit(1).execute().count or 0
+        return int(users_count), int(ma_count), int(zeit_count)
+    except Exception:
+        return 0, 0, 0
+
+
 def _refresh_after_write() -> None:
     clear_app_caches()
 
@@ -1323,20 +1405,9 @@ def _show_system_tab():
     betrieb_id = st.session_state.get("betrieb_id")
 
     col1, col2, col3 = st.columns(3)
-    try:
-        users_q = supabase.table("users").select("id", count="exact")
-        ma_q = supabase.table("mitarbeiter").select("id", count="exact")
-        zeit_q = supabase.table("zeiterfassung").select("id", count="exact")
-        if betrieb_id is not None:
-            users_q = users_q.eq("betrieb_id", betrieb_id)
-            ma_q = ma_q.eq("betrieb_id", betrieb_id)
-            zeit_q = zeit_q.eq("betrieb_id", betrieb_id)
-
-        users_count = users_q.limit(1).execute().count or 0
-        ma_count = ma_q.limit(1).execute().count or 0
-        zeit_count = zeit_q.limit(1).execute().count or 0
-    except Exception:
-        users_count = ma_count = zeit_count = 0
+    users_count, ma_count, zeit_count = _cached_system_counts(
+        int(betrieb_id) if betrieb_id is not None else None
+    )
 
     with col1:
         st.metric("Benutzer", users_count)
@@ -1533,20 +1604,7 @@ def _show_arbeitszeitkonten_tab():
             key="azk_init_reason",
         )
 
-        existing_init = None
-        try:
-            existing_init_res = (
-                supabase.table("azk_monatsabschluesse")
-                .select("id, monat, jahr")
-                .eq("mitarbeiter_id", int(init_ma["id"]))
-                .eq("jahr", 2026)
-                .eq("ist_initialisierung", True)
-                .limit(1)
-                .execute()
-            )
-            existing_init = (existing_init_res.data or [None])[0]
-        except Exception:
-            existing_init = None
+        existing_init = _cached_existing_init_marker(int(init_ma["id"]))
 
         start_month_editable = int(init_jahr) == 2026 and int(init_monat) in (4, 5)
         if not start_month_editable:
@@ -1589,16 +1647,7 @@ def _show_arbeitszeitkonten_tab():
                 except Exception as exc:
                     st.error(f"Initialisierung fehlgeschlagen: {exc}")
 
-    konto_res = (
-        supabase.table("arbeitszeit_konten")
-        .select(
-            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
-            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
-        )
-        .order("mitarbeiter_id")
-        .execute()
-    )
-    rows = konto_res.data or []
+    rows = _cached_arbeitszeitkonten_rows(st.session_state.get("betrieb_id"))
     if not rows:
         st.info("Keine Einträge in arbeitszeit_konten vorhanden.")
         return
@@ -1618,16 +1667,11 @@ def _show_arbeitszeitkonten_tab():
     closed_ids = set()
     closed_meta = {}
     try:
-        closed_q = (
-            supabase.table("azk_monatsabschluesse")
-            .select("mitarbeiter_id, ueberstunden_saldo_start, korrektur_grund, manuelle_korrektur_saldo")
-            .eq("monat", int(monat))
-            .eq("jahr", int(jahr))
+        closed_rows = _cached_azk_closed_rows(
+            st.session_state.get("betrieb_id"),
+            int(monat),
+            int(jahr),
         )
-        betrieb_id = st.session_state.get("betrieb_id")
-        if betrieb_id is not None:
-            closed_q = closed_q.eq("betrieb_id", betrieb_id)
-        closed_rows = closed_q.execute().data or []
         closed_ids = {int(r.get("mitarbeiter_id")) for r in closed_rows if r.get("mitarbeiter_id") is not None}
         for r in closed_rows:
             ma_id = r.get("mitarbeiter_id")

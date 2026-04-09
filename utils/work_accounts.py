@@ -7,6 +7,7 @@ import re
 from typing import Dict, Iterable, Optional
 
 from utils.lohnberechnung import berechne_arbeitszeitkonto_saldo, berechne_eintrag
+from utils.planning_tables import resolve_planning_table
 
 
 @dataclass
@@ -685,15 +686,14 @@ def _load_dienstplan_start_map(
     mitarbeiter_id: int,
     month_start: date,
     month_end: date,
+    required_days: Optional[set[str]] = None,
 ) -> dict[str, str]:
-    start_map: dict[str, str] = {}
-    for table_name in ("dienstplaene", "dienstplan"):
+    def _load_rows(table_name: str) -> list[dict]:
         select_variants = [
             "datum,schichttyp,typ,start_zeit,ende_zeit",
             "datum,schichttyp,start_zeit,ende_zeit",
             "datum,schichttyp,start_zeit",
         ]
-        rows: list[dict] = []
         for cols in select_variants:
             try:
                 res = (
@@ -706,10 +706,16 @@ def _load_dienstplan_start_map(
                     .order("start_zeit")
                     .execute()
                 )
-                rows = res.data or []
-                break
+                return res.data or []
             except Exception:
                 continue
+        return []
+
+    start_map: dict[str, str] = {}
+    primary = resolve_planning_table(supabase)
+    fallback = "dienstplan" if primary == "dienstplaene" else "dienstplaene"
+    for table_name in (primary, fallback):
+        rows = _load_rows(table_name)
         for row in rows:
             if not _is_work_shift_row(row):
                 continue
@@ -719,6 +725,10 @@ def _load_dienstplan_start_map(
                 continue
             if day_key not in start_map or start_time < start_map[day_key]:
                 start_map[day_key] = start_time
+        if required_days and required_days.issubset(set(start_map.keys())):
+            break
+        if not required_days and rows:
+            break
     return start_map
 
 
@@ -777,6 +787,7 @@ def _load_month_ist_hours(
         mitarbeiter_id=mitarbeiter_id,
         month_start=month_start,
         month_end=month_end,
+        required_days=set(grouped.keys()),
     )
     calc_ma = {
         "monatliche_soll_stunden": fallback_monthly_soll,
