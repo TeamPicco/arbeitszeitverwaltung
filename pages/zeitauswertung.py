@@ -75,6 +75,8 @@ def _cached_zeiterfassungen(mitarbeiter_id: int, monat: int, jahr: int) -> list:
             'id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,'
             'quelle,ist_krank,abwesenheitstyp,created_at,updated_at,manuell_kommentar,korrektur_grund'
         ),
+        # Fallback ohne einzelne neue Korrekturfelder, aber weiterhin mit Abwesenheitstyp.
+        'id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,quelle,ist_krank,abwesenheitstyp,created_at,updated_at',
         # Legacy ohne abwesenheitstyp / Korrekturfelder.
         'id,datum,start_zeit,ende_zeit,pause_minuten,arbeitsstunden,stunden,quelle,ist_krank,created_at,updated_at',
         # Minimal-Fallback.
@@ -1455,22 +1457,20 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             if not editable_entries:
                 st.info("Keine Zeiteinträge für den gewählten Zeitraum vorhanden.")
             else:
-                st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
-                for raw in editable_entries:
-                    rid = int(raw.get("id"))
-                    d = str(raw.get("datum") or "")
-                    s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
-                    e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
-                    ignored_label = " (Konflikt: in Berechnung ignoriert)" if rid in ignored_conflict_ids else ""
+                with st.container(key=f"za_edit_entries_{int(aktiver_ma.get('id') or 0)}_{jahr}_{monat}"):
+                    for raw in editable_entries:
+                        rid = int(raw.get("id"))
+                        d = str(raw.get("datum") or "")
+                        s = str(raw.get("start_zeit") or "")[:5] if raw.get("start_zeit") else "--:--"
+                        e = str(raw.get("ende_zeit") or "")[:5] if raw.get("ende_zeit") else "offen"
+                        ignored_label = " (Konflikt: in Berechnung ignoriert)" if rid in ignored_conflict_ids else ""
 
-                    c_info, c_action = st.columns([5, 1])
-                    with c_info:
-                        st.markdown(f"**#{rid}** · {d} · {s}–{e}{ignored_label}")
-                    with c_action:
-                        if st.button("Bearbeiten", key=f"za_edit_btn_{rid}", use_container_width=True):
-                            st.session_state["za_edit_entry"] = raw
-                            st.rerun()
-                st.markdown("</div>", unsafe_allow_html=True)
+                        c_info, c_action = st.columns([5, 1])
+                        with c_info:
+                            st.markdown(f"**#{rid}** · {d} · {s}–{e}{ignored_label}")
+                        with c_action:
+                            if st.button("Bearbeiten", key=f"za_edit_btn_{rid}", use_container_width=True):
+                                st.session_state["za_edit_entry"] = raw
 
             active_edit = st.session_state.get("za_edit_entry")
             if active_edit:
