@@ -45,3 +45,7 @@ streamlit run kiosk_stempeluhr.py
 - Python 3.12 is used in the Cloud VM (the README says 3.11+ which is satisfied).
 - `pytest` and `ruff` are dev-only dependencies not listed in `requirements.txt`; the update script installs them.
 - There is no build step — Streamlit apps run directly from source.
+- The default admin password `admin123` from the README may have been changed in the live database. The authentication flow (bcrypt hash check against Supabase) works correctly — if login fails, the password has simply been changed.
+- The employee time clock (Stempeluhr) authenticates via 4-digit PINs stored in the `mitarbeiter` table. Existing PINs can be queried directly from Supabase for testing.
+- The Betriebsnummer (company number) for the Steakhouse Piccolo instance is `20262204`.
+- To write the `.env` file when Supabase secrets are injected as environment variables, use: `python3 -c "import os; open('.env','w').write(f'SUPABASE_URL={os.environ[\"SUPABASE_URL\"]}\nSUPABASE_KEY={os.environ[\"SUPABASE_KEY\"]}\nSUPABASE_SERVICE_ROLE_KEY={os.environ[\"SUPABASE_SERVICE_ROLE_KEY\"]}\nBUNDESLAND=SN\nSESSION_TIMEOUT_MINUTES=480\n')"`
