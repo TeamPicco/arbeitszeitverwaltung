@@ -72,6 +72,28 @@ def _load_mitarbeiter_profile_for_user(user: Dict[str, Any], username: str) -> O
     return None
 
 
+def _find_mitarbeiter_by_pin(pin: str) -> Optional[Dict[str, Any]]:
+    """
+    Sucht Mitarbeiter per Terminal-PIN.
+    Unterstützt sowohl neues Feld `stempel_pin` als auch Legacy-Feld `pin`.
+    """
+    select_cols = "id, vorname, nachname, betrieb_id"
+    for pin_column in ("stempel_pin", "pin"):
+        try:
+            res = (
+                supabase.table("mitarbeiter")
+                .select(select_cols)
+                .eq(pin_column, pin)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                return res.data[0]
+        except Exception:
+            continue
+    return None
+
+
 def _wrap_card_start() -> None:
     st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
 
@@ -227,9 +249,8 @@ def _render_login_fragment() -> None:
     with tab_stempel:
         pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
         if len(pin) == 4:
-            res = supabase.table("mitarbeiter").select("id, vorname, betrieb_id").eq("pin", pin).limit(1).execute()
-            if res.data:
-                ma = res.data[0]
+            ma = _find_mitarbeiter_by_pin(pin)
+            if ma:
                 st.info(f"Hallo {ma['vorname']}! Schicht: {now_berlin().strftime('%d.%m.%Y')}")
                 state = get_event_state_for_day(
                     supabase,

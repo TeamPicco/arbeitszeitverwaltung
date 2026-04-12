@@ -313,11 +313,21 @@ def mitarbeiter_per_pin(betrieb_id: int, pin: str):
     """Mitarbeiter anhand PIN suchen."""
     try:
         supabase = get_supabase()
-        result = supabase.table("mitarbeiter").select(
-            "id, vorname, nachname, stempel_pin"
-        ).eq("betrieb_id", betrieb_id).eq("stempel_pin", pin).execute()
-        if result.data:
-            return result.data[0]
+        select_cols = "id, vorname, nachname, stempel_pin, pin"
+        for pin_column in ("stempel_pin", "pin"):
+            try:
+                result = (
+                    supabase.table("mitarbeiter")
+                    .select(select_cols)
+                    .eq("betrieb_id", betrieb_id)
+                    .eq(pin_column, pin)
+                    .limit(1)
+                    .execute()
+                )
+                if result.data:
+                    return result.data[0]
+            except Exception:
+                continue
     except Exception:
         st.session_state["kiosk_offline"] = True
     return None
