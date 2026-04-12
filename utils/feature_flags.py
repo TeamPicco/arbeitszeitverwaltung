@@ -17,17 +17,15 @@ FEATURES = {
 }
 
 PLAN_FEATURES = {
-    "starter": [],
+    "starter":      [],
     "professional": ["LABOR_LAW_GUARD"],
-    "compliance": ["LABOR_LAW_GUARD", "HAZARD_ASSESSMENT"],
-    "complete": ["LABOR_LAW_GUARD", "HAZARD_ASSESSMENT", "DATEV_EXPORT"]
+    "compliance":   ["LABOR_LAW_GUARD", "HAZARD_ASSESSMENT"],
+    "complete":     ["LABOR_LAW_GUARD", "HAZARD_ASSESSMENT", "DATEV_EXPORT"]
 }
-
 
 def is_feature_enabled(feature_key: str, user_plan: str) -> bool:
     """Gibt True zurück wenn das Feature im aktuellen Plan enthalten ist."""
     return feature_key in PLAN_FEATURES.get(user_plan, [])
-
 
 def get_user_plan(supabase_client, betrieb_id: str) -> str:
     """Liest den aktuellen Plan des Betriebs aus der Datenbank."""
