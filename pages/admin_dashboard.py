@@ -18,6 +18,8 @@ from utils.historischer_import import (
 from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from modules.hazard.hazard_ui import show_hazard_modul
+from utils.feature_flags import get_user_plan
 from utils.vertrag_templates import (
     VERTRAG_TEMPLATE_OPTIONS,
     build_default_contract_payload,
