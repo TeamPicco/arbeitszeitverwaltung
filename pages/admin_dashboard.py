@@ -195,9 +195,13 @@ def _show_absenzen_tab():
                             )
                             attest_pfad = None
 
+                    _bid = mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = store_absence(
                         supabase,
-                        betrieb_id=mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=mitarbeiter["id"],
                         typ=typ,
                         start=start,
@@ -1200,10 +1204,14 @@ def _show_planovo_import_tab():
 
     if st.button("Planovo-Daten importieren", type="primary", use_container_width=True):
         with st.spinner("Import läuft..."):
+            _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+            if not _bid:
+                st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                st.stop()
             result = importiere_in_crewbase(
                 parsed,
                 mitarbeiter_id=ma["id"],
-                betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                betrieb_id=_bid,
                 supabase_client=supabase,
                 ueberschreiben=ueberschreiben,
             )
@@ -1289,9 +1297,13 @@ def _show_system_tab():
         ok_count = 0
         for ma in ma_list:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 validation = validate_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(check_monat),
                     jahr=int(check_jahr),
@@ -1342,9 +1354,13 @@ def _show_arbeitszeitkonten_tab():
         closed_count = 0
         for ma in alle_ma:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 snapshot = sync_work_account_for_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1360,9 +1376,13 @@ def _show_arbeitszeitkonten_tab():
     if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
         for ma in alle_ma:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 close_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
