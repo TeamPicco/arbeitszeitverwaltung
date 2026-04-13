@@ -7,29 +7,29 @@ import streamlit as st
 
 # Edles Farbschema - Dunkelblau/Gold/Weiß
 COLORS = {
-    # Primärfarben (Dark-Lux)
-    'primary': '#2563eb',
-    'primary_light': '#3b82f6',
-    'primary_dark': '#0b1220',
+    # Primärfarben (Complio Schwarz/Orange)
+    'primary': '#F97316',
+    'primary_light': '#FB923C',
+    'primary_dark': '#0a0a0a',
 
     # Akzentfarben
-    'accent': '#38bdf8',
-    'accent_light': '#7dd3fc',
+    'accent': '#F97316',
+    'accent_light': '#FDBA74',
 
     # Statusfarben
     'success': '#22c55e',
     'warning': '#f59e0b',
     'error': '#ef4444',
-    'info': '#38bdf8',
+    'info': '#F97316',
 
     # Neutrale Farben
-    'background': '#000000',
+    'background': '#0a0a0a',
     'surface': '#111111',
-    'border': '#2a2a2a',
+    'border': '#1f1f1f',
 
     # Textfarben
     'text_primary': '#ffffff',
-    'text_secondary': '#d1d5db',
+    'text_secondary': '#a3a3a3',
     'text_light': '#ffffff',
 }
 

@@ -4,10 +4,10 @@ import os
 from pathlib import Path
 
 
-APP_NAME = "Coreo-Flow"
+APP_NAME = "Complio"
 APP_NAME_ADMIN = f"{APP_NAME} – Admin"
-APP_TAGLINE = "Integrated Business"
-COMPANY_NAME = "Steakhouse Piccolo"
+APP_TAGLINE = "Rechtssicher. Organisiert. Geschützt."
+COMPANY_NAME = "Complio"
 
 _ROOT = Path(__file__).resolve().parents[1]
 _ASSETS = _ROOT / "assets"
