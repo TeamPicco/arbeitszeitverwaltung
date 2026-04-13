@@ -81,3 +81,9 @@ def generiere_ki_vorschlag(
         return "Kein KI-Vorschlag verfügbar."
     except Exception:
         return "KI-Vorschlag konnte aktuell nicht generiert werden."
+
+
+def pruefe_api_key() -> bool:
+    """Prüft ob ein gültiger Anthropic API-Key vorhanden ist."""
+    key = os.environ.get("ANTHROPIC_API_KEY", "")
+    return key.startswith("sk-ant-") and len(key) > 20
