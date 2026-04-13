@@ -203,7 +203,7 @@ def show_landing():
     with col2:
         st.link_button(
             "Jetzt kostenlos starten",
-            url="https://arbeitszeitverwaltung.onrender.com/?locale=de",
+            url="https://getcomplio.de/?locale=de",
             use_container_width=True,
             type="primary"
         )
