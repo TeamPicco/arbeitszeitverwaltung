@@ -1486,6 +1486,12 @@ def _show_premium_tab():
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
+
+    from modules.onboarding.onboarding_ui import show_testphase_banner
+    _betrieb_id = st.session_state.get("betrieb_id")
+    if _betrieb_id:
+        show_testphase_banner(_betrieb_id)
+
     c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
     with c_logo:
         st.image(BRAND_LOGO_IMAGE, width=90)

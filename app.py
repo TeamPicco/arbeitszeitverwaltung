@@ -4,6 +4,7 @@ from utils.database import init_supabase_client, verify_credentials_with_betrieb
 from utils.session import init_session_state, set_login_session, clear_login_session
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE, BRAND_TAGLINE
+from modules.onboarding.onboarding_ui import show_registrierung
 from utils.zeit_events import (
     EVENT_BREAK_END,
     EVENT_BREAK_START,
@@ -38,7 +39,11 @@ if not st.session_state.get('logged_in'):
             st.image(BRAND_LOGO_IMAGE, width=150)
     with title_col:
         st.markdown(f"## {BRAND_APP_NAME}")
-    tab_stempel, tab_admin = st.tabs(["🕒 Mitarbeiter Stempeluhr", "🔐 Admin Login"])
+    tab_stempel, tab_admin, tab_registrierung = st.tabs([
+        "🕒 Mitarbeiter Stempeluhr",
+        "🔐 Admin Login",
+        "🏢 Neu registrieren"
+    ])
     
     with tab_stempel:
         pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
@@ -160,6 +165,9 @@ if not st.session_state.get('logged_in'):
                     )
                     update_last_login(str(user.get("id")))
                     st.rerun()
+
+    with tab_registrierung:
+        show_registrierung()
 else:
     if BRAND_LOGO_IMAGE:
         st.sidebar.image(BRAND_LOGO_IMAGE, use_container_width=True)
