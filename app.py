@@ -1,6 +1,7 @@
 import streamlit as st
 import time
-from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login
+from utils.database import init_supabase_client, verify_credentials_with_betrieb, update_last_login, set_betrieb_session
+from utils.session import init_session_state, set_login_session, clear_login_session
 from utils.time_utils import format_datetime_de, now_berlin
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE, BRAND_TAGLINE
 from utils.zeit_events import (
@@ -146,20 +147,16 @@ if not st.session_state.get('logged_in'):
 
     with tab_admin:
         with st.form("login"):
-            bnr = st.text_input("Betriebsnummer", value="20262204")
+            bnr = st.text_input("Betriebsnummer")
             usr = st.text_input("Admin")
             pwd = st.text_input("Passwort", type="password")
             if st.form_submit_button("Login"):
                 user = verify_credentials_with_betrieb(bnr, usr, pwd)
                 if user and user['role'] == 'admin':
-                    st.session_state.update(
-                        {
-                            "logged_in": True,
-                            "is_admin": True,
-                            "user_id": user.get("id"),
-                            "betrieb_id": user.get("betrieb_id"),
-                            "betrieb_name": user.get("betrieb_name"),
-                        }
+                    set_login_session(user)
+                    set_betrieb_session(
+                        init_supabase_client(),
+                        user.get("betrieb_id")
                     )
                     update_last_login(str(user.get("id")))
                     st.rerun()
@@ -169,4 +166,5 @@ else:
     from pages import admin_dashboard
     admin_dashboard.show_admin_dashboard()
     if st.sidebar.button("Abmelden"):
-        st.session_state.clear(); st.rerun()
+        clear_login_session()
+        st.rerun()
