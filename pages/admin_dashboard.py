@@ -55,13 +55,12 @@ def _safe_date(value):
         return None
 
 
-def _storage_public_url(bucket: str, path: str | None) -> str | None:
+def _storage_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str | None:
+    """Erstellt eine signierte URL – läuft nach 1 Stunde ab."""
     if not path:
         return None
-    base_url = os.getenv("SUPABASE_URL")
-    if not base_url:
-        return None
-    return f"{base_url}/storage/v1/object/public/{bucket}/{path}"
+    from utils.database import get_signed_url
+    return get_signed_url(bucket, path, expires_in)
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -694,7 +693,7 @@ def _show_mitarbeiter_stammdaten_tab():
                         )
                     else:
                         used_bucket = upload_result.get("bucket") or "dokumente"
-                        file_url = _storage_public_url(used_bucket, file_path)
+                        file_url = _storage_signed_url(used_bucket, file_path)
                         try:
                             supabase.table("mitarbeiter_dokumente").insert(
                                 {
@@ -899,7 +898,7 @@ def _show_mitarbeiter_stammdaten_tab():
     if docs:
         rows = []
         for d in docs:
-            url = d.get("file_url") or _storage_public_url("dokumente", d.get("file_path"))
+            url = d.get("file_url") or _storage_signed_url("dokumente", d.get("file_path"))
             rows.append(
                 {
                     "Name": d.get("name"),
@@ -1080,7 +1079,7 @@ def _show_vertrag_generator_tab():
             )
             return
         used_bucket = upload_result.get("bucket") or "dokumente"
-        file_url = _storage_public_url(used_bucket, file_path)
+        file_url = _storage_signed_url(used_bucket, file_path)
         try:
             supabase.table("mitarbeiter_dokumente").insert(
                 {

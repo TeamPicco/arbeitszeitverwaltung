@@ -62,7 +62,16 @@ def render_my_documents(m_id, supabase):
     if not docs.data:
         st.write("Keine Dokumente gefunden.")
     else:
+        from utils.database import get_signed_url
         for d in docs.data:
             col1, col2 = st.columns([3,1])
             col1.write(f"**{d['name']}** ({d['typ']})")
-            col2.link_button("Öffnen", d['file_url'])
+            file_path = d.get("file_path")
+            if file_path:
+                signed = get_signed_url("dokumente", file_path)
+                if signed:
+                    col2.link_button("Öffnen", signed)
+                else:
+                    col2.write("⚠️ Link nicht verfügbar")
+            else:
+                col2.write("–")
