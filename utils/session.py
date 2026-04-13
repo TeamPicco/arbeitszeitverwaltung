@@ -8,27 +8,22 @@ import os
 
 
 def init_session_state():
-    """Initialisiert den Session State mit Standardwerten"""
-    
-    # Authentifizierung
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
-    
-    if 'user_id' not in st.session_state:
-        st.session_state.user_id = None
-    
-    if 'username' not in st.session_state:
-        st.session_state.username = None
-    
-    if 'role' not in st.session_state:
-        st.session_state.role = None
-    
-    if 'login_time' not in st.session_state:
-        st.session_state.login_time = None
-    
-    # Mitarbeiterdaten (Cache)
-    if 'mitarbeiter_data' not in st.session_state:
-        st.session_state.mitarbeiter_data = None
+    """Initialisiert den Session State mit Standardwerten."""
+    defaults = {
+        "authenticated": False,
+        "logged_in": False,
+        "is_admin": False,
+        "user_id": None,
+        "username": None,
+        "role": None,
+        "betrieb_id": None,
+        "betrieb_name": None,
+        "login_time": None,
+        "mitarbeiter_data": None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
 
 def check_session_timeout() -> bool:
@@ -109,3 +104,36 @@ def get_current_betrieb_id() -> int:
         int: Betrieb-ID
     """
     return st.session_state.get('betrieb_id', None)
+
+
+def set_login_session(user: dict) -> None:
+    """
+    Setzt alle Session-Felder nach erfolgreichem Login.
+    Einzige Stelle wo Login-State gesetzt werden darf.
+    """
+    st.session_state.update({
+        "authenticated": True,
+        "logged_in": True,
+        "is_admin": user.get("role") == "admin",
+        "user_id": user.get("id"),
+        "username": user.get("username"),
+        "role": user.get("role"),
+        "betrieb_id": user.get("betrieb_id"),
+        "betrieb_name": user.get("betrieb_name"),
+        "login_time": datetime.now(),
+    })
+
+
+def clear_login_session() -> None:
+    """
+    Löscht alle Login-relevanten Session-Felder.
+    Einzige Stelle wo Logout durchgeführt werden darf.
+    """
+    login_keys = [
+        "authenticated", "logged_in", "is_admin",
+        "user_id", "username", "role",
+        "betrieb_id", "betrieb_name", "login_time",
+        "mitarbeiter_data", "supabase",
+    ]
+    for key in login_keys:
+        st.session_state.pop(key, None)

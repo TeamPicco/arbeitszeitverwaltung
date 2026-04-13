@@ -10,12 +10,11 @@ showSidebarNavigation = false
 
 [ui]
 hideTopBar = false
-hideSidebarNav = true
 
 [theme]
 base = "dark"
-primaryColor = "#2563eb"
-backgroundColor = "#000000"
+primaryColor = "#F97316"
+backgroundColor = "#0a0a0a"
 secondaryBackgroundColor = "#111111"
 textColor = "#ffffff"
 font = "sans serif"

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" 
+     viewBox="0 0 200 48" width="200" height="48">
+  <text x="0" y="38" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="38" font-weight="700" 
+        fill="#F97316" letter-spacing="-2">C</text>
+  <text x="24" y="38" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="32" font-weight="400" 
+        fill="#ffffff" letter-spacing="-0.5">omplio</text>
+  <text x="172" y="38" 
+        font-family="Arial, Helvetica, sans-serif" 
+        font-size="38" font-weight="700" 
+        fill="#F97316">.</text>
+</svg>

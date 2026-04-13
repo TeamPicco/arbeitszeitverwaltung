@@ -18,6 +18,9 @@ from utils.historischer_import import (
 from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
+from modules.hazard.hazard_ui import show_hazard_modul
+from modules.hazard.rechtsstand_admin import show_rechtsstand_admin
+from utils.feature_flags import get_user_plan
 from utils.vertrag_templates import (
     VERTRAG_TEMPLATE_OPTIONS,
     build_default_contract_payload,
@@ -53,13 +56,12 @@ def _safe_date(value):
         return None
 
 
-def _storage_public_url(bucket: str, path: str | None) -> str | None:
+def _storage_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str | None:
+    """Erstellt eine signierte URL – läuft nach 1 Stunde ab."""
     if not path:
         return None
-    base_url = os.getenv("SUPABASE_URL")
-    if not base_url:
-        return None
-    return f"{base_url}/storage/v1/object/public/{bucket}/{path}"
+    from utils.database import get_signed_url
+    return get_signed_url(bucket, path, expires_in)
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -193,9 +195,13 @@ def _show_absenzen_tab():
                             )
                             attest_pfad = None
 
+                    _bid = mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = store_absence(
                         supabase,
-                        betrieb_id=mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=mitarbeiter["id"],
                         typ=typ,
                         start=start,
@@ -688,7 +694,7 @@ def _show_mitarbeiter_stammdaten_tab():
                         )
                     else:
                         used_bucket = upload_result.get("bucket") or "dokumente"
-                        file_url = _storage_public_url(used_bucket, file_path)
+                        file_url = _storage_signed_url(used_bucket, file_path)
                         try:
                             supabase.table("mitarbeiter_dokumente").insert(
                                 {
@@ -893,7 +899,7 @@ def _show_mitarbeiter_stammdaten_tab():
     if docs:
         rows = []
         for d in docs:
-            url = d.get("file_url") or _storage_public_url("dokumente", d.get("file_path"))
+            url = _storage_signed_url("dokumente", d.get("file_path"))
             rows.append(
                 {
                     "Name": d.get("name"),
@@ -1074,7 +1080,7 @@ def _show_vertrag_generator_tab():
             )
             return
         used_bucket = upload_result.get("bucket") or "dokumente"
-        file_url = _storage_public_url(used_bucket, file_path)
+        file_url = _storage_signed_url(used_bucket, file_path)
         try:
             supabase.table("mitarbeiter_dokumente").insert(
                 {
@@ -1198,10 +1204,14 @@ def _show_planovo_import_tab():
 
     if st.button("Planovo-Daten importieren", type="primary", use_container_width=True):
         with st.spinner("Import läuft..."):
+            _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+            if not _bid:
+                st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                st.stop()
             result = importiere_in_crewbase(
                 parsed,
                 mitarbeiter_id=ma["id"],
-                betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                betrieb_id=_bid,
                 supabase_client=supabase,
                 ueberschreiben=ueberschreiben,
             )
@@ -1287,9 +1297,13 @@ def _show_system_tab():
         ok_count = 0
         for ma in ma_list:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 validation = validate_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(check_monat),
                     jahr=int(check_jahr),
@@ -1340,9 +1354,13 @@ def _show_arbeitszeitkonten_tab():
         closed_count = 0
         for ma in alle_ma:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 snapshot = sync_work_account_for_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1358,9 +1376,13 @@ def _show_arbeitszeitkonten_tab():
     if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
         for ma in alle_ma:
             try:
+                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                if not _bid:
+                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
+                    continue
                 close_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=_bid,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1426,9 +1448,55 @@ def _show_arbeitszeitkonten_tab():
     st.dataframe(view_rows, use_container_width=True, hide_index=True)
 
 
+def _show_premium_tab():
+    """Premium-Module – nur bei Buchung aktiv."""
+    supabase = st.session_state.get("supabase")
+    betrieb_id = st.session_state.get("betrieb_id", "")
+    user_id = st.session_state.get("user_id", "")
+
+    user_plan = get_user_plan(supabase, betrieb_id)
+
+    st.markdown("## 🛡️ Premium-Module")
+    st.caption(
+        f"Dein aktueller Plan: **{user_plan.capitalize()}**"
+    )
+    st.markdown("---")
+
+    modul_tab1, modul_tab2, modul_tab3, modul_tab4 = st.tabs([
+        "🔍 Gefährdungsbeurteilung",
+        "⏰ ArbZG-Wächter",
+        "📤 DATEV-Export",
+        "⚖️ Rechtsstand"
+    ])
+
+    with modul_tab1:
+        show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
+
+    with modul_tab2:
+        st.info(
+            "⏰ **Arbeitszeitgesetz-Wächter** – kommt in Kürze.\n\n"
+            "Automatische Erkennung von ArbZG-Verstößen in Echtzeit."
+        )
+
+    with modul_tab3:
+        st.info(
+            "📤 **DATEV-Export** – kommt in Kürze.\n\n"
+            "Lohnabrechnung direkt für deinen Steuerberater exportieren."
+        )
+
+    with modul_tab4:
+        show_rechtsstand_admin(supabase)
+
+
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
+
+    from modules.onboarding.onboarding_ui import show_testphase_banner
+    _betrieb_id = st.session_state.get("betrieb_id")
+    if _betrieb_id:
+        show_testphase_banner(_betrieb_id)
+
     c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
     with c_logo:
         st.image(BRAND_LOGO_IMAGE, width=90)
@@ -1440,12 +1508,12 @@ def show_admin_dashboard():
             "📅 Dienstplanung",
             "🏖️ Abwesenheiten",
             "👥 Mitarbeiter",
-            "📁 Planovo-Import",
             "📊 Zeitauswertung",
             "🧾 Verträge",
             "⏱️ Arbeitszeitkonten",
             "🖥️ Mastergeräte",
             "⚙️ System",
+            "🛡️ Premium",
         ]
     )
 
@@ -1456,17 +1524,17 @@ def show_admin_dashboard():
     with tabs[2]:
         _show_mitarbeiter_stammdaten_tab()
     with tabs[3]:
-        _show_planovo_import_tab()
-    with tabs[4]:
         _show_zeitauswertung_tab()
-    with tabs[5]:
+    with tabs[4]:
         _show_vertrag_generator_tab()
-    with tabs[6]:
+    with tabs[5]:
         _show_arbeitszeitkonten_tab()
-    with tabs[7]:
+    with tabs[6]:
         admin_mastergeraete.show_mastergeraete()
-    with tabs[8]:
+    with tabs[7]:
         _show_system_tab()
+    with tabs[8]:
+        _show_premium_tab()
 
 
 if __name__ == "__main__":
