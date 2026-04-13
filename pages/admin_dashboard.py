@@ -1440,7 +1440,6 @@ def show_admin_dashboard():
             "📅 Dienstplanung",
             "🏖️ Abwesenheiten",
             "👥 Mitarbeiter",
-            "📁 Planovo-Import",
             "📊 Zeitauswertung",
             "🧾 Verträge",
             "⏱️ Arbeitszeitkonten",
@@ -1456,17 +1455,17 @@ def show_admin_dashboard():
     with tabs[2]:
         _show_mitarbeiter_stammdaten_tab()
     with tabs[3]:
-        _show_planovo_import_tab()
-    with tabs[4]:
         _show_zeitauswertung_tab()
-    with tabs[5]:
+    with tabs[4]:
         _show_vertrag_generator_tab()
-    with tabs[6]:
+    with tabs[5]:
         _show_arbeitszeitkonten_tab()
-    with tabs[7]:
+    with tabs[6]:
         admin_mastergeraete.show_mastergeraete()
-    with tabs[8]:
+    with tabs[7]:
         _show_system_tab()
+    with tabs[8]:
+        _show_premium_tab()
 
 
 if __name__ == "__main__":
