@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Complio – Nie wieder Bußgelder wegen fehlender Dokumentation</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,sans-serif}
+body{background:#fff;color:#111;line-height:1.5}
+a{text-decoration:none}
+nav{background:#111;padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;position:sticky;top:0}
+.nav-logo{font-size:24px;font-weight:700;color:#fff;letter-spacing:-0.5px}
+.nav-logo span{color:#F97316}
+.nav-cta{background:#F97316;color:#fff;border:none;padding:10px 24px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer;display:inline-block}
+.hero{background:#111;padding:5rem 2rem;text-align:center}
+.hero h1{font-size:clamp(28px,5vw,48px);color:#fff;font-weight:700;line-height:1.2;max-width:840px;margin:0 auto 1rem}
+.hero h1 em{color:#F97316;font-style:normal}
+.hero p{color:#aaa;font-size:18px;max-width:760px;margin:0 auto 2rem}
+.btn-primary{background:#F97316;color:#fff;border:none;padding:16px 36px;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;display:inline-block}
+.fear{background:#F97316;padding:2.5rem 2rem}
+.fear-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));max-width:980px;margin:0 auto}
+.fear-item{padding:1.5rem;text-align:center}
+.fear-item strong{display:block;font-size:2rem;font-weight:700;color:#fff;margin-bottom:4px}
+.fear-item p{color:#fff3e0;font-size:14px}
+.section{padding:4rem 2rem;max-width:1080px;margin:0 auto}
+.section-title{font-size:clamp(22px,4vw,32px);font-weight:700;text-align:center;margin-bottom:0.75rem}
+.section-sub{color:#666;text-align:center;font-size:16px;margin-bottom:2rem}
+.features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:20px}
+.feature-card{border:1px solid #e5e7eb;border-radius:12px;padding:1.5rem}
+.feature-card h3{font-size:16px;font-weight:600;margin-bottom:8px;color:#111}
+.feature-card p{color:#666;font-size:14px}
+.pricing{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px}
+.plan{border:1px solid #e5e7eb;border-radius:12px;padding:2rem;text-align:center}
+.plan.featured{border:2px solid #F97316}
+.plan h3{font-size:20px;font-weight:700;margin-bottom:0.5rem}
+.plan .price{font-size:36px;font-weight:700;color:#F97316;margin:0.5rem 0}
+.plan .price span{font-size:16px;color:#666;font-weight:400}
+.plan p{font-size:14px;color:#555}
+.plan-btn{background:#111;color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;width:100%;display:block;margin-top:1rem}
+.plan.featured .plan-btn{background:#F97316}
+.testimonials{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.testimonial{background:#f9f9f9;border-radius:12px;padding:1.5rem}
+.testimonial p{font-style:italic;color:#333;line-height:1.7;margin-bottom:1rem}
+.testimonial-author{font-size:13px;font-weight:600;color:#666}
+.cta{background:#111;padding:4rem 2rem;text-align:center}
+.cta h2{font-size:clamp(24px,4vw,36px);color:#fff;margin-bottom:0.75rem}
+.cta p{color:#aaa;max-width:540px;margin:0 auto 1.5rem}
+.footer{padding:1.5rem 2rem;text-align:center;border-top:1px solid #e5e7eb;color:#666;font-size:14px}
+.footer a{color:#F97316}
+@media (max-width: 768px){
+  nav{padding:1rem}
+  .hero{padding:3.5rem 1rem}
+  .fear-grid{grid-template-columns:1fr}
+  .section{padding:3rem 1rem}
+  .cta{padding:3rem 1rem}
+  .nav-cta,.btn-primary{width:100%;max-width:280px}
+}
+</style>
+</head>
+<body>
+  <nav>
+    <div class="nav-logo">Complio<span>.</span></div>
+    <a class="nav-cta" href="https://getcomplio.de/?locale=de">Jetzt starten</a>
+  </nav>
+
+  <section class="hero">
+    <h1>Nie wieder Bußgelder wegen <em>fehlender Dokumentation.</em></h1>
+    <p>Complio vereint Dienstplanung, Personalakte und Arbeitssicherheit – rechtssicher, automatisch, für jeden Betrieb.</p>
+    <a class="btn-primary" href="https://getcomplio.de/?locale=de">Jetzt kostenlos starten</a>
+  </section>
+
+  <section class="fear">
+    <div class="fear-grid">
+      <div class="fear-item">
+        <strong>bis 30.000€</strong>
+        <p>fehlende Gefährdungsbeurteilung</p>
+      </div>
+      <div class="fear-item">
+        <strong>bis 15.000€</strong>
+        <p>falsche Arbeitszeitdokumentation</p>
+      </div>
+      <div class="fear-item">
+        <strong>ab 5.000€</strong>
+        <p>fehlende Arbeitsverträge</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Alles in einer Plattform</h2>
+    <p class="section-sub">Von Dienstplanung bis Compliance – ohne Medienbruch.</p>
+    <div class="features">
+      <article class="feature-card">
+        <h3>📅 Dienstplanung</h3>
+        <p>Schichten planen und Engpässe früh erkennen.</p>
+      </article>
+      <article class="feature-card">
+        <h3>👥 Personalakte</h3>
+        <p>Verträge, Dokumente und Stammdaten zentral verwalten.</p>
+      </article>
+      <article class="feature-card">
+        <h3>🛡️ Gefährdungsbeurteilung KI</h3>
+        <p>Rechtssichere Vorlagen mit KI-Unterstützung nach §5 ArbSchG.</p>
+      </article>
+      <article class="feature-card">
+        <h3>⏰ ArbZG-Wächter</h3>
+        <p>Verstöße gegen Arbeitszeitregeln automatisch erkennen.</p>
+      </article>
+      <article class="feature-card">
+        <h3>📤 DATEV-Export</h3>
+        <p>Daten für Steuerberater in wenigen Klicks exportieren.</p>
+      </article>
+      <article class="feature-card">
+        <h3>⏱️ Arbeitszeitkonto</h3>
+        <p>Überstunden und Ausgleich transparent im Blick behalten.</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Transparente Preise</h2>
+    <div class="pricing">
+      <article class="plan">
+        <h3>Starter</h3>
+        <div class="price">29€ <span>/ Monat</span></div>
+        <p>Ideal für den Einstieg mit Kernfunktionen.</p>
+        <a class="plan-btn" href="https://getcomplio.de/?locale=de">Jetzt starten</a>
+      </article>
+      <article class="plan featured">
+        <h3>Compliance</h3>
+        <div class="price">79€ <span>/ Monat</span></div>
+        <p>Mit Compliance-Modulen für rechtssicheres Arbeiten.</p>
+        <a class="plan-btn" href="https://getcomplio.de/?locale=de">Jetzt starten</a>
+      </article>
+      <article class="plan">
+        <h3>Complete</h3>
+        <div class="price">99€ <span>/ Monat</span></div>
+        <p>Volles Paket inklusive DATEV und Premium-Support.</p>
+        <a class="plan-btn" href="https://getcomplio.de/?locale=de">Jetzt starten</a>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <h2 class="section-title">Das sagen Betriebe über Complio</h2>
+    <div class="testimonials">
+      <article class="testimonial">
+        <p>"Seit Complio sparen wir jede Woche Stunden bei Planung und Doku. Die Gefährdungsbeurteilung war in einem Vormittag fertig."</p>
+        <div class="testimonial-author">Anna K. · Gastronomie</div>
+      </article>
+      <article class="testimonial">
+        <p>"Der ArbZG-Wächter hat uns mehrfach vor teuren Fehlern geschützt. Endlich ein System, das im Alltag wirklich hilft."</p>
+        <div class="testimonial-author">Mehmet S. · Handwerksbetrieb</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="cta">
+    <h2>Bereit für rechtssichere Prozesse?</h2>
+    <p>Starte jetzt und bringe Dienstplanung, Personalakte und Compliance in ein System.</p>
+    <a class="btn-primary" href="https://getcomplio.de/?locale=de">Jetzt kostenlos starten</a>
+  </section>
+
+  <footer class="footer">
+    Kontakt: <a href="mailto:support@complio.de">support@complio.de</a>
+  </footer>
+</body>
+</html>

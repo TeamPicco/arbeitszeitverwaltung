@@ -49,6 +49,25 @@ def get_service_role_client() -> Client:
     return create_client(url, service_key)
 
 
+def set_betrieb_session(supabase_client, betrieb_id: int) -> None:
+    """
+    Setzt die PostgreSQL Session-Variable app.current_betrieb_id.
+    Diese wird von RLS-Policies zur Mandantentrennung verwendet.
+    Muss nach jedem Login aufgerufen werden.
+    """
+    try:
+        supabase_client.rpc(
+            "set_config",
+            {
+                "setting_name": "app.current_betrieb_id",
+                "new_value": str(betrieb_id),
+                "is_local": False
+            }
+        ).execute()
+    except Exception:
+        pass
+
+
 def verify_credentials_with_betrieb(
     betriebsnummer: str, username: str, password: str
 ) -> Optional[Dict[str, Any]]:
@@ -85,6 +104,7 @@ def verify_credentials_with_betrieb(
         if bcrypt.checkpw(password.encode("utf-8"), pw_hash.encode("utf-8")):
             user["betrieb_name"] = betrieb.get("name", "")
             user["betrieb_id"] = betrieb["id"]
+            set_betrieb_session(supabase, betrieb["id"])
             return user
         return None
     except Exception as exc:
@@ -257,3 +277,42 @@ def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) 
         .execute()
     )
     return diff
+
+
+def get_signed_url(bucket_name: str, file_path: str, expires_in: int = 3600) -> str | None:
+    """
+    Erstellt eine signierte URL für eine Datei im Supabase Storage.
+    Läuft nach expires_in Sekunden ab (Standard: 1 Stunde).
+    Gibt None zurück wenn der Aufruf fehlschlägt.
+    """
+    try:
+        url = _require_env("SUPABASE_URL")
+        service_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_KEY")
+        )
+        if not service_key:
+            return None
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+        }
+        sign_url = f"{url}/storage/v1/object/sign/{bucket_name}/{file_path}"
+        response = requests.post(
+            sign_url,
+            headers=headers,
+            json={"expiresIn": expires_in},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            signed_path = data.get("signedURL") or data.get("signedUrl") or ""
+            if signed_path:
+                if signed_path.startswith("http"):
+                    return signed_path
+                return f"{url}{signed_path}"
+        return None
+    except Exception:
+        return None
