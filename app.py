@@ -33,16 +33,56 @@ if st.session_state.get("trigger_reset"):
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    brand_col, title_col = st.columns([1, 3], vertical_alignment="center")
-    with brand_col:
-        if BRAND_LOGO_IMAGE:
-            st.image(BRAND_LOGO_IMAGE, width=150)
-    with title_col:
-        st.markdown(f"## {BRAND_APP_NAME}")
+    from utils.styles import apply_login_css
+    apply_login_css()
+
+    st.markdown("""
+    <div class="login-topbar">
+        <div class="login-logo">Complio<span>.</span></div>
+        <div class="login-tagline">Rechtssicher · Organisiert · Geschützt</div>
+    </div>
+    <div class="login-grid">
+        <div class="login-left">
+            <h1>Dein Betrieb.<br><em>Rechtssicher.</em><br>Organisiert.</h1>
+            <p>Dienstplanung, Personalakte und Arbeitssicherheit –
+            alles in einer Plattform. Nie wieder Bußgelder wegen 
+            fehlender Dokumentation.</p>
+            <div class="login-stat">
+                <div class="login-stat-icon">🛡️</div>
+                <div class="login-stat-text">
+                    Bis zu <strong>30.000 € Bußgeld</strong> 
+                    automatisch vermeiden
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">📅</div>
+                <div class="login-stat-text">
+                    <strong>Dienstplanung</strong> mit 
+                    automatischer Kostenberechnung
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">⏰</div>
+                <div class="login-stat-text">
+                    <strong>ArbZG-Verstöße</strong> 
+                    in Echtzeit erkennen
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">👥</div>
+                <div class="login-stat-text">
+                    <strong>Personalakte</strong> 
+                    DSGVO-konform verwalten
+                </div>
+            </div>
+        </div>
+        <div class="login-right">
+    """, unsafe_allow_html=True)
+
     tab_stempel, tab_admin, tab_registrierung = st.tabs([
-        "🕒 Mitarbeiter Stempeluhr",
+        "🕒 Stempeluhr",
         "🔐 Admin Login",
-        "🏢 Neu registrieren"
+        "🏢 Registrieren"
     ])
     
     with tab_stempel:
@@ -168,6 +208,31 @@ if not st.session_state.get('logged_in'):
 
     with tab_registrierung:
         show_registrierung()
+
+    st.markdown("""
+        <div class="register-hint">
+            Noch kein Konto? 
+            <a href="#">30 Tage kostenlos starten</a>
+        </div>
+        </div>
+    </div>
+    <div class="login-footer">
+        <div class="login-footer-text">
+            © 2026 Complio · support@complio.de
+        </div>
+        <div class="login-trust">
+            <div class="login-trust-item">
+                <span>✓</span> DSGVO-konform
+            </div>
+            <div class="login-trust-item">
+                <span>✓</span> SSL verschlüsselt
+            </div>
+            <div class="login-trust-item">
+                <span>✓</span> §5 ArbSchG konform
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     if BRAND_LOGO_IMAGE:
         st.sidebar.image(BRAND_LOGO_IMAGE, use_container_width=True)
