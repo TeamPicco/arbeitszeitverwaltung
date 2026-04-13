@@ -19,6 +19,7 @@ from utils.styles import apply_custom_css
 from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
 from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 from modules.hazard.hazard_ui import show_hazard_modul
+from modules.hazard.rechtsstand_admin import show_rechtsstand_admin
 from utils.feature_flags import get_user_plan
 from utils.vertrag_templates import (
     VERTRAG_TEMPLATE_OPTIONS,
@@ -1461,10 +1462,11 @@ def _show_premium_tab():
     )
     st.markdown("---")
 
-    modul_tab1, modul_tab2, modul_tab3 = st.tabs([
+    modul_tab1, modul_tab2, modul_tab3, modul_tab4 = st.tabs([
         "🔍 Gefährdungsbeurteilung",
         "⏰ ArbZG-Wächter",
-        "📤 DATEV-Export"
+        "📤 DATEV-Export",
+        "⚖️ Rechtsstand"
     ])
 
     with modul_tab1:
@@ -1481,6 +1483,9 @@ def _show_premium_tab():
             "📤 **DATEV-Export** – kommt in Kürze.\n\n"
             "Lohnabrechnung direkt für deinen Steuerberater exportieren."
         )
+
+    with modul_tab4:
+        show_rechtsstand_admin(supabase)
 
 
 def show_admin_dashboard():
