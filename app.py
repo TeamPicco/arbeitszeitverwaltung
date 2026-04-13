@@ -54,9 +54,13 @@ if not st.session_state.get('logged_in'):
                 
                 c1, c2, c3, c4 = st.columns(4)
                 if c1.button("🟢 KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
+                    _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = register_time_event(
                         supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=ma["id"],
                         action=EVENT_CLOCK_IN,
                         source="terminal",
@@ -70,9 +74,13 @@ if not st.session_state.get('logged_in'):
                     time.sleep(1.5); st.rerun()
 
                 if c2.button("🔴 GEHEN", key=f"g_{ma['id']}", use_container_width=True):
+                    _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = register_time_event(
                         supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=ma["id"],
                         action=EVENT_CLOCK_OUT,
                         source="terminal",
@@ -91,9 +99,13 @@ if not st.session_state.get('logged_in'):
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or state["pause_aktiv"]),
                 ):
+                    _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = register_time_event(
                         supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=ma["id"],
                         action=EVENT_BREAK_START,
                         source="terminal",
@@ -112,9 +124,13 @@ if not st.session_state.get('logged_in'):
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or not state["pause_aktiv"]),
                 ):
+                    _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
+                    if not _bid:
+                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                        st.stop()
                     result = register_time_event(
                         supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=_bid,
                         mitarbeiter_id=ma["id"],
                         action=EVENT_BREAK_END,
                         source="terminal",
