@@ -563,9 +563,13 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
         st.markdown("### ⏱️ Arbeitszeitkonto")
         try:
             supabase_konto = get_supabase_client()
+            _bid = st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id")
+            if not _bid:
+                st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
+                st.stop()
             snap = sync_work_account_for_month(
                 supabase_konto,
-                betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+                betrieb_id=int(_bid),
                 mitarbeiter_id=int(aktiver_ma["id"]),
                 monat=int(monat),
                 jahr=int(jahr),
