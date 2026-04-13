@@ -61,7 +61,8 @@ def render_my_documents(m_id, supabase):
     docs = supabase.table("mitarbeiter_dokumente").select("*").eq("mitarbeiter_id", m_id).execute()
     if not docs.data:
         st.write("Keine Dokumente gefunden.")
-    for d in docs.data:
-        col1, col2 = st.columns([3,1])
-        col1.write(f"**{d['name']}** ({d['typ']})")
-        col2.link_button("Öffnen", d['file_url'])
+    else:
+        for d in docs.data:
+            col1, col2 = st.columns([3,1])
+            col1.write(f"**{d['name']}** ({d['typ']})")
+            col2.link_button("Öffnen", d['file_url'])
