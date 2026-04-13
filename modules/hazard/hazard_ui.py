@@ -161,8 +161,12 @@ def show_beurteilung_bearbeiten(supabase, betrieb_id: str):
     )
 
     fertige_schritte = sum(1 for s in schritte if s.get("completed"))
-    fortschritt = fertige_schritte / 5 if schritte else 0
-    st.progress(fortschritt, text=f"Fortschritt: {fertige_schritte}/5 Schritte")
+    gesamt_schritte = len(schritte) if schritte else 6
+    fortschritt = fertige_schritte / gesamt_schritte if gesamt_schritte > 0 else 0
+    st.progress(
+        fortschritt,
+        text=f"Fortschritt: {fertige_schritte}/{gesamt_schritte} Schritte"
+    )
 
     ki_verfuegbar = pruefe_api_key()
     if not ki_verfuegbar:
@@ -185,6 +189,15 @@ def show_beurteilung_bearbeiten(supabase, betrieb_id: str):
             f"{status_icon} Schritt {nr}: {name}",
             expanded=(nr == 1 and not completed)
         ):
+            if nr == 6:
+                st.info(
+                    "🆕 **Neu ab Januar 2026 – Pflichtbestandteil**\n\n"
+                    "Psychische Belastungen müssen jetzt genauso dokumentiert "
+                    "werden wie körperliche Gefahren. Dazu zählen: Zeitdruck, "
+                    "Schichtarbeit, schwierige Gäste, fehlende Pausen und "
+                    "Personalengpässe. Einfach aufschreiben was euer Team belastet."
+                )
+
             neuer_text = st.text_area(
                 "Inhalt",
                 value=content,
@@ -221,7 +234,8 @@ def show_beurteilung_bearbeiten(supabase, betrieb_id: str):
                             vorschlag = generiere_ki_vorschlag(
                                 nr,
                                 beurteilung.get("industry", "sonstiges"),
-                                neuer_text
+                                neuer_text,
+                                supabase_client=supabase
                             )
                         st.info(f"**KI-Vorschlag:**\n\n{vorschlag}")
                         st.caption(

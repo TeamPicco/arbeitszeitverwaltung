@@ -58,7 +58,8 @@ def erstelle_beurteilung(supabase, betrieb_id: str,
             "Gefährdungen beurteilen",
             "Maßnahmen festlegen",
             "Maßnahmen durchführen",
-            "Wirksamkeit überprüfen"
+            "Wirksamkeit überprüfen",
+            "Psychische Belastungen (Pflicht ab 2026)"
         ]
         
         for i, name in enumerate(schritt_namen, 1):
