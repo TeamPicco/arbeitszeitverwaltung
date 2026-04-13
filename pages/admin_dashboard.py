@@ -1428,6 +1428,42 @@ def _show_arbeitszeitkonten_tab():
     st.dataframe(view_rows, use_container_width=True, hide_index=True)
 
 
+def _show_premium_tab():
+    """Premium-Module – nur bei Buchung aktiv."""
+    supabase = st.session_state.get("supabase")
+    betrieb_id = st.session_state.get("betrieb_id", "")
+    user_id = st.session_state.get("user_id", "")
+
+    user_plan = get_user_plan(supabase, betrieb_id)
+
+    st.markdown("## 🛡️ Premium-Module")
+    st.caption(
+        f"Dein aktueller Plan: **{user_plan.capitalize()}**"
+    )
+    st.markdown("---")
+
+    modul_tab1, modul_tab2, modul_tab3 = st.tabs([
+        "🔍 Gefährdungsbeurteilung",
+        "⏰ ArbZG-Wächter",
+        "📤 DATEV-Export"
+    ])
+
+    with modul_tab1:
+        show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
+
+    with modul_tab2:
+        st.info(
+            "⏰ **Arbeitszeitgesetz-Wächter** – kommt in Kürze.\n\n"
+            "Automatische Erkennung von ArbZG-Verstößen in Echtzeit."
+        )
+
+    with modul_tab3:
+        st.info(
+            "📤 **DATEV-Export** – kommt in Kürze.\n\n"
+            "Lohnabrechnung direkt für deinen Steuerberater exportieren."
+        )
+
+
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
@@ -1447,6 +1483,7 @@ def show_admin_dashboard():
             "⏱️ Arbeitszeitkonten",
             "🖥️ Mastergeräte",
             "⚙️ System",
+            "🛡️ Premium",
         ]
     )
 
