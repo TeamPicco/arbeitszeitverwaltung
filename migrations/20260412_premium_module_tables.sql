@@ -22,6 +22,7 @@ $$;
 CREATE TABLE IF NOT EXISTS public.user_feature_plans (
     id BIGSERIAL PRIMARY KEY,
     user_id BIGINT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    betrieb_id BIGINT REFERENCES public.betriebe(id) ON DELETE CASCADE,
     plan TEXT NOT NULL CHECK (plan IN ('starter', 'professional', 'compliance', 'complete')),
     valid_until DATE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -44,7 +45,7 @@ EXECUTE FUNCTION public.set_updated_at_timestamp();
 -- ------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS public.hazard_assessments (
     id BIGSERIAL PRIMARY KEY,
-    company_id BIGINT NOT NULL REFERENCES public.betriebe(id) ON DELETE CASCADE,
+    betrieb_id BIGINT NOT NULL REFERENCES public.betriebe(id) ON DELETE CASCADE,
     industry TEXT NOT NULL CHECK (industry IN ('gastronomie', 'einzelhandel', 'handwerk', 'buero', 'sonstiges')),
     title TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'entwurf' CHECK (status IN ('entwurf', 'aktiv', 'ueberfaellig')),
@@ -55,8 +56,8 @@ CREATE TABLE IF NOT EXISTS public.hazard_assessments (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_hazard_assessments_company_id
-    ON public.hazard_assessments(company_id);
+CREATE INDEX IF NOT EXISTS idx_hazard_assessments_betrieb_id
+    ON public.hazard_assessments(betrieb_id);
 CREATE INDEX IF NOT EXISTS idx_hazard_assessments_status
     ON public.hazard_assessments(status);
 CREATE INDEX IF NOT EXISTS idx_hazard_assessments_next_review_due
