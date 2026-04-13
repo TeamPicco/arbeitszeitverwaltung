@@ -898,7 +898,7 @@ def _show_mitarbeiter_stammdaten_tab():
     if docs:
         rows = []
         for d in docs:
-            url = d.get("file_url") or _storage_signed_url("dokumente", d.get("file_path"))
+            url = _storage_signed_url("dokumente", d.get("file_path"))
             rows.append(
                 {
                     "Name": d.get("name"),
