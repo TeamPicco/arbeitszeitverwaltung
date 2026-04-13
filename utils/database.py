@@ -49,6 +49,25 @@ def get_service_role_client() -> Client:
     return create_client(url, service_key)
 
 
+def set_betrieb_session(supabase_client, betrieb_id: int) -> None:
+    """
+    Setzt die PostgreSQL Session-Variable app.current_betrieb_id.
+    Diese wird von RLS-Policies zur Mandantentrennung verwendet.
+    Muss nach jedem Login aufgerufen werden.
+    """
+    try:
+        supabase_client.rpc(
+            "set_config",
+            {
+                "setting_name": "app.current_betrieb_id",
+                "new_value": str(betrieb_id),
+                "is_local": False
+            }
+        ).execute()
+    except Exception:
+        pass
+
+
 def verify_credentials_with_betrieb(
     betriebsnummer: str, username: str, password: str
 ) -> Optional[Dict[str, Any]]:
@@ -85,6 +104,7 @@ def verify_credentials_with_betrieb(
         if bcrypt.checkpw(password.encode("utf-8"), pw_hash.encode("utf-8")):
             user["betrieb_name"] = betrieb.get("name", "")
             user["betrieb_id"] = betrieb["id"]
+            set_betrieb_session(supabase, betrieb["id"])
             return user
         return None
     except Exception as exc:
