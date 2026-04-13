@@ -103,16 +103,100 @@ BRANCHEN_KONTEXT = {
 }
 
 
+def lade_aktuelle_rechtsinfos(supabase_client=None) -> str:
+    """
+    Lädt aktuelle Rechtsinformationen aus der Datenbank
+    und gibt sie als formatierten String zurück.
+    Wird automatisch in jeden KI-Aufruf eingebaut.
+    """
+    basis_rechtsstand = """
+AKTUELLER RECHTSSTAND (automatisch geladen):
+
+Gesetze und Vorschriften:
+- §5 ArbSchG: Gefährdungsbeurteilung Pflicht für JEDEN Betrieb
+- §6 ArbSchG: Dokumentationspflicht ab 10 Mitarbeiter
+  (unter 10: empfohlen aber nicht Pflicht)
+- DGUV Vorschrift 2 (Stand: 01.01.2026, aktuellste Fassung):
+  Vereinfachte Betreuung jetzt für Betriebe bis 20 Mitarbeiter
+  (vorher: bis 10 Mitarbeiter)
+- NEU 2026: Psychische Belastungen sind PFLICHTBESTANDTEIL
+  der Gefährdungsbeurteilung – nicht mehr optional
+- Mindestlohn aktuell: 12,82 € (Stand: Januar 2025)
+- Maximale Arbeitszeit: 8 Stunden/Tag, max. 10 Stunden
+  wenn Ausgleich innerhalb 6 Monate
+- Mindestruhezeit: 11 Stunden zwischen zwei Schichten
+- Jährliche Überprüfungspflicht der Gefährdungsbeurteilung
+
+Bußgelder bei Verstößen:
+- Fehlende Gefährdungsbeurteilung: bis 30.000 €
+- Falsche Arbeitszeitdokumentation: bis 15.000 €
+- Fehlende Unterweisung der Mitarbeiter: bis 5.000 €
+"""
+
+    if supabase_client is None:
+        return basis_rechtsstand
+
+    try:
+        # Lade die neuesten 5 Rechtsänderungen aus der DB
+        updates = supabase_client.table("legal_update_log")\
+            .select("law_name, new_value, valid_from")\
+            .order("valid_from", desc=True)\
+            .limit(5)\
+            .execute()
+
+        if not updates.data:
+            return basis_rechtsstand
+
+        zusatz = "\nNEUESTE RECHTSÄNDERUNGEN AUS DATENBANK:\n"
+        for update in updates.data:
+            zusatz += (
+                f"- {update.get('law_name')}: "
+                f"{update.get('new_value')} "
+                f"(gültig ab {update.get('valid_from')})\n"
+            )
+
+        return basis_rechtsstand + zusatz
+
+    except Exception:
+        return basis_rechtsstand
+
+
+def trage_rechtsaenderung_ein(
+    supabase_client,
+    law_name: str,
+    old_value: str,
+    new_value: str,
+    valid_from: str
+) -> bool:
+    """
+    Trägt eine neue Rechtsänderung in die Datenbank ein.
+    Wird von Complio-Admin aufgerufen wenn sich Gesetze ändern.
+    Beispiel: Mindestlohnerhöhung, neue DGUV-Vorschrift etc.
+    """
+    try:
+        supabase_client.table("legal_update_log").insert({
+            "law_name": law_name,
+            "old_value": old_value,
+            "new_value": new_value,
+            "valid_from": valid_from,
+        }).execute()
+        return True
+    except Exception:
+        return False
+
+
 def generiere_ki_vorschlag(
     step_number: int,
     industry: str,
-    existing_text: str = ""
+    existing_text: str = "",
+    supabase_client=None
 ) -> str:
     """
     Ruft die Anthropic API auf und gibt einen deutschen
     Vorschlag für den jeweiligen Schritt zurück.
     """
     try:
+        rechtsstand = lade_aktuelle_rechtsinfos(supabase_client)
         client = anthropic.Anthropic(
             api_key=os.environ.get("ANTHROPIC_API_KEY")
         )
@@ -125,12 +209,13 @@ def generiere_ki_vorschlag(
             bisheriger_text = f"\n\nBisheriger Eintrag des Nutzers:\n{existing_text}\n\nErgänze oder verbessere diesen Text."
 
         prompt = (
-            f"Branche: {branche}\n"
-            f"Schritt {step_number} der Gefährdungsbeurteilung nach §5 ArbSchG:\n"
-            f"{schritt_hinweis}"
+            f"{rechtsstand}\n\n"
+            f"BETRIEB: {branche}\n"
+            f"SCHRITT {step_number}: {schritt_hinweis}\n"
             f"{bisheriger_text}\n\n"
-            f"Gib einen konkreten, praxisnahen Vorschlag für diesen Schritt. "
-            f"Maximal 150 Wörter. Nur den Vorschlagstext, keine Einleitung."
+            f"Gib einen konkreten, verständlichen Vorschlag für diesen Schritt. "
+            f"Einfache Sprache – kein Behördendeutsch. "
+            f"Maximal 150 Wörter. Direkt und praxisnah."
         )
 
         message = client.messages.create(
