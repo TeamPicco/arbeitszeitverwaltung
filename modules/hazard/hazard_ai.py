@@ -2,13 +2,76 @@ import os
 import anthropic
 
 DGUV_2026_HINWEIS = (
-    "NEU ab 2026: Die DGUV Vorschrift 2 gilt jetzt "
-    "für Betriebe bis 20 Mitarbeiter (vorher: 10). "
-    "Psychische Belastungen sind jetzt Pflichtbestandteil "
-    "der Gefährdungsbeurteilung."
+    "NEU ab 2026: DGUV Vorschrift 2 gilt jetzt für Betriebe "
+    "bis 20 Mitarbeiter. Psychische Belastungen sind Pflicht."
 )
 
-ANZAHL_SCHRITTE = 6  # War 5, jetzt 6 mit psychischen Belastungen
+ANZAHL_SCHRITTE = 6
+
+
+def lade_aktuelle_rechtsinfos(supabase_client=None) -> str:
+    """
+    Lädt aktuellen Rechtsstand aus DB und gibt ihn als
+    String zurück. Wird automatisch in KI-Prompt eingebaut.
+    """
+    basis = """AKTUELLER RECHTSSTAND (Stand 2026):
+- §5 ArbSchG: Gefährdungsbeurteilung Pflicht für jeden Betrieb
+- §6 ArbSchG: Dokumentationspflicht ab 10 Mitarbeitern
+- DGUV Vorschrift 2 (01.01.2026): Vereinfachte Betreuung
+  jetzt bis 20 Mitarbeiter (vorher 10)
+- NEU 2026: Psychische Belastungen sind Pflichtbestandteil
+- Mindestlohn: 12,82 Euro/Stunde (Stand Januar 2025)
+- Max. Arbeitszeit: 8h/Tag, max. 10h mit Ausgleich
+- Mindestruhezeit: 11 Stunden zwischen Schichten
+- Bußgelder: bis 30.000 Euro bei fehlender Gefährdungsbeurteilung"""
+
+    if supabase_client is None:
+        return basis
+
+    try:
+        updates = supabase_client.table("legal_update_log")\
+            .select("law_name, new_value, valid_from")\
+            .order("valid_from", desc=True)\
+            .limit(5)\
+            .execute()
+
+        if not updates.data:
+            return basis
+
+        zusatz = "\nNEUESTE RECHTSÄNDERUNGEN:\n"
+        for u in updates.data:
+            zusatz += (
+                f"- {u.get('law_name')}: "
+                f"{u.get('new_value')} "
+                f"(ab {u.get('valid_from')})\n"
+            )
+        return basis + zusatz
+
+    except Exception:
+        return basis
+
+
+def trage_rechtsaenderung_ein(
+    supabase_client,
+    law_name: str,
+    old_value: str,
+    new_value: str,
+    valid_from: str
+) -> bool:
+    """
+    Trägt neue Rechtsänderung in die Datenbank ein.
+    Aufruf durch Admin wenn sich Gesetze ändern.
+    """
+    try:
+        supabase_client.table("legal_update_log").insert({
+            "law_name": law_name,
+            "old_value": old_value,
+            "new_value": new_value,
+            "valid_from": valid_from,
+        }).execute()
+        return True
+    except Exception:
+        return False
 
 SCHRITT_KONTEXT = {
     1: (
@@ -103,88 +166,6 @@ BRANCHEN_KONTEXT = {
 }
 
 
-def lade_aktuelle_rechtsinfos(supabase_client=None) -> str:
-    """
-    Lädt aktuelle Rechtsinformationen aus der Datenbank
-    und gibt sie als formatierten String zurück.
-    Wird automatisch in jeden KI-Aufruf eingebaut.
-    """
-    basis_rechtsstand = """
-AKTUELLER RECHTSSTAND (automatisch geladen):
-
-Gesetze und Vorschriften:
-- §5 ArbSchG: Gefährdungsbeurteilung Pflicht für JEDEN Betrieb
-- §6 ArbSchG: Dokumentationspflicht ab 10 Mitarbeiter
-  (unter 10: empfohlen aber nicht Pflicht)
-- DGUV Vorschrift 2 (Stand: 01.01.2026, aktuellste Fassung):
-  Vereinfachte Betreuung jetzt für Betriebe bis 20 Mitarbeiter
-  (vorher: bis 10 Mitarbeiter)
-- NEU 2026: Psychische Belastungen sind PFLICHTBESTANDTEIL
-  der Gefährdungsbeurteilung – nicht mehr optional
-- Mindestlohn aktuell: 12,82 € (Stand: Januar 2025)
-- Maximale Arbeitszeit: 8 Stunden/Tag, max. 10 Stunden
-  wenn Ausgleich innerhalb 6 Monate
-- Mindestruhezeit: 11 Stunden zwischen zwei Schichten
-- Jährliche Überprüfungspflicht der Gefährdungsbeurteilung
-
-Bußgelder bei Verstößen:
-- Fehlende Gefährdungsbeurteilung: bis 30.000 €
-- Falsche Arbeitszeitdokumentation: bis 15.000 €
-- Fehlende Unterweisung der Mitarbeiter: bis 5.000 €
-"""
-
-    if supabase_client is None:
-        return basis_rechtsstand
-
-    try:
-        # Lade die neuesten 5 Rechtsänderungen aus der DB
-        updates = supabase_client.table("legal_update_log")\
-            .select("law_name, new_value, valid_from")\
-            .order("valid_from", desc=True)\
-            .limit(5)\
-            .execute()
-
-        if not updates.data:
-            return basis_rechtsstand
-
-        zusatz = "\nNEUESTE RECHTSÄNDERUNGEN AUS DATENBANK:\n"
-        for update in updates.data:
-            zusatz += (
-                f"- {update.get('law_name')}: "
-                f"{update.get('new_value')} "
-                f"(gültig ab {update.get('valid_from')})\n"
-            )
-
-        return basis_rechtsstand + zusatz
-
-    except Exception:
-        return basis_rechtsstand
-
-
-def trage_rechtsaenderung_ein(
-    supabase_client,
-    law_name: str,
-    old_value: str,
-    new_value: str,
-    valid_from: str
-) -> bool:
-    """
-    Trägt eine neue Rechtsänderung in die Datenbank ein.
-    Wird von Complio-Admin aufgerufen wenn sich Gesetze ändern.
-    Beispiel: Mindestlohnerhöhung, neue DGUV-Vorschrift etc.
-    """
-    try:
-        supabase_client.table("legal_update_log").insert({
-            "law_name": law_name,
-            "old_value": old_value,
-            "new_value": new_value,
-            "valid_from": valid_from,
-        }).execute()
-        return True
-    except Exception:
-        return False
-
-
 def generiere_ki_vorschlag(
     step_number: int,
     industry: str,
@@ -213,9 +194,10 @@ def generiere_ki_vorschlag(
             f"BETRIEB: {branche}\n"
             f"SCHRITT {step_number}: {schritt_hinweis}\n"
             f"{bisheriger_text}\n\n"
-            f"Gib einen konkreten, verständlichen Vorschlag für diesen Schritt. "
+            f"Schreib einen konkreten Vorschlag für diesen Schritt. "
             f"Einfache Sprache – kein Behördendeutsch. "
-            f"Maximal 150 Wörter. Direkt und praxisnah."
+            f"Kurze Sätze. Konkrete Beispiele aus der Branche. "
+            f"Maximal 150 Wörter."
         )
 
         message = client.messages.create(
@@ -225,12 +207,11 @@ def generiere_ki_vorschlag(
                 "Du hilfst Betriebsinhabern dabei, eine Gefährdungsbeurteilung "
                 "zu erstellen – einfach, klar und rechtssicher nach §5 ArbSchG "
                 "und DGUV Vorschrift 2 (Stand 2026). "
-                "Schreib immer so, als würdest du einem Restaurantbesitzer "
-                "persönlich erklären was zu tun ist. "
+                "Schreib so, als würdest du einem Restaurantbesitzer persönlich "
+                "erklären was zu tun ist. "
                 "Kein Behördendeutsch. Keine langen Schachtelsätze. "
-                "Konkret und verständlich – wie ein guter Berater der neben "
-                "dir steht. "
-                "Nutze kurze Sätze. Bullet Points wo sinnvoll. "
+                "Konkret und verständlich – wie ein guter Berater. "
+                "Kurze Sätze. Bullet Points wo sinnvoll. "
                 "Immer mit konkreten Beispielen aus der genannten Branche. "
                 "Antworte ausschließlich auf Deutsch. "
                 "Maximal 150 Wörter pro Antwort."
