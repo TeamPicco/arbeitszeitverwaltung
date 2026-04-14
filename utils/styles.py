@@ -3,17 +3,25 @@
 import streamlit as st
 
 COLORS = {
-    "app_bg": "#000000",
-    "surface": "#000000",
-    "surface_alt": "#000000",
-    "surface_light": "#FFFFFF",
-    "border": "#FFFFFF",
-    "text_on_light": "#000000",
-    "text_on_dark": "#FFFFFF",
-    "muted_on_light": "#000000",
-    "muted_on_dark": "#FFFFFF",
-    "primary": "#2563EB",
-    "primary_hover": "#1D4ED8",
+    "primary": "#F97316",
+    "primary_light": "#FB923C",
+    "primary_dark": "#0a0a0a",
+    "accent": "#F97316",
+    "background": "#0a0a0a",
+    "surface": "#111111",
+    "border": "#1f1f1f",
+    "text_primary": "#ffffff",
+    "text_secondary": "#a3a3a3",
+    "text_light": "#ffffff",
+    # Backward-compatible aliases used throughout existing CSS templates.
+    "app_bg": "#0a0a0a",
+    "surface_alt": "#111111",
+    "surface_light": "#111111",
+    "text_on_light": "#ffffff",
+    "text_on_dark": "#ffffff",
+    "muted_on_light": "#a3a3a3",
+    "muted_on_dark": "#a3a3a3",
+    "primary_hover": "#FB923C",
 }
 
 
