@@ -99,7 +99,26 @@ def _wrap_card_start() -> None:
 
 
 def _wrap_card_end() -> None:
-    pass
+    st.markdown("""
+    <div style="background:#0a0a0a;border-top:1px solid #1a1a1a;
+    padding:10px 28px;display:flex;justify-content:space-between;
+    margin-top:1rem">
+        <div style="font-size:10px;color:#333">
+            © 2026 Complio · support@complio.de
+        </div>
+        <div style="display:flex;gap:16px">
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> DSGVO-konform
+            </span>
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> SSL verschlüsselt
+            </span>
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> §5 ArbSchG konform
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def _render_login_branding() -> None:
@@ -202,9 +221,13 @@ def _render_login_branding() -> None:
     </style>
     """, unsafe_allow_html=True)
     st.markdown("""
-    <div class="login-topbar">
-        <div class="login-logo">Complio<span>.</span></div>
-        <div class="login-tagline">Rechtssicher · Organisiert · Geschützt</div>
+    <div style="background:#0a0a0a;border-bottom:1px solid #1f1f1f;
+    padding:14px 28px;display:flex;justify-content:space-between;
+    align-items:center;margin-bottom:1rem">
+        <div style="font-size:24px;font-weight:700;color:#fff;
+        letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+        <div style="font-size:10px;color:#444;letter-spacing:1.5px;
+        text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
     </div>
     """, unsafe_allow_html=True)
     col_left, col_right = st.columns([1, 1], gap="small")
