@@ -95,11 +95,11 @@ def _find_mitarbeiter_by_pin(pin: str) -> Optional[Dict[str, Any]]:
 
 
 def _wrap_card_start() -> None:
-    st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+    pass
 
 
 def _wrap_card_end() -> None:
-    st.markdown("</div>", unsafe_allow_html=True)
+    pass
 
 
 def _render_login_branding() -> None:
