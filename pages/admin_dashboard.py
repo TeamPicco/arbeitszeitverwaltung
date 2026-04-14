@@ -1713,6 +1713,30 @@ def _show_arbeitszeitkonten_tab():
     st.dataframe(view_rows, use_container_width=True, hide_index=True)
 
 
+def _show_premium_tab():
+    """Premium-Module – nur bei Buchung aktiv."""
+    from modules.hazard.hazard_ui import show_hazard_modul
+    from modules.hazard.rechtsstand_admin import show_rechtsstand_admin
+    from utils.feature_flags import get_user_plan
+
+    supabase = st.session_state.get("supabase")
+    betrieb_id = st.session_state.get("betrieb_id", "")
+    user_id = st.session_state.get("user_id", "")
+
+    user_plan = get_user_plan(supabase, betrieb_id)
+
+    st.markdown("## 🛡️ Premium-Module")
+    st.caption(f"Dein aktueller Plan: **{user_plan.capitalize()}**")
+    st.markdown("---")
+
+    modul_tab1, modul_tab2, modul_tab3, modul_tab4 = st.tabs([
+        "🔍 Gefährdungsbeurteilung",
+        "⏰ ArbZG-Wächter",
+        "📤 DATEV-Export",
+        "⚖️ Rechtsstand"
+    ])
+
+
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
@@ -1725,7 +1749,7 @@ def show_admin_dashboard():
         with st.container(key="header_logo"):
             st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
-        nav_options = ["Dienstplanung", "Personalakte", "Abwesenheiten", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
+        nav_options = ["Dienstplanung", "Personalakte", "Abwesenheiten", "Arbeitszeitkonten", "Zeitauswertung", "Verträge", "Premium"]
         current_nav = st.session_state.get("admin_nav", "Dienstplanung")
         if current_nav == "Vertraege":
             current_nav = "Verträge"
@@ -1735,7 +1759,7 @@ def show_admin_dashboard():
         selected = option_menu(
             menu_title=None,
             options=nav_options,
-            icons=["calendar", "people", "calendar-x", "clock", "bar-chart-2", "file-text"],
+            icons=["calendar", "people", "calendar-x", "clock", "bar-chart-2", "file-text", "shield"],
             orientation="horizontal",
             default_index=default_idx,
             key="admin_top_option_menu",
@@ -1771,8 +1795,10 @@ def show_admin_dashboard():
         _show_arbeitszeitkonten_tab()
     elif selected == "Zeitauswertung":
         _show_zeitauswertung_tab()
-    else:
+    elif selected == "Verträge":
         _show_vertrag_generator_tab()
+    elif selected == "Premium":
+        _show_premium_tab()
     st.markdown("</div>", unsafe_allow_html=True)
 
 
