@@ -103,138 +103,50 @@ def _wrap_card_end() -> None:
 
 
 def _render_login_branding() -> None:
-    def _logo_data_uri(path: str) -> str:
-        try:
-            with open(path, "rb") as fh:
-                raw = fh.read()
-            mime = mimetypes.guess_type(path)[0] or "image/png"
-            encoded = base64.b64encode(raw).decode("ascii")
-            return f"data:{mime};base64,{encoded}"
-        except Exception:
-            return ""
-
-    st.markdown(
-        """
-        <style>
-        [data-testid="stMainBlockContainer"] > div.block-container {
-            min-height: 92vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-        }
-        .coreo-login-root {
-            width: min(760px, 96vw);
-            margin: 0 auto;
-        }
-        .coreo-logo-wrap {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            margin: 0 auto 1.25rem auto;
-        }
-        .coreo-logo-wrap img {
-            width: min(92vw, 560px);
-            max-width: 560px;
-            height: auto;
-            object-fit: contain;
-            display: block;
-        }
-        div[data-testid="stTabs"] {
-            max-width: 680px !important;
-            margin: 0 auto !important;
-        }
-        div[data-testid="stForm"] {
-            border: 1px solid #2a2a2a !important;
-            border-radius: 12px !important;
-            background: #0b0b0b !important;
-            padding: 1.2rem 1.2rem 0.6rem 1.2rem !important;
-            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45) !important;
-            max-width: 680px !important;
-            margin: 0 auto !important;
-        }
-        div[data-testid="stForm"] * {
-            color: #ffffff !important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-            background: #0b0b0b !important;
-            border-bottom: 1px solid #2a2a2a !important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab"] {
-            color: #ffffff !important;
-            background: #121212 !important;
-            border: 1px solid #2a2a2a !important;
-            border-radius: 10px 10px 0 0 !important;
-        }
-        div[data-testid="stTabs"] [aria-selected="true"] {
-            background: #2563eb !important;
-            color: #ffffff !important;
-            border-color: #2563eb !important;
-        }
-        div[data-testid="stTextInput"] input {
-            min-height: 52px !important;
-            font-size: 1rem !important;
-            border-radius: 10px !important;
-            padding: 0 0.85rem !important;
-            background: #121212 !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-            border: 1px solid #2a2a2a !important;
-        }
-        div[data-testid="stTextInput"] input:focus {
-            border-color: #2563eb !important;
-            box-shadow: 0 0 0 1px #2563eb !important;
-            background: #000000 !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-        }
-        div[data-testid="stWidgetLabel"], label {
-            color: #ffffff !important;
-        }
-        .coreo-topbar {
-            position: sticky;
-            top: 0;
-            z-index: 50;
-            background: #0b0b0b;
-            border-bottom: 1px solid #2a2a2a;
-            margin-bottom: 1rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-        }
-        .st-key-top_nav_main {
-            margin-top: 0.35rem;
-        }
-        @media (max-width: 768px) {
-            .coreo-login-root {
-                max-width: 96vw;
-            }
-            .coreo-logo-wrap img {
-                width: min(94vw, 460px);
-                max-width: 460px;
-            }
-            div[data-testid="stTabs"],
-            div[data-testid="stForm"] {
-                max-width: 96vw !important;
-            }
-            div[data-testid="stTabs"] [data-baseweb="tab"] {
-                font-size: 0.9rem !important;
-                padding: 0.5rem 0.4rem !important;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    data_uri = _logo_data_uri(BRAND_LOGO_IMAGE) if BRAND_LOGO_IMAGE else ""
-    if data_uri:
-        st.markdown(
-            f"<div class='coreo-login-root'><div class='coreo-logo-wrap'><img src='{data_uri}' alt='Logo'></div></div>",
-            unsafe_allow_html=True,
-        )
-    elif BRAND_LOGO_IMAGE:
-        _, center, _ = st.columns([1, 2, 1])
-        with center:
-            st.image(BRAND_LOGO_IMAGE, use_container_width=True)
+    from utils.styles import apply_login_css
+    apply_login_css()
+    st.markdown("""
+    <div class="login-topbar">
+        <div class="login-logo">Complio<span>.</span></div>
+        <div class="login-tagline">Rechtssicher · Organisiert · Geschützt</div>
+    </div>
+    <div class="login-grid">
+        <div class="login-left">
+            <h1>Dein Betrieb.<br><em>Rechtssicher.</em><br>Organisiert.</h1>
+            <p>Dienstplanung, Personalakte und Arbeitssicherheit –
+            alles in einer Plattform. Nie wieder Bußgelder wegen 
+            fehlender Dokumentation.</p>
+            <div class="login-stat">
+                <div class="login-stat-icon">🛡️</div>
+                <div class="login-stat-text">
+                    Bis zu <strong>30.000 € Bußgeld</strong> 
+                    automatisch vermeiden
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">📅</div>
+                <div class="login-stat-text">
+                    <strong>Dienstplanung</strong> mit 
+                    automatischer Kostenberechnung
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">⏰</div>
+                <div class="login-stat-text">
+                    <strong>ArbZG-Verstöße</strong> 
+                    in Echtzeit erkennen
+                </div>
+            </div>
+            <div class="login-stat">
+                <div class="login-stat-icon">👥</div>
+                <div class="login-stat-text">
+                    <strong>Personalakte</strong> 
+                    DSGVO-konform verwalten
+                </div>
+            </div>
+        </div>
+        <div class="login-right">
+    """, unsafe_allow_html=True)
 
 # --- RESET LOGIK ---
 if st.session_state.get("trigger_reset"):
@@ -244,7 +156,11 @@ if st.session_state.get("trigger_reset"):
 
 @st.fragment
 def _render_login_fragment() -> None:
-    tab_stempel, tab_admin = st.tabs(["Mitarbeiter Stempeluhr", "Admin Login"])
+    tab_stempel, tab_admin, tab_registrierung = st.tabs([
+        "🕒 Stempeluhr",
+        "🔐 Admin Login", 
+        "🏢 Registrieren"
+    ])
 
     with tab_stempel:
         pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
@@ -338,7 +254,7 @@ def _render_login_fragment() -> None:
 
     with tab_admin:
         with st.form("login"):
-            bnr = st.text_input("Betriebsnummer", value="20262204")
+            bnr = st.text_input("Betriebsnummer")
             usr = st.text_input("Benutzername")
             pwd = st.text_input("Passwort", type="password")
             if st.form_submit_button("Login", use_container_width=True):
@@ -381,6 +297,10 @@ def _render_login_fragment() -> None:
                 else:
                     st.error("Login fehlgeschlagen. Bitte Zugangsdaten prüfen.")
 
+    with tab_registrierung:
+        from modules.onboarding.onboarding_ui import show_registrierung
+        show_registrierung()
+
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
@@ -388,6 +308,24 @@ if not st.session_state.get('logged_in'):
     _wrap_card_start()
     _render_login_fragment()
     _wrap_card_end()
+    st.markdown("""
+        <div class="register-hint">
+            Noch kein Konto? 
+            <a href="#">30 Tage kostenlos starten</a>
+        </div>
+        </div>
+    </div>
+    <div class="login-footer">
+        <div class="login-footer-text">
+            © 2026 Complio · support@complio.de
+        </div>
+        <div class="login-trust">
+            <div class="login-trust-item"><span>✓</span> DSGVO-konform</div>
+            <div class="login-trust-item"><span>✓</span> SSL verschlüsselt</div>
+            <div class="login-trust-item"><span>✓</span> §5 ArbSchG konform</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     st.markdown(
         """
