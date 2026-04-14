@@ -264,6 +264,118 @@ def apply_custom_css() -> None:
     )
 
 
+def apply_login_css():
+    """Professionelles Login-Styling für Complio."""
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] {
+        background: #0a0a0a !important;
+    }
+    .login-topbar {
+        background: #0a0a0a;
+        border-bottom: 1px solid #1f1f1f;
+        padding: 16px 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 0;
+    }
+    .login-logo {
+        font-size: 26px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.5px;
+    }
+    .login-logo span { color: #F97316; }
+    .login-tagline {
+        font-size: 11px;
+        color: #444;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+    }
+    .login-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        min-height: 75vh;
+        border-bottom: 1px solid #1a1a1a;
+    }
+    .login-left {
+        background: #0a0a0a;
+        padding: 48px;
+        border-right: 1px solid #1a1a1a;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .login-left h1 {
+        font-size: 30px !important;
+        font-weight: 700 !important;
+        color: #ffffff !important;
+        line-height: 1.3 !important;
+        margin-bottom: 12px !important;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+    .login-left h1 em { color: #F97316; font-style: normal; }
+    .login-left p {
+        font-size: 14px;
+        color: #666;
+        line-height: 1.7;
+        margin-bottom: 36px;
+    }
+    .login-stat {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        margin-bottom: 16px;
+    }
+    .login-stat-icon {
+        width: 34px;
+        height: 34px;
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 7px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 14px;
+    }
+    .login-stat-text { font-size: 13px; color: #777; }
+    .login-stat-text strong { color: #bbb; font-weight: 500; }
+    .login-right {
+        background: #111111;
+        padding: 48px;
+    }
+    .login-footer {
+        background: #0a0a0a;
+        border-top: 1px solid #1a1a1a;
+        padding: 14px 32px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .login-footer-text { font-size: 11px; color: #333; }
+    .login-trust { display: flex; gap: 20px; }
+    .login-trust-item { font-size: 11px; color: #444; }
+    .login-trust-item span { color: #F97316; margin-right: 4px; }
+    .register-hint {
+        text-align: center;
+        font-size: 13px;
+        color: #555;
+        margin-top: 16px;
+    }
+    .register-hint a { color: #F97316 !important; font-weight: 500; }
+    @media (max-width: 768px) {
+        .login-grid { grid-template-columns: 1fr; }
+        .login-left { display: none; }
+        .login-right { padding: 24px; }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 def create_card(title: str, content: str) -> None:
     st.markdown(
         f"""
