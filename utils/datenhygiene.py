@@ -21,7 +21,7 @@ Anonymisierung bedeutet:
     - E-Mail → NULL
     - Telefon → NULL
     - Adresse → NULL
-    - Stundenlohn → 0.0 (für Statistiken)
+    - Vertragsvergütung wird entfernt (monatliche_brutto_verguetung -> NULL)
     - Zeiterfassungs-Daten bleiben erhalten (für Betriebsstatistiken)
 """
 
@@ -125,7 +125,7 @@ def anonymisiere_mitarbeiter(
             'email': None,
             'telefon': None,
             'adresse': None,
-            'stundenlohn_brutto': 0.0,
+            'monatliche_brutto_verguetung': None,
             'iban': None,
             'steuer_id': None,
             'sozialversicherungsnummer': None,

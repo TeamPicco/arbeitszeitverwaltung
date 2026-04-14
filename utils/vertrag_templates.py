@@ -98,7 +98,7 @@ def build_default_contract_payload(mitarbeiter: dict, template_key: str = "arbei
         "monatliche_arbeitszeit": float(mitarbeiter.get("monatliche_soll_stunden") or 160.0),
         "probezeit_monate": 6,
         "wochenarbeitstage": "5",
-        "stundenlohn_brutto": float(mitarbeiter.get("stundenlohn_brutto") or 0.0),
+        "monatliche_brutto_verguetung": float(mitarbeiter.get("monatliche_brutto_verguetung") or 0.0),
         "zuschlaege": "",
         "zusatzvereinbarungen": "",
     }
@@ -134,7 +134,7 @@ def generate_contract_pdf(payload: dict) -> bytes:
     monatliche_arbeitszeit = float(payload.get("monatliche_arbeitszeit") or 0.0)
     probezeit_monate = int(payload.get("probezeit_monate") or 0)
     wochenarbeitstage = _safe(payload.get("wochenarbeitstage"))
-    stundenlohn_brutto = float(payload.get("stundenlohn_brutto") or 0.0)
+    monatliche_brutto_verguetung = float(payload.get("monatliche_brutto_verguetung") or 0.0)
     zuschlaege = _safe(payload.get("zuschlaege"))
     zusatzvereinbarungen = _safe(payload.get("zusatzvereinbarungen"))
     template_name = _safe(payload.get("template_name")) or "Arbeitsvertrag"
@@ -174,7 +174,7 @@ def generate_contract_pdf(payload: dict) -> bytes:
         Paragraph(f"Die Probezeit betraegt {probezeit_monate} Monat(e).", p),
         Paragraph("§ 4 Verguetung", h2),
         Paragraph(
-            f"Der Stundenlohn betraegt {stundenlohn_brutto:.2f} EUR brutto."
+            f"Die monatliche Brutto-Verguetung betraegt {monatliche_brutto_verguetung:.2f} EUR."
             + (f"<br/>Zuschlaege/Details: {zuschlaege}" if zuschlaege else ""),
             p,
         ),

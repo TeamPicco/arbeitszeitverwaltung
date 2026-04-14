@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Dict, Tuple
 
-import pandas as pd
-
 try:
     import holidays
 except Exception:  # pragma: no cover
@@ -233,6 +231,9 @@ def berechne_azk_kumuliert(mitarbeiter_id, bis_monat, bis_jahr, supabase_client)
 
 def erstelle_zeitraum_auswertung(mitarbeiter_id, start_datum, end_datum, supabase):
     """Erstellt einen täglichen Soll/Ist/Saldo-Bericht für den Zeitraum."""
+    # Lazy-Import: pandas wird nur für diese Auswertung benötigt.
+    import pandas as pd
+
     if isinstance(start_datum, datetime):
         start_datum = start_datum.date()
     if isinstance(end_datum, datetime):

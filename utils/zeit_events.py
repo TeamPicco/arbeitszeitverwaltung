@@ -11,6 +11,8 @@ from utils.compliance import (
 )
 from utils.time_utils import get_berlin_tz, now_utc, to_berlin, to_utc
 
+MAX_AUTO_SHIFT_HOURS = 10.0
+
 EVENT_CLOCK_IN = "clock_in"
 EVENT_CLOCK_OUT = "clock_out"
 EVENT_BREAK_START = "break_start"
@@ -124,6 +126,13 @@ def _build_legacy_payload(
     }
 
 
+def _shift_duration_hours(start_dt: datetime, end_dt: Optional[datetime]) -> float:
+    if end_dt is None:
+        return 0.0
+    minutes = max(0, int((end_dt - start_dt).total_seconds() // 60))
+    return round(minutes / 60.0, 4)
+
+
 def _compute_break_minutes(events: List[Dict[str, Any]]) -> int:
     break_start: Optional[datetime] = None
     break_minutes = 0
@@ -153,6 +162,154 @@ def _last_shift_end(events: List[Dict[str, Any]]) -> Optional[datetime]:
         if ev.get("aktion") == EVENT_CLOCK_OUT:
             return ev["_ts"]
     return None
+
+
+def _max_open_shift_age_hours() -> int:
+    # Harte Sicherung gegen Phantom-Status "eingestempelt seit gestern".
+    return int(MAX_AUTO_SHIFT_HOURS)
+
+
+def _close_stale_open_shift(
+    client,
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: Optional[int],
+    now_ts: datetime,
+    source: str,
+) -> None:
+    """
+    Schließt eine veraltete offene Schicht (ohne CLOCK_OUT) automatisch.
+    Endzeit = Start + MAX_OPEN_SHIFT_AGE, um Dauerläufer zu verhindern.
+    """
+    try:
+        cutoff = now_ts - timedelta(hours=_max_open_shift_age_hours())
+        # Letztes CLOCK_IN suchen.
+        in_res = (
+            client.table("zeit_eintraege")
+            .select("id, aktion, zeitpunkt_utc, betrieb_id, quelle, geraet_id, created_by")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("aktion", EVENT_CLOCK_IN)
+            .lte("zeitpunkt_utc", cutoff.isoformat())
+            .order("zeitpunkt_utc", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not (in_res.data or []):
+            return
+        last_in = in_res.data[0]
+        in_ts = datetime.fromisoformat(str(last_in["zeitpunkt_utc"]).replace("Z", "+00:00"))
+        if in_ts.tzinfo is None:
+            in_ts = in_ts.replace(tzinfo=timezone.utc)
+
+        # Gibt es nach diesem IN schon ein OUT? Dann nichts tun.
+        out_res = (
+            client.table("zeit_eintraege")
+            .select("id")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("aktion", EVENT_CLOCK_OUT)
+            .gte("zeitpunkt_utc", in_ts.isoformat())
+            .order("zeitpunkt_utc")
+            .limit(1)
+            .execute()
+        )
+        if out_res.data:
+            return
+
+        forced_out = in_ts + timedelta(hours=_max_open_shift_age_hours())
+        insert_payload = {
+            "betrieb_id": int(last_in.get("betrieb_id") or betrieb_id or 0) or None,
+            "mitarbeiter_id": mitarbeiter_id,
+            "aktion": EVENT_CLOCK_OUT,
+            "zeitpunkt_utc": forced_out.isoformat(),
+            "quelle": "system_auto_close",
+            "geraet_id": last_in.get("geraet_id"),
+            "created_by": last_in.get("created_by"),
+            "notiz": "Auto-Close: offene Schicht > 10h wurde systemseitig beendet (Admin-Pruefung erforderlich)",
+        }
+        _insert_event_with_rls_fallback(client, insert_payload)
+        _sync_legacy_row_for_auto_close(
+            client,
+            mitarbeiter_id=mitarbeiter_id,
+            betrieb_id=int(last_in.get("betrieb_id") or betrieb_id or 0) or None,
+            in_ts=in_ts,
+            forced_out=forced_out,
+            source=source,
+        )
+    except Exception:
+        # Kein Hard-Fail im Stempelworkflow.
+        return
+
+
+def _sync_legacy_row_for_auto_close(
+    client,
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: Optional[int],
+    in_ts: datetime,
+    forced_out: datetime,
+    source: str,
+) -> None:
+    """
+    Schreibt die automatische Kappung zusätzlich in die Legacy-Tabelle `zeiterfassung`,
+    damit Auswertungen den Timeout sofort sehen und markieren können.
+    """
+    try:
+        break_minutes = 0
+        try:
+            ev_res = (
+                client.table("zeit_eintraege")
+                .select("aktion, zeitpunkt_utc")
+                .eq("mitarbeiter_id", mitarbeiter_id)
+                .gte("zeitpunkt_utc", in_ts.isoformat())
+                .lte("zeitpunkt_utc", forced_out.isoformat())
+                .order("zeitpunkt_utc")
+                .execute()
+            )
+            segment_events = _normalize_event_rows(ev_res.data or [])
+            break_minutes = _compute_break_minutes(segment_events)
+        except Exception:
+            break_minutes = 0
+
+        day = to_berlin(in_ts).date()
+        legacy = _build_legacy_payload(
+            mitarbeiter_id=mitarbeiter_id,
+            day=day,
+            start_dt=in_ts,
+            end_dt=forced_out,
+            break_minutes=break_minutes,
+            source="system_auto_close",
+        )
+        legacy["betrieb_id"] = betrieb_id
+        legacy["quelle"] = "system_auto_close"
+        legacy["manuell_kommentar"] = (
+            f"auto_timeout_10h@{forced_out.isoformat()}|trigger={source or 'unknown'}"
+        )
+        legacy["korrektur_grund"] = "forgotten_logout_timeout_10h"
+        try:
+            client.table("zeiterfassung").upsert(
+                legacy,
+                on_conflict="mitarbeiter_id,datum,start_zeit",
+            ).execute()
+        except Exception:
+            # Legacy-Fallback ohne neue Audit-Felder
+            fallback = {
+                "betrieb_id": legacy.get("betrieb_id"),
+                "mitarbeiter_id": legacy.get("mitarbeiter_id"),
+                "datum": legacy.get("datum"),
+                "start_zeit": legacy.get("start_zeit"),
+                "ende_zeit": legacy.get("ende_zeit"),
+                "pause_minuten": legacy.get("pause_minuten"),
+                "arbeitsstunden": legacy.get("arbeitsstunden"),
+                "monat": legacy.get("monat"),
+                "jahr": legacy.get("jahr"),
+                "quelle": legacy.get("quelle"),
+            }
+            client.table("zeiterfassung").upsert(
+                fallback,
+                on_conflict="mitarbeiter_id,datum,start_zeit",
+            ).execute()
+    except Exception:
+        return
 
 
 def validate_event_transition(events: List[Dict[str, Any]], action: str) -> Tuple[bool, str]:
@@ -204,8 +361,17 @@ def get_event_state_for_day(
     end_local = datetime.combine(day + timedelta(days=1), time(0, 0), tzinfo=tz_berlin)
     start = to_utc(start_local).isoformat()
     end = to_utc(end_local).isoformat()
+    read_client = _service_role_client_or_none() or supabase
+    _close_stale_open_shift(
+        read_client,
+        mitarbeiter_id=mitarbeiter_id,
+        betrieb_id=None,
+        now_ts=now_utc(),
+        source="system_auto_close",
+    )
+
     ev_res = (
-        supabase.table("zeit_eintraege")
+        read_client.table("zeit_eintraege")
         .select("aktion, zeitpunkt_utc")
         .eq("mitarbeiter_id", mitarbeiter_id)
         .gte("zeitpunkt_utc", start)
@@ -284,6 +450,14 @@ def register_time_event(
     # Historie laden (letzte 7 Tage reichen für Restzeitchecks).
     since = (event_time - timedelta(days=7)).isoformat()
     read_client = service_client or supabase
+    # Vor dem Übergangscheck veraltete offene Schichten automatisch schließen.
+    _close_stale_open_shift(
+        read_client,
+        mitarbeiter_id=mitarbeiter_id,
+        betrieb_id=betrieb_id,
+        now_ts=event_time,
+        source=source,
+    )
     try:
         ev_res = (
             read_client.table("zeit_eintraege")

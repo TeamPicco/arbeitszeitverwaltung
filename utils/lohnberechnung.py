@@ -16,10 +16,12 @@ Bundesland: Sachsen (SN) – Besonderheit: Buß- und Bettag ist gesetzlicher Fei
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Optional, Tuple, Iterable
 import calendar
 import holidays
+import streamlit as st
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -39,6 +41,14 @@ PAUSE_REGELN = [
     (6.0, 30),   # > 6 Stunden → 30 Min Pause
     (0.0, 0),    # ≤ 6 Stunden → keine Pause
 ]
+
+
+@dataclass(frozen=True)
+class DienstplanSummary:
+    geplant: int
+    urlaub: int
+    frei: int
+    krank: int
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -416,7 +426,8 @@ def _berechne_splitting_punkte(
 def berechne_eintrag(
     eintrag: Dict[str, Any],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
+    auto_pause: bool = False,  # Pausen werden ausschließlich manuell eingetragen
+    dienstplan_start_zeit: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Berechnet Stunden und Lohn für einen einzelnen Zeiterfassungs-Eintrag.
@@ -457,10 +468,17 @@ def berechne_eintrag(
         except (ValueError, TypeError):
             return default
 
-    stundenlohn = safe_float(mitarbeiter.get("stundenlohn_brutto"), 0.0)
+    monat_brutto = safe_float(mitarbeiter.get("monatliche_brutto_verguetung"), 0.0)
+    monat_soll = safe_float(mitarbeiter.get("monatliche_soll_stunden"), 0.0)
+    stundenlohn = round(monat_brutto / monat_soll, 4) if monat_brutto > 0 and monat_soll > 0 else 0.0
     datum_str = eintrag.get("datum", "")
     start_zeit = eintrag.get("start_zeit")
     ende_zeit = eintrag.get("ende_zeit")
+    quelle = str(eintrag.get("quelle") or "").strip().lower()
+    abw_typ = str(eintrag.get("abwesenheitstyp") or "").strip().lower()
+    kommentar = str(eintrag.get("manuell_kommentar") or "").strip().lower()
+    gutschrift_h = safe_float(eintrag.get("arbeitsstunden") or eintrag.get("stunden"), 0.0)
+    start_zeit_fuer_berechnung = start_zeit
 
     try:
         datum = date.fromisoformat(datum_str) if datum_str else date.today()
@@ -489,8 +507,67 @@ def berechne_eintrag(
     if ist_so and not mitarbeiter.get("sonntagszuschlag_aktiv", False):
         audit_log.append("ℹ️ Sonntag, aber sonntagszuschlag_aktiv=False → kein Zuschlag")
 
+    # Reine Markerzeilen dürfen keine Stunden in die Monatsberechnung einbringen.
+    # Legacy-Fallback: manuell_admin mit 0h und identischer Start-/Endzeit ist ebenfalls Marker.
+    is_legacy_marker = (
+        quelle == "manuell_admin"
+        and gutschrift_h == 0.0
+        and str(start_zeit or "").strip() != ""
+        and str(start_zeit or "").strip() == str(ende_zeit or "").strip()
+    )
+    if quelle == "historischer_saldo" or kommentar.startswith("manuelle_korrektur_") or is_legacy_marker:
+        audit_log.append("Markerzeile erkannt (historischer Saldo / manuelle Korrektur) – 0h")
+        return {
+            "id": eintrag.get("id"),
+            "datum": datum,
+            "netto_stunden": 0.0,
+            "pause_minuten": 0,
+            "grundlohn": 0.0,
+            "sonntags_stunden": 0.0,
+            "feiertags_stunden": 0.0,
+            "sonntagszuschlag": 0.0,
+            "feiertagszuschlag": 0.0,
+            "gesamt_zuschlag": 0.0,
+            "gesamtlohn": 0.0,
+            "ist_sonntag": ist_so,
+            "ist_feiertag": ist_ft,
+            "feiertag_name": ft_name,
+            "hat_zuschlag_aber_kein_haekchen": False,
+            "audit_log": audit_log,
+            "fehler": None,
+        }
+
+    # Abwesenheits-Spiegel (z. B. Urlaub) mit Stunden-Gutschrift statt Zeitdifferenz auswerten.
+    if quelle == "abwesenheit_system" and not (
+        bool(eintrag.get("ist_krank")) or abw_typ in {"krank", "krankheit"}
+    ):
+        netto_h = max(0.0, gutschrift_h)
+        grundlohn = round(netto_h * stundenlohn, 2)
+        label = abw_typ if abw_typ else "abwesenheit"
+        audit_log.append(f"Abwesenheitssystem ({label}) erkannt – Gutschrift {netto_h:.2f} h")
+        return {
+            "id": eintrag.get("id"),
+            "datum": datum,
+            "netto_stunden": round(netto_h, 4),
+            "pause_minuten": 0,
+            "grundlohn": grundlohn,
+            "sonntags_stunden": 0.0,
+            "feiertags_stunden": 0.0,
+            "sonntagszuschlag": 0.0,
+            "feiertagszuschlag": 0.0,
+            "gesamt_zuschlag": 0.0,
+            "gesamtlohn": grundlohn,
+            "ist_sonntag": ist_so,
+            "ist_feiertag": ist_ft,
+            "feiertag_name": ft_name,
+            "hat_zuschlag_aber_kein_haekchen": False,
+            "audit_log": audit_log,
+            "fehler": None,
+            "ist_urlaub": abw_typ == "urlaub",
+        }
+
     # ── Krankheitstag: Lohnfortzahlung nach EFZG § 4 (Ansatz A: Tages-Soll) ──
-    if eintrag.get('ist_krank') or eintrag.get('quelle') == 'au_bescheinigung':
+    if bool(eintrag.get("ist_krank")) or quelle == "au_bescheinigung" or abw_typ in {"krank", "krankheit"}:
         # Soll-Stunden pro Tag = monatliche Soll-Stunden ÷ Arbeitstage im Monat
         # Arbeitstage = alle Tage im Monat OHNE Montag (0) und Dienstag (1)
         monatliche_soll = float(mitarbeiter.get('monatliche_soll_stunden') or 0.0)
@@ -500,6 +577,9 @@ def berechne_eintrag(
             if date(datum.year, datum.month, t).weekday() not in (0, 1)
         )
         lfz_stunden = round(monatliche_soll / arbeitstage_monat, 4) if arbeitstage_monat > 0 else 0.0
+        # Wenn der Abwesenheits-Spiegel bereits eine Stunden-Gutschrift liefert, diese bevorzugen.
+        if gutschrift_h > 0:
+            lfz_stunden = round(gutschrift_h, 4)
         lfz_grundlohn = round(lfz_stunden * stundenlohn, 2)
         audit_log.append(
             f"→ Krankheitstag (AU-Bescheinigung) – Lohnfortzahlung nach EFZG § 4"
@@ -556,10 +636,67 @@ def berechne_eintrag(
             "fehler": "Eintrag offen (kein Ende)",
         }
 
+    # Kappungsregel: Es wird ausschließlich die geplante Dienstplan-Startzeit berücksichtigt.
+    # Die Endzeit stammt immer aus der Zeiterfassung (Ausstempelung / Admin-Korrektur).
+    if dienstplan_start_zeit:
+        try:
+            raw_start_dt = _parse_zeit_zu_datetime(start_zeit, datum)
+            raw_end_dt = _parse_zeit_zu_datetime(ende_zeit, datum)
+            if raw_end_dt <= raw_start_dt:
+                raw_end_dt += timedelta(days=1)
+            plan_start_dt = _parse_zeit_zu_datetime(dienstplan_start_zeit, datum)
+            if raw_start_dt < plan_start_dt < raw_end_dt:
+                start_zeit_fuer_berechnung = plan_start_dt.time().strftime("%H:%M:%S")
+                audit_log.append(
+                    "Kappung aktiv: "
+                    f"gestempelt {str(start_zeit)[:5]} → berechnet ab Dienstplan-Start {plan_start_dt.strftime('%H:%M')}"
+                )
+        except Exception:
+            # Falls eine Legacy-Instanz inkonsistente Zeitwerte enthält, nicht hard-failen.
+            start_zeit_fuer_berechnung = start_zeit
+
+    # Für UI/Reports transparent machen, welche Startzeit tatsächlich berechnet wurde.
+    capped_start_time = start_zeit_fuer_berechnung
+
+    # Sicherheitsgrenze: Arbeitszeit über 10h nur bei expliziter Admin-Freigabe zulassen.
+    # So verhindern wir Phantom-Schichten durch fehlendes Ausstempeln.
+    try:
+        start_guard = _parse_zeit_zu_datetime(start_zeit_fuer_berechnung, datum)
+        end_guard = _parse_zeit_zu_datetime(ende_zeit, datum)
+        if end_guard <= start_guard:
+            end_guard += timedelta(days=1)
+        planned_minutes = int((end_guard - start_guard).total_seconds() // 60)
+        if planned_minutes > (10 * 60):
+            override = bool(eintrag.get("admin_override_long_shift"))
+            if not override:
+                return {
+                    "id": eintrag.get("id"),
+                    "datum": datum,
+                    "netto_stunden": 0.0,
+                    "pause_minuten": int(eintrag.get("pause_minuten") or 0),
+                    "grundlohn": 0.0,
+                    "sonntags_stunden": 0.0,
+                    "feiertags_stunden": 0.0,
+                    "sonntagszuschlag": 0.0,
+                    "feiertagszuschlag": 0.0,
+                    "gesamt_zuschlag": 0.0,
+                    "gesamtlohn": 0.0,
+                    "ist_sonntag": ist_so,
+                    "ist_feiertag": ist_ft,
+                    "feiertag_name": ft_name,
+                    "hat_zuschlag_aber_kein_haekchen": False,
+                    "audit_log": audit_log + [
+                        f"Sicherheitsstopp: Schichtdauer {planned_minutes/60:.2f}h > 10h ohne Admin-Freigabe."
+                    ],
+                    "fehler": "Schicht ueber 10h erkannt - Admin-Pruefung erforderlich",
+                }
+    except Exception:
+        pass
+
     # Netto-Stunden berechnen
     pause_manuell = eintrag.get("pause_minuten")
     netto_h, verwendete_pause, zeit_audit = berechne_netto_stunden(
-        start_zeit, ende_zeit, pause_manuell, datum, auto_pause
+        start_zeit_fuer_berechnung, ende_zeit, pause_manuell, datum, auto_pause
     )
     audit_log.extend(zeit_audit)
 
@@ -569,7 +706,7 @@ def berechne_eintrag(
 
     # Zuschläge mit Splitting berechnen
     # WICHTIG: Splitting auf Brutto-Stunden, dann proportional auf Netto-Stunden umrechnen
-    start_dt = _parse_zeit_zu_datetime(start_zeit, datum)
+    start_dt = _parse_zeit_zu_datetime(start_zeit_fuer_berechnung, datum)
     ende_dt = _parse_zeit_zu_datetime(ende_zeit, datum)
     if ende_dt <= start_dt:
         ende_dt += timedelta(days=1)
@@ -589,6 +726,7 @@ def berechne_eintrag(
     return {
         "id": eintrag.get("id"),
         "datum": datum,
+        "berechneter_start_zeit": capped_start_time,
         "netto_stunden": round(netto_h, 4),
         "pause_minuten": verwendete_pause,
         "grundlohn": round(grundlohn, 2),
@@ -611,10 +749,66 @@ def berechne_eintrag(
 # MONATSSUMMEN
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _is_krank_row(entry: Dict[str, Any]) -> bool:
+    quelle = str(entry.get("quelle") or "").strip().lower()
+    abw_typ = str(entry.get("abwesenheitstyp") or "").strip().lower()
+    kommentar = str(entry.get("manuell_kommentar") or "").strip().lower()
+    return bool(entry.get("ist_krank")) or quelle == "au_bescheinigung" or abw_typ in {
+        "krank",
+        "krankheit",
+    } or kommentar.startswith("manuelle_korrektur_krank:")
+
+
+def _sort_key_for_entry(entry: Dict[str, Any]) -> tuple:
+    datum_key = str(entry.get("datum") or "")
+    start_key = str(entry.get("start_zeit") or "")
+    try:
+        id_key = int(entry.get("id") or 0)
+    except Exception:
+        id_key = 0
+    return (datum_key, start_key, id_key)
+
+
+def _normalize_entries_for_month(entries: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[str]]:
+    """
+    Bereinigt Konflikttage:
+    - Liegt an einem Datum mindestens ein Krank-Eintrag vor, zählt nur dieser Krank-Pfad.
+    - Zusätzliche Arbeits-/Stempelzeilen desselben Datums werden für die Monatsberechnung ignoriert.
+    """
+    by_day: Dict[str, List[Dict[str, Any]]] = {}
+    for row in entries or []:
+        day = str(row.get("datum") or "").strip()
+        if not day:
+            continue
+        by_day.setdefault(day, []).append(row)
+
+    normalized: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+
+    for day in sorted(by_day.keys()):
+        rows = sorted(by_day[day], key=_sort_key_for_entry)
+        krank_rows = [r for r in rows if _is_krank_row(r)]
+        if not krank_rows:
+            normalized.extend(rows)
+            continue
+
+        chosen = krank_rows[0]
+        normalized.append(chosen)
+        ignored = [r for r in rows if r is not chosen]
+        if ignored:
+            warnings.append(
+                f"Hinweis {day}: Kranktag-Konflikt erkannt. "
+                f"{len(ignored)} zusätzlicher Eintrag wurde in der Berechnung ignoriert."
+            )
+    return normalized, warnings
+
+
 def berechne_monat(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],
-    auto_pause: bool = False  # Pausen werden ausschließlich manuell eingetragen
+    auto_pause: bool = False,  # Pausen werden ausschließlich manuell eingetragen
+    dienstplan_start_map: Optional[Dict[str, str]] = None,
+    data_hash: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Berechnet alle Stunden und Lohnsummen für einen Monat.
@@ -623,6 +817,7 @@ def berechne_monat(
         eintraege: Liste aller Zeiterfassungs-Einträge des Monats
         mitarbeiter: Mitarbeiter-Datensatz
         auto_pause: Automatischen Pausenabzug anwenden
+        dienstplan_start_map: Optionales Mapping {YYYY-MM-DD: HH:MM(:SS)} für Kappung
 
     Returns:
         {
@@ -641,6 +836,9 @@ def berechne_monat(
             'audit_log_gesamt': List[str], # Vollständiges Audit-Log
         }
     """
+    # data_hash dient als expliziter Cache-Buster im Funktions-Signature-Key.
+    _ = data_hash
+    eintraege_bereinigt, konflikt_warnungen = _normalize_entries_for_month(eintraege)
     zeilen = []
     gesamt_stunden = 0.0
     sonntags_stunden = 0.0
@@ -652,8 +850,19 @@ def berechne_monat(
     warnungen = []
     audit_log_gesamt = []
 
-    for eintrag in eintraege:
-        zeile = berechne_eintrag(eintrag, mitarbeiter, auto_pause)
+    for eintrag in eintraege_bereinigt:
+        raw_day = eintrag.get("datum")
+        if isinstance(raw_day, date):
+            datum_key = raw_day.isoformat()
+        else:
+            datum_key = str(raw_day or "").strip()[:10]
+        planned_start = (dienstplan_start_map or {}).get(datum_key)
+        zeile = berechne_eintrag(
+            eintrag,
+            mitarbeiter,
+            auto_pause,
+            dienstplan_start_zeit=planned_start,
+        )
         zeilen.append(zeile)
         audit_log_gesamt.extend(zeile["audit_log"])
         audit_log_gesamt.append("")  # Leerzeile zwischen Einträgen
@@ -703,9 +912,152 @@ def berechne_monat(
         "gesamtbrutto": gesamtbrutto,
         "anzahl_eintraege": len(zeilen),
         "offene_eintraege": offene_eintraege,
-        "warnungen": warnungen,
+        "warnungen": warnungen + konflikt_warnungen,
         "audit_log_gesamt": audit_log_gesamt,
     }
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def berechne_monat_cached(
+    eintraege: List[Dict[str, Any]],
+    mitarbeiter: Dict[str, Any],
+    auto_pause: bool = False,
+    dienstplan_start_map: Optional[Dict[str, str]] = None,
+    data_hash: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Gecachte Variante der Monatsberechnung.
+    data_hash muss aus Rohdaten erzeugt und übergeben werden, damit Änderungen
+    sofort zu einem neuen Cache-Key führen.
+    """
+    return berechne_monat(
+        eintraege=eintraege,
+        mitarbeiter=mitarbeiter,
+        auto_pause=auto_pause,
+        dienstplan_start_map=dienstplan_start_map,
+        data_hash=data_hash,
+    )
+
+
+def berechne_arbeitszeitkonto_saldo(
+    *,
+    ist_stunden: float,
+    soll_stunden: float,
+    saldenvortrag: float,
+) -> float:
+    """
+    Rechts- und fachlich eindeutige Saldoformel für das Arbeitszeitkonto:
+    Neuer Saldo = (Ist - Soll) + Saldenvortrag
+    """
+    ist_v = float(ist_stunden or 0.0)
+    soll_v = float(soll_stunden or 0.0)
+    vortrag_v = float(saldenvortrag or 0.0)
+    return round((ist_v - soll_v) + vortrag_v, 2)
+
+
+def _to_date_or_none(value: object) -> date | None:
+    if isinstance(value, date):
+        return value
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) >= 10:
+            return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+    return None
+
+
+def _norm_status(entry: Dict[str, Any]) -> str:
+    raw = str(entry.get("schichttyp") or entry.get("typ") or entry.get("status") or "").strip().lower()
+    if raw in {"urlaub", "vacation", "u"}:
+        return "urlaub"
+    if raw in {"krank", "sick", "k"} or bool(entry.get("ist_krank")):
+        return "krank"
+    if raw in {"arbeit", "geplant", "a"}:
+        return "geplant"
+    if raw == "frei":
+        return "frei"
+    if bool(entry.get("ist_urlaub")):
+        return "urlaub"
+    return "geplant"
+
+
+def summarize_dienstplan_month(
+    *,
+    year: int,
+    month: int,
+    entries: Iterable[Dict[str, Any]] | None,
+    extra_urlaub_dates: Iterable[object] | None = None,
+    extra_krank_dates: Iterable[object] | None = None,
+) -> DienstplanSummary:
+    """
+    Zentrale Monatszusammenfassung für Dienstplan:
+    - Geplant / Urlaub / Krank aus Einträgen
+    - Frei für alle Tage ohne Eintrag (inkl. betriebliche Ruhetage Mo/Di)
+    """
+    _, days_in_month = calendar.monthrange(year, month)
+
+    status_by_day: Dict[date, str] = {}
+    for entry in entries or []:
+        d = _to_date_or_none(entry.get("datum"))
+        if d is None or d.year != year or d.month != month:
+            continue
+        status = _norm_status(entry)
+        prev = status_by_day.get(d)
+        if prev == "krank":
+            continue
+        if prev == "urlaub" and status not in {"krank"}:
+            continue
+        if prev == "geplant" and status == "frei":
+            continue
+        status_by_day[d] = status
+
+    for d_any in extra_urlaub_dates or []:
+        d = _to_date_or_none(d_any)
+        if d is None or d.year != year or d.month != month:
+            continue
+        if status_by_day.get(d) != "krank":
+            status_by_day[d] = "urlaub"
+
+    for d_any in extra_krank_dates or []:
+        d = _to_date_or_none(d_any)
+        if d is None or d.year != year or d.month != month:
+            continue
+        status_by_day[d] = "krank"
+
+    geplant = urlaub = krank = frei = 0
+    for day in range(1, days_in_month + 1):
+        d = date(year, month, day)
+        status = status_by_day.get(d)
+        if status == "krank":
+            krank += 1
+        elif status == "urlaub":
+            urlaub += 1
+        elif status == "geplant":
+            geplant += 1
+        else:
+            frei += 1
+
+    return DienstplanSummary(geplant=geplant, urlaub=urlaub, frei=frei, krank=krank)
+
+
+def summarize_employee_month(
+    *,
+    year: int,
+    month: int,
+    entries: Iterable[Dict[str, Any]] | None,
+    extra_urlaub_dates: Iterable[object] | None = None,
+    extra_krank_dates: Iterable[object] | None = None,
+) -> DienstplanSummary:
+    return summarize_dienstplan_month(
+        year=year,
+        month=month,
+        entries=entries,
+        extra_urlaub_dates=extra_urlaub_dates,
+        extra_krank_dates=extra_krank_dates,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -785,8 +1137,8 @@ def validiere_zeiterfassung(eintrag: Dict[str, Any]) -> List[str]:
 
         brutto_h = (ende_dt - start_dt).total_seconds() / 3600.0
 
-        if brutto_h > 24:
-            fehler.append(f"Schichtdauer > 24 Stunden ({brutto_h:.1f} Std) – bitte prüfen")
+        if brutto_h > 10:
+            fehler.append(f"Schichtdauer > 10 Stunden ({brutto_h:.1f} Std) - Admin-Pruefung erforderlich")
         if brutto_h < 0.1:
             fehler.append(f"Schichtdauer < 6 Minuten – möglicherweise Fehleingabe")
 
@@ -813,7 +1165,8 @@ def fuehre_testrechnung_durch() -> str:
         "id": 999,
         "vorname": "Test",
         "nachname": "Mitarbeiter",
-        "stundenlohn_brutto": 15.00,
+        "monatliche_soll_stunden": 160.0,
+        "monatliche_brutto_verguetung": 2400.0,
         "sonntagszuschlag_aktiv": True,
         "feiertagszuschlag_aktiv": True,
     }

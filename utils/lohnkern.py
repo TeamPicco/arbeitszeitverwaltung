@@ -1,7 +1,7 @@
 """
 lohnkern.py – Kernlogik der Lohnberechnung
 
-Lohnprinzip (vertragsbasiert, planovo-kompatibel):
+Lohnprinzip (vertragsbasiert):
   - Grundlohn  = vergütete_stunden × Stundenlohn
   - vergütete_stunden = gearbeitete Ist-Stunden + Urlaubsstunden + Krank-LFZ-Stunden
   - Überstunden (vergütete_h > Soll) → ins Arbeitszeitkonto, WERDEN BEZAHLT
@@ -160,9 +160,9 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
 
     Lohnprinzip:
         vergütete_h     = gearbeitete Ist-h + Urlaubs-h + Krank-LFZ-h
-        grundlohn       = vergütete_h × stundenlohn_brutto
-        sonntagszuschlag  = sonntags_h × stundenlohn × 0,50  (wenn aktiv)
-        feiertagszuschlag = feiertags_h × stundenlohn × 1,00 (wenn aktiv)
+        grundlohn       = vergütete_h × (Monatsbrutto / Sollstunden)
+        sonntagszuschlag  = sonntags_h × stundenwert × 0,50  (wenn aktiv)
+        feiertagszuschlag = feiertags_h × stundenwert × 1,00 (wenn aktiv)
         gesamtbrutto    = grundlohn + sonntagszuschlag + feiertagszuschlag
 
         Saldo (Arbeitszeitkonto) = vergütete_h - soll_h
@@ -193,7 +193,7 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
 
         # ── Mitarbeiterdaten laden ──────────────────────────────────────────
         ma_resp = supabase.table('mitarbeiter').select(
-            'id, vorname, nachname, stundenlohn_brutto, '
+            'id, vorname, nachname, monatliche_brutto_verguetung, '
             'monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, '
             'sonntagszuschlag_aktiv, feiertagszuschlag_aktiv, '
             'beschaeftigungsart, minijob_monatsgrenze, eintrittsdatum'
@@ -206,21 +206,20 @@ def berechneMonatslohn(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
         ma = ma_resp.data[0]
         name = f"{ma['vorname']} {ma['nachname']}"
 
-        # ── Stundensatz prüfen ─────────────────────────────────────────────
-        stundenlohn_raw = ma.get('stundenlohn_brutto')
-        if stundenlohn_raw is None:
-            leeres_ergebnis['fehler'] = f"Fehler: Stundensatz für {name} nicht hinterlegt."
-            leeres_ergebnis['mitarbeiter_name'] = name
-            return leeres_ergebnis
-
-        stundenlohn = float(stundenlohn_raw)
-        if stundenlohn <= 0:
-            leeres_ergebnis['fehler'] = f"Fehler: Stundensatz für {name} ist 0,00 €. Bitte korrekten Wert eintragen."
-            leeres_ergebnis['mitarbeiter_name'] = name
-            return leeres_ergebnis
-
-        # ── Soll-Stunden (Vertragsbasis für Saldo-Berechnung) ─────────────
+        # ── Stundensatz aus Monatsbrutto/Sollstunden ableiten ─────────────
         soll_stunden = float(ma.get('monatliche_soll_stunden') or 0.0)
+        monatsbrutto = float(ma.get('monatliche_brutto_verguetung') or 0.0)
+        if soll_stunden <= 0:
+            leeres_ergebnis['fehler'] = f"Fehler: Sollstunden für {name} nicht hinterlegt."
+            leeres_ergebnis['mitarbeiter_name'] = name
+            return leeres_ergebnis
+        stundenlohn = round(monatsbrutto / soll_stunden, 4) if monatsbrutto > 0 else 0.0
+        if stundenlohn <= 0:
+            leeres_ergebnis['fehler'] = (
+                f"Fehler: Monatsbrutto/Sollstunden für {name} ergeben keinen gültigen Stundenwert."
+            )
+            leeres_ergebnis['mitarbeiter_name'] = name
+            return leeres_ergebnis
 
         # ── Stunden aus DB summieren ───────────────────────────────────────
         stunden_data = summiere_monatsstunden(mitarbeiter_id, monat, jahr)

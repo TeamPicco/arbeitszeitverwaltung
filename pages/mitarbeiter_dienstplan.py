@@ -13,6 +13,7 @@ import io
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
+from utils.lohnberechnung import summarize_dienstplan_month
 
 # Deutsche Monatsnamen
 MONATE_DE = [
@@ -37,14 +38,15 @@ DIENSTPLAN_CSS = """
     padding: 10px 14px;
     margin-bottom: 6px;
     border-radius: 10px;
-    background: #ffffff;
-    border-left: 5px solid #0d6efd;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    background: #0b0b0b;
+    border-left: 5px solid #2563eb;
+    border: 1px solid #2a2a2a;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.35);
     gap: 12px;
 }
-.dp-card.urlaub  { border-left-color: #f59e0b; background: #fffbeb; }
-.dp-card.frei    { border-left-color: #9ca3af; background: #f9fafb; }
-.dp-card.arbeit  { border-left-color: #10b981; background: #f0fdf4; }
+.dp-card.urlaub  { border-left-color: #f59e0b; background: #1a1405; }
+.dp-card.frei    { border-left-color: #9ca3af; background: #111111; }
+.dp-card.arbeit  { border-left-color: #10b981; background: #06150f; }
 
 /* Datum-Block – Wochentag neben dem Datum */
 .dp-date {
@@ -54,9 +56,9 @@ DIENSTPLAN_CSS = """
     gap: 6px;
     line-height: 1.2;
 }
-.dp-date .day   { font-size: 1.4rem; font-weight: 700; color: #111827; }
-.dp-date .month { font-size: 0.7rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
-.dp-date .weekday-inline { font-size: 0.82rem; color: #374151; font-weight: 600; min-width: 26px; }
+.dp-date .day   { font-size: 1.4rem; font-weight: 700; color: #ffffff; }
+.dp-date .month { font-size: 0.7rem; color: #e5e7eb; text-transform: uppercase; letter-spacing: 0.05em; }
+.dp-date .weekday-inline { font-size: 0.82rem; color: #e5e7eb; font-weight: 600; min-width: 26px; }
 
 /* Wochentag (versteckt, da jetzt inline im Datum-Block) */
 .dp-weekday {
@@ -68,7 +70,7 @@ DIENSTPLAN_CSS = """
     flex: 1;
     font-size: 1rem;
     font-weight: 600;
-    color: #111827;
+    color: #ffffff;
     letter-spacing: 0.02em;
 }
 
@@ -80,9 +82,9 @@ DIENSTPLAN_CSS = """
     font-weight: 600;
     white-space: nowrap;
 }
-.dp-badge.arbeit  { background: #d1fae5; color: #065f46; }
-.dp-badge.urlaub  { background: #fef3c7; color: #92400e; }
-.dp-badge.frei    { background: #f3f4f6; color: #6b7280; }
+.dp-badge.arbeit  { background: #0d2e1f; color: #ffffff; border: 1px solid #1f6f4e; }
+.dp-badge.urlaub  { background: #3b2a07; color: #ffffff; border: 1px solid #996a08; }
+.dp-badge.frei    { background: #1f2937; color: #ffffff; border: 1px solid #4b5563; }
 
 /* Kalender */
 .dp-cal-header {
@@ -95,7 +97,7 @@ DIENSTPLAN_CSS = """
     text-align: center;
     font-size: 0.72rem;
     font-weight: 700;
-    color: #6b7280;
+    color: #e5e7eb;
     padding: 4px 0;
 }
 .dp-cal-grid {
@@ -113,19 +115,19 @@ DIENSTPLAN_CSS = """
 .dp-cal-day .num   { font-weight: 700; font-size: 0.9rem; }
 .dp-cal-day .zeit  { font-size: 0.65rem; margin-top: 2px; }
 .dp-cal-day.leer   { background: transparent; }
-.dp-cal-day.arbeit { background: #d1fae5; color: #065f46; }
-.dp-cal-day.urlaub { background: #fef3c7; color: #92400e; }
-.dp-cal-day.frei   { background: #f3f4f6; color: #9ca3af; }
-.dp-cal-day.normal { background: #f9fafb; color: #d1d5db; border: 1px solid #f3f4f6; }
+.dp-cal-day.arbeit { background: #0d2e1f; color: #ffffff; border: 1px solid #1f6f4e; }
+.dp-cal-day.urlaub { background: #3b2a07; color: #ffffff; border: 1px solid #996a08; }
+.dp-cal-day.frei   { background: #1f2937; color: #ffffff; border: 1px solid #4b5563; }
+.dp-cal-day.normal { background: #0f0f0f; color: #ffffff; border: 1px solid #2a2a2a; }
 
 /* Monat-Header */
 .dp-month-header {
     font-size: 1.1rem;
     font-weight: 700;
-    color: #111827;
+    color: #ffffff;
     margin: 16px 0 10px 0;
     padding-bottom: 6px;
-    border-bottom: 2px solid #e5e7eb;
+    border-bottom: 2px solid #2a2a2a;
 }
 
 /* Responsive */
@@ -136,7 +138,7 @@ DIENSTPLAN_CSS = """
         width: 100%;
         font-size: 0.8rem;
         font-weight: 700;
-        color: #374151;
+        color: #ffffff;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         margin-bottom: 2px;
@@ -284,7 +286,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     """Zeigt den Dienstplan für den eingeloggten Mitarbeiter – clean & minimalistisch."""
 
     st.markdown(DIENSTPLAN_CSS, unsafe_allow_html=True)
-    st.subheader("📅 Mein Dienstplan")
+    st.subheader("Mein Dienstplan")
 
     supabase = get_supabase_client()
     planning_table = resolve_planning_table(supabase)
@@ -300,7 +302,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
                              format_func=lambda x: MONATE_DE[x],
                              key="mitarbeiter_dienstplan_monat")
     with col3:
-        if st.button("🔄", use_container_width=True, key="mitarbeiter_dienstplan_refresh",
+        if st.button("Aktualisieren", use_container_width=True, key="mitarbeiter_dienstplan_refresh",
                      help="Aktualisieren"):
             st.rerun()
 
@@ -315,29 +317,26 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
 
     st.markdown("---")
 
-    if not dienstplaene_resp.data:
-        st.info(f"ℹ️ Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
-        st.caption("Ihr Administrator hat noch keine Dienste für Sie eingetragen.")
+    dienste = dienstplaene_resp.data or []
+    counts = summarize_dienstplan_month(year=jahr, month=monat, entries=dienste)
+
+    col_a, col_b, col_c, col_d = st.columns(4)
+    col_a.metric("Geplant", counts.geplant)
+    col_b.metric("Urlaub", counts.urlaub)
+    col_c.metric("Frei", counts.frei)
+    col_d.metric("Krank", counts.krank)
+
+    if not dienste:
+        st.info(f"Keine Dienste für {MONATE_DE[monat]} {jahr} geplant.")
+        st.caption("Tage ohne Eintrag (inkl. Ruhetage) werden in der Statistik als Frei gezählt.")
         return
-
-    dienste = dienstplaene_resp.data
-
-    # Zähler (nur Anzahl, keine Stunden)
-    arbeit_n = sum(1 for d in dienste if d.get('schichttyp', 'arbeit') == 'arbeit')
-    urlaub_n = sum(1 for d in dienste if d.get('schichttyp') == 'urlaub')
-    frei_n   = sum(1 for d in dienste if d.get('schichttyp') == 'frei')
-
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Arbeitstage", arbeit_n)
-    col_b.metric("Urlaub", urlaub_n)
-    col_c.metric("Frei", frei_n)
 
     # PDF-Download
     try:
         pdf_bytes = erstelle_dienstplan_pdf(mitarbeiter, dienste, jahr, monat)
         dateiname = f"Dienstplan_{mitarbeiter.get('nachname', 'Mitarbeiter')}_{MONATE_DE[monat]}_{jahr}.pdf"
         st.download_button(
-            label="📥 Dienstplan als PDF herunterladen",
+            label="Dienstplan als PDF herunterladen",
             data=pdf_bytes,
             file_name=dateiname,
             mime="application/pdf",
@@ -355,7 +354,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     st.markdown("---")
 
     # ── LISTEN-ANSICHT (clean) ────────────────────────────────
-    st.markdown(f'<div class="dp-month-header">📋 {MONATE_DE[monat]} {jahr}</div>',
+    st.markdown(f'<div class="dp-month-header">{MONATE_DE[monat]} {jahr}</div>',
                 unsafe_allow_html=True)
 
     # Gruppiere nach Datum (mehrere Schichten pro Tag möglich)
@@ -373,7 +372,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
             typ = dienst.get('schichttyp', 'arbeit')
             zeit = _format_zeit(dienst)
 
-            badge_label = {"arbeit": "Arbeit", "urlaub": "Urlaub", "frei": "Frei"}.get(typ, typ.capitalize())
+            badge_label = {"arbeit": "Geplant", "urlaub": "Urlaub", "frei": "Frei", "krank": "Krank"}.get(typ, typ.capitalize())
 
             st.markdown(f"""
             <div class="dp-card {typ}">
@@ -393,7 +392,7 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
 def _show_kalender(dienstplaene: list, jahr: int, monat: int):
     """Zeigt eine kompakte Kalender-Ansicht – nur Tage und Startzeiten, keine Stunden."""
 
-    st.markdown("### 📆 Kalender")
+    st.markdown("### Kalender")
 
     # Dienste-Dict aufbauen (mehrere Einträge pro Tag)
     dienste_dict: dict = {}

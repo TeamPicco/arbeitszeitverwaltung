@@ -255,9 +255,14 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
         
         mitarbeiter = mitarbeiter_response.data[0]
         
+        # Berechne Stundenwert aus Monatsbrutto und Sollstunden
+        monatsbrutto = float(mitarbeiter.get('monatliche_brutto_verguetung') or 0.0)
+        soll_stunden = float(mitarbeiter.get('monatliche_soll_stunden') or 0.0)
+        stundenwert = (monatsbrutto / soll_stunden) if soll_stunden > 0 else 0.0
+
         # Berechne Lohnbestandteile
         grundlohn = berechne_grundlohn(
-            float(mitarbeiter.get('stundenlohn_brutto') or 0.0),
+            stundenwert,
             float(arbeitszeitkonto.get('ist_stunden') or 0)
         )
         
@@ -265,14 +270,13 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
         sonntagsstunden = float(arbeitszeitkonto.get('sonntagsstunden') or 0)
         feiertagsstunden = float(arbeitszeitkonto.get('feiertagsstunden') or 0)
         
-        stundenlohn = float(mitarbeiter.get('stundenlohn_brutto') or 0.0)
         sonntagszuschlag = berechne_sonntagszuschlag(
-            stundenlohn,
+            stundenwert,
             sonntagsstunden
         ) if mitarbeiter.get('sonntagszuschlag_aktiv') else 0
         
         feiertagszuschlag = berechne_feiertagszuschlag(
-            stundenlohn,
+            stundenwert,
             feiertagsstunden
         ) if mitarbeiter.get('feiertagszuschlag_aktiv') else 0
         

@@ -1,50 +1,195 @@
+import json
 import os
+import re
 from datetime import date, datetime
 
 import streamlit as st
+from streamlit_option_menu import option_menu
 
-from pages import admin_dienstplan, admin_mastergeraete, zeitauswertung
 from utils.absences import delete_absence, store_absence, update_absence
+from utils.absence_policy import (
+    load_absence_compensation_policy,
+    save_absence_compensation_policy,
+)
+from utils.cache_manager import clear_app_caches
 from utils.database import (
     get_supabase_client,
+    get_service_role_client,
     update_mitarbeiter,
     upload_file_to_storage_result,
 )
-from utils.historischer_import import (
-    dry_run_import_summary,
-    importiere_in_crewbase,
-    lese_upload_datei,
-)
 from utils.styles import apply_custom_css
-from utils.work_accounts import close_work_account_month, sync_work_account_for_month, validate_work_account_month
-from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
-from modules.hazard.hazard_ui import show_hazard_modul
-from modules.hazard.rechtsstand_admin import show_rechtsstand_admin
-from utils.feature_flags import get_user_plan
-from utils.vertrag_templates import (
-    VERTRAG_TEMPLATE_OPTIONS,
-    build_default_contract_payload,
-    coerce_to_date,
-    generate_contract_pdf,
+from utils.work_accounts import (
+    close_work_account_month,
+    set_work_account_opening_balance,
+    sync_work_account_for_month,
+    validate_work_account_month,
 )
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 
 
 ADMIN_MITARBEITER_COLUMNS = (
     "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
     "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
-    "monatliche_soll_stunden, stundenlohn_brutto, jahres_urlaubstage, resturlaub_vorjahr, "
+    "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage, resturlaub_vorjahr, "
     "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+ADMIN_MITARBEITER_COLUMNS_FALLBACK = (
+    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
+    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
+    "monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, "
+    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+STUNDENLOHN_PERSONAL_COLUMNS = (
+    "stundenlohn_personalakte",
+    "stundenlohn_brutto",
+    "stundenlohn",
 )
 
 
-def _load_admin_mitarbeiter():
+@st.cache_data(ttl=600, show_spinner=False)
+def _resolve_stundenlohn_personal_column() -> str:
+    """
+    Ermittelt eine optionale Stundenlohn-Spalte für die Personalakte.
+    Diese Spalte ist rein dokumentarisch und wird NICHT für Zeitberechnungen verwendet.
+    """
     supabase = get_supabase_client()
-    query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
+    for col in STUNDENLOHN_PERSONAL_COLUMNS:
+        try:
+            supabase.table("mitarbeiter").select(f"id,{col}").limit(1).execute()
+            return col
+        except Exception:
+            continue
+    return ""
+
+
+def _load_admin_mitarbeiter():
     betrieb_id = st.session_state.get("betrieb_id")
+    return _cached_admin_mitarbeiter(betrieb_id)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_admin_mitarbeiter(betrieb_id):
+    supabase = get_supabase_client()
+    try:
+        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        rows = query.execute().data or []
+    except Exception:
+        # Rückfall für ältere Schemas ohne monatliche_brutto_verguetung.
+        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS_FALLBACK).order("nachname")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        rows = query.execute().data or []
+        for row in rows:
+            row["monatliche_brutto_verguetung"] = float(row.get("monatliche_brutto_verguetung") or 0.0)
+
+    # Optionales Personalakten-Feld: Stundenlohn (rein dokumentarisch, keine Berechnungswirkung)
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
+    if stundenlohn_col:
+        try:
+            rate_query = supabase.table("mitarbeiter").select(f"id,{stundenlohn_col}")
+            if betrieb_id is not None:
+                rate_query = rate_query.eq("betrieb_id", betrieb_id)
+            rate_rows = rate_query.execute().data or []
+            rate_by_id = {int(r["id"]): _to_float(r.get(stundenlohn_col), 0.0) for r in rate_rows if r.get("id") is not None}
+        except Exception:
+            rate_by_id = {}
+    else:
+        rate_by_id = {}
+
+    for row in rows:
+        row_id = int(row.get("id") or 0)
+        row["akten_stundenlohn"] = _to_float(rate_by_id.get(row_id), 0.0)
+
+    return rows
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_arbeitszeitkonten_rows(betrieb_id: int | None):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("arbeitszeit_konten")
+        .select(
+            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
+            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
+        )
+        .order("mitarbeiter_id")
+    )
+    q = base_q
     if betrieb_id is not None:
-        query = query.eq("betrieb_id", betrieb_id)
-    res = query.execute()
-    return res.data or []
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        # Legacy-Schema-Fallback ohne betrieb_id-Filter.
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_azk_closed_rows(betrieb_id: int | None, monat: int, jahr: int):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("azk_monatsabschluesse")
+        .select("mitarbeiter_id, ueberstunden_saldo_start, korrektur_grund, manuelle_korrektur_saldo")
+        .eq("monat", int(monat))
+        .eq("jahr", int(jahr))
+    )
+    q = base_q
+    if betrieb_id is not None:
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_existing_init_marker(mitarbeiter_id: int):
+    supabase = get_supabase_client()
+    try:
+        existing_init_res = (
+            supabase.table("azk_monatsabschluesse")
+            .select("id, monat, jahr")
+            .eq("mitarbeiter_id", int(mitarbeiter_id))
+            .eq("jahr", 2026)
+            .eq("ist_initialisierung", True)
+            .limit(1)
+            .execute()
+        )
+        return (existing_init_res.data or [None])[0]
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_system_counts(betrieb_id: int | None) -> tuple[int, int, int]:
+    supabase = get_supabase_client()
+    try:
+        users_q = supabase.table("users").select("id", count="exact")
+        ma_q = supabase.table("mitarbeiter").select("id", count="exact")
+        zeit_q = supabase.table("zeiterfassung").select("id", count="exact")
+        if betrieb_id is not None:
+            users_q = users_q.eq("betrieb_id", int(betrieb_id))
+            ma_q = ma_q.eq("betrieb_id", int(betrieb_id))
+            zeit_q = zeit_q.eq("betrieb_id", int(betrieb_id))
+        users_count = users_q.limit(1).execute().count or 0
+        ma_count = ma_q.limit(1).execute().count or 0
+        zeit_count = zeit_q.limit(1).execute().count or 0
+        return int(users_count), int(ma_count), int(zeit_count)
+    except Exception:
+        return 0, 0, 0
+
+
+def _refresh_after_write() -> None:
+    clear_app_caches()
 
 
 def _safe_date(value):
@@ -56,12 +201,13 @@ def _safe_date(value):
         return None
 
 
-def _storage_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str | None:
-    """Erstellt eine signierte URL – läuft nach 1 Stunde ab."""
+def _storage_public_url(bucket: str, path: str | None) -> str | None:
     if not path:
         return None
-    from utils.database import get_signed_url
-    return get_signed_url(bucket, path, expires_in)
+    base_url = os.getenv("SUPABASE_URL")
+    if not base_url:
+        return None
+    return f"{base_url}/storage/v1/object/public/{bucket}/{path}"
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -71,52 +217,218 @@ def _to_float(value, default: float = 0.0) -> float:
         return default
 
 
-def _safe_date_input_value(value) -> date:
-    """Garantiert ein valides Datum für st.date_input."""
+def _to_int(value, default: int = 0) -> int:
     try:
-        from datetime import datetime as _dt, date as _date
-        if isinstance(value, _dt):
-            return value.date()
-        if isinstance(value, _date):
-            return value
-        coerced = coerce_to_date(value)
-        if isinstance(coerced, _dt):
-            return coerced.date()
-        if isinstance(coerced, _date):
-            return coerced
+        return int(round(float(value if value is not None else default)))
+    except Exception:
+        return int(default)
+
+
+def _upload_status_key(mitarbeiter_id: int) -> str:
+    return f"personalakte_upload_status_{int(mitarbeiter_id)}"
+
+
+def _set_upload_status(
+    mitarbeiter_id: int,
+    *,
+    level: str,
+    message: str,
+    details: str = "",
+) -> None:
+    st.session_state[_upload_status_key(mitarbeiter_id)] = {
+        "level": str(level or "info"),
+        "message": str(message or ""),
+        "details": str(details or ""),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _clear_upload_status(mitarbeiter_id: int) -> None:
+    st.session_state.pop(_upload_status_key(mitarbeiter_id), None)
+
+
+def _render_upload_status(mitarbeiter_id: int) -> None:
+    status = st.session_state.get(_upload_status_key(mitarbeiter_id))
+    if not status:
+        return
+    level = str(status.get("level") or "info").lower()
+    message = str(status.get("message") or "")
+    details = str(status.get("details") or "")
+    ts = str(status.get("ts") or "")
+
+    if level == "error":
+        st.error(message or "Letzter Upload fehlgeschlagen.")
+    elif level == "warning":
+        st.warning(message or "Letzter Upload mit Hinweisen.")
+    elif level == "success":
+        st.success(message or "Letzter Upload erfolgreich.")
+    else:
+        st.info(message or "Letzte Upload-Meldung.")
+
+    if ts:
+        st.caption(f"Zeitpunkt: {ts}")
+    if details:
+        st.caption("Fehler-/Statusdetails (kopierbar):")
+        st.code(details, language="text")
+
+    if st.button(
+        "Upload-Meldung ausblenden",
+        key=f"clear_upload_status_{int(mitarbeiter_id)}",
+        use_container_width=True,
+    ):
+        _clear_upload_status(mitarbeiter_id)
+        st.rerun()
+
+
+def _update_mitarbeiter_stammdaten_robust(
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: int | None,
+    payload: dict,
+) -> tuple[bool, str, list[str]]:
+    """
+    Aktualisiert Stammdaten robust über unterschiedliche DB-Schemas:
+    - versucht primären Client + optional Service-Role-Client
+    - entfernt unbekannte Spalten automatisch aus dem Payload
+    """
+    working_payload = dict(payload)
+    dropped_columns: list[str] = []
+    last_error = "unbekannter Fehler"
+
+    clients: list[tuple[str, object]] = [("primary", get_supabase_client())]
+    try:
+        clients.append(("service_role", get_service_role_client()))
     except Exception:
         pass
-    return date.today()
+
+    max_attempts = max(1, len(working_payload) + 2)
+    for _ in range(max_attempts):
+        if not working_payload:
+            return False, "Keine speicherbaren Felder im Payload vorhanden.", dropped_columns
+
+        missing_column_handled = False
+        for client_name, client in clients:
+            try:
+                q = client.table("mitarbeiter").update(working_payload).eq("id", mitarbeiter_id)
+                if betrieb_id is not None:
+                    q = q.eq("betrieb_id", betrieb_id)
+                q.execute()
+                info = f"update_ok client={client_name}"
+                if dropped_columns:
+                    info += f" dropped={','.join(dropped_columns)}"
+                return True, info, dropped_columns
+            except Exception as exc:
+                last_error = f"update_fail client={client_name}: {exc}"
+                msg = str(exc)
+                col_match = re.search(r'column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist', msg, flags=re.IGNORECASE)
+                if col_match:
+                    col = str(col_match.group(1) or "").strip()
+                    if col and col in working_payload:
+                        working_payload.pop(col, None)
+                        dropped_columns.append(col)
+                        missing_column_handled = True
+                        break
+        if not missing_column_handled:
+            break
+
+    return False, last_error, dropped_columns
 
 
-def _sanitize_date_widget_state(key: str, fallback: date | None = None) -> None:
+def _insert_mitarbeiter_dokument_robust(
+    supabase,
+    base_payload: dict,
+) -> tuple[bool, str]:
     """
-    Normalisiert bereits vorhandene Session-State-Werte für date_input-Widgets.
-    Schützt gegen alte/ungültige Browser-Widgetzustände nach Deploys.
+    Speichert Dokument-Metadaten robust über unterschiedliche DB-Schemas:
+    - versucht mehrere Payload-Varianten (legacy/new)
+    - versucht bei Bedarf Service-Role-Client
     """
-    if key not in st.session_state:
-        return
+    variants: list[tuple[str, dict]] = []
+    full = dict(base_payload)
+    variants.append(("full", full))
+
+    v_no_ersteller = dict(full)
+    v_no_ersteller.pop("erstellt_von", None)
+    variants.append(("no_erstellt_von", v_no_ersteller))
+
+    v_no_meta = dict(full)
+    v_no_meta.pop("metadaten", None)
+    variants.append(("no_metadaten", v_no_meta))
+
+    v_no_status = dict(full)
+    v_no_status.pop("status", None)
+    variants.append(("no_status", v_no_status))
+
+    v_status_aktiv = dict(full)
+    v_status_aktiv["status"] = "aktiv"
+    variants.append(("status_aktiv", v_status_aktiv))
+
+    v_minimal = {
+        k: full.get(k)
+        for k in ("betrieb_id", "mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal", v_minimal))
+
+    v_minimal_no_betrieb = {
+        k: full.get(k)
+        for k in ("mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal_no_betrieb", v_minimal_no_betrieb))
+
+    # Duplikate nach normalisierter Signatur vermeiden.
+    # Payload kann verschachtelte dicts enthalten (z. B. metadaten) und ist
+    # damit nicht direkt als tuple(payload.items()) hashbar.
+    dedup_variants: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for label, payload in variants:
+        try:
+            sig = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
+        except Exception:
+            sig = str(payload)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        dedup_variants.append((label, payload))
+
+    clients: list[tuple[str, object]] = [("primary", supabase)]
     try:
-        st.session_state[key] = coerce_to_date(st.session_state.get(key), fallback=fallback or date.today())
+        svc = get_service_role_client()
+        clients.append(("service_role", svc))
     except Exception:
-        st.session_state.pop(key, None)
+        pass
+
+    last_error = "unbekannter Fehler"
+    for client_name, client in clients:
+        for variant_name, payload in dedup_variants:
+            try:
+                client.table("mitarbeiter_dokumente").insert(payload).execute()
+                return True, f"insert_ok client={client_name} variant={variant_name}"
+            except Exception as exc:
+                last_error = (
+                    f"insert_fail client={client_name} variant={variant_name}: {exc}"
+                )
+                continue
+    return False, last_error
 
 
 def _show_zeitauswertung_tab():
-    st.subheader("📊 Zeitauswertung & Lohn")
+    from pages import zeitauswertung
+
+    st.subheader("Zeitauswertung und Lohn")
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
         st.info("Keine Mitarbeiter für die Auswertung gefunden.")
         return
 
-    ma_options = {f"{m['vorname']} {m['nachname']}": m for m in alle_ma}
-    selected_label = st.selectbox("Mitarbeiter auswählen", list(ma_options.keys()))
-    aktiver_ma = ma_options[selected_label]
-    zeitauswertung.show_zeitauswertung(aktiver_ma, admin_modus=True)
+    # Mitarbeiterauswahl erfolgt innerhalb von show_zeitauswertung (admin_modus=True).
+    # So vermeiden wir doppelte Selectboxen mit widersprüchlichem Verhalten.
+    zeitauswertung.show_zeitauswertung(alle_ma[0], admin_modus=True)
 
 
 def _show_absenzen_tab():
-    st.subheader("🏖️ Abwesenheiten & Atteste")
+    st.subheader("Abwesenheiten und Atteste")
     supabase = get_supabase_client()
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
@@ -124,6 +436,54 @@ def _show_absenzen_tab():
         return
 
     betrieb_id = st.session_state.get("betrieb_id")
+    # Konfigurierbare Bezahl-Logik pro Betrieb.
+    paid_types = load_absence_compensation_policy(
+        supabase,
+        betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+    )
+    with st.expander("Bezahl-Logik konfigurieren", expanded=False):
+        st.caption("Diese Einstellung steuert, welche Abwesenheitstypen als bezahlt gelten.")
+        c1, c2 = st.columns(2)
+        with c1:
+            paid_urlaub = st.checkbox(
+                "Urlaub ist bezahlt",
+                value=bool(paid_types.get("urlaub", True)),
+                key="abwesen_paid_cfg_urlaub",
+            )
+            paid_krankheit = st.checkbox(
+                "Krankheit (LFZ) ist bezahlt",
+                value=bool(paid_types.get("krankheit", True)),
+                key="abwesen_paid_cfg_krankheit",
+            )
+        with c2:
+            paid_sonderurlaub = st.checkbox(
+                "Sonderurlaub ist bezahlt",
+                value=bool(paid_types.get("sonderurlaub", True)),
+                key="abwesen_paid_cfg_sonderurlaub",
+            )
+            paid_unbezahlt = st.checkbox(
+                "Unbezahlter Urlaub ist bezahlt",
+                value=bool(paid_types.get("unbezahlter_urlaub", False)),
+                key="abwesen_paid_cfg_unbezahlter",
+            )
+        if st.button("Bezahl-Logik speichern", key="abwesen_paid_types_save", use_container_width=True):
+            policy_payload = {
+                "urlaub": bool(paid_urlaub),
+                "krankheit": bool(paid_krankheit),
+                "sonderurlaub": bool(paid_sonderurlaub),
+                "unbezahlter_urlaub": bool(paid_unbezahlt),
+            }
+            ok, msg = save_absence_compensation_policy(
+                supabase,
+                betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+                policy=policy_payload,
+            )
+            if ok:
+                st.success("Bezahl-Logik gespeichert.")
+                paid_types = dict(policy_payload)
+                st.rerun()
+            else:
+                st.error(f"Konfiguration konnte nicht gespeichert werden: {msg}")
     abs_query = (
         supabase.table("abwesenheiten")
         .select(
@@ -157,11 +517,11 @@ def _show_absenzen_tab():
     )
     mitarbeiter = ma_options[selected_label]
 
-    with st.expander("➕ Neue Abwesenheit erfassen", expanded=True):
+    with st.expander("Neue Abwesenheit erfassen", expanded=True):
         with st.form("abwesenheit_form"):
             c1, c2, c3 = st.columns([1, 1, 1.2])
             with c1:
-                typ = st.selectbox("Typ", ["urlaub", "krankheit", "sonderurlaub"])
+                typ = st.selectbox("Typ", ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"])
             with c2:
                 start = st.date_input("Von", value=date.today(), format="DD.MM.YYYY")
             with c3:
@@ -195,13 +555,9 @@ def _show_absenzen_tab():
                             )
                             attest_pfad = None
 
-                    _bid = mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id")
-                    if not _bid:
-                        st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
-                        st.stop()
                     result = store_absence(
                         supabase,
-                        betrieb_id=_bid,
+                        betrieb_id=mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
                         mitarbeiter_id=mitarbeiter["id"],
                         typ=typ,
                         start=start,
@@ -209,12 +565,14 @@ def _show_absenzen_tab():
                         monthly_target_hours=float(mitarbeiter.get("monatliche_soll_stunden") or 0.0),
                         attest_pfad=attest_pfad,
                         grund=grund or None,
+                        paid_type_config=paid_types,
                         created_by=st.session_state.get("user_id"),
                     )
                     st.success(
                         f"Abwesenheit gespeichert: {result['tage']:.1f} Tage, "
                         f"{result['stunden_gutschrift']:.2f}h Gutschrift."
                     )
+                    _refresh_after_write()
                     st.rerun()
 
     st.markdown("#### Letzte Abwesenheiten")
@@ -223,10 +581,11 @@ def _show_absenzen_tab():
         return
 
     typ_labels = {
-        "urlaub": "🏖️ Urlaub",
-        "krankheit": "🤒 Krankheit",
-        "krank": "🤒 Krankheit",
-        "sonderurlaub": "🎗️ Sonderurlaub",
+        "urlaub": "Urlaub",
+        "krankheit": "Krankheit",
+        "krank": "Krankheit",
+        "unbezahlter_urlaub": "Unbezahlter Urlaub",
+        "sonderurlaub": "Sonderurlaub",
     }
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     rows = []
@@ -244,7 +603,7 @@ def _show_absenzen_tab():
         )
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    st.markdown("#### ✏️ Abwesenheit ändern / 🗑️ löschen (mit Begründung)")
+    st.markdown("#### Abwesenheit aendern oder loeschen (mit Begruendung)")
     select_options = {}
     for a in abwesenheiten[:200]:
         a_id = a.get("id")
@@ -287,8 +646,8 @@ def _show_absenzen_tab():
             st.caption(f"Aktuelles Attest: {existing_attest or 'kein Attest hinterlegt'}")
             new_typ = st.selectbox(
                 "Typ",
-                ["urlaub", "krankheit", "sonderurlaub"],
-                index=["urlaub", "krankheit", "sonderurlaub"].index(default_typ),
+                ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"],
+                index=["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"].index(default_typ),
                 key=f"abwesen_update_typ_{selected_id}",
             )
             new_start = st.date_input(
@@ -319,7 +678,7 @@ def _show_absenzen_tab():
                 key=f"abwesen_update_reason_{selected_id}",
             )
             save_edit = st.form_submit_button(
-                "✅ Änderung speichern",
+                "Aenderung speichern",
                 type="primary",
                 use_container_width=True,
             )
@@ -363,8 +722,10 @@ def _show_absenzen_tab():
                             changed_by=st.session_state.get("user_id"),
                             attest_pfad=attest_pfad,
                             grund=new_grund or None,
+                            paid_type_config=paid_types,
                         )
                         st.success("Abwesenheit wurde aktualisiert.")
+                        _refresh_after_write()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Änderung fehlgeschlagen: {e}")
@@ -383,7 +744,7 @@ def _show_absenzen_tab():
                 key=f"abwesen_delete_confirm_{selected_id}",
             )
             do_delete = st.form_submit_button(
-                "🗑️ Eintrag löschen",
+                "Eintrag loeschen",
                 use_container_width=True,
             )
             if do_delete:
@@ -400,17 +761,29 @@ def _show_absenzen_tab():
                             deleted_by=st.session_state.get("user_id"),
                         )
                         st.success("Abwesenheit wurde gelöscht.")
+                        _refresh_after_write()
                         st.rerun()
                     except Exception as e:
                         st.error(f"Löschen fehlgeschlagen: {e}")
 
 
 def _show_mitarbeiter_stammdaten_tab():
-    st.subheader("👥 Mitarbeiter-Stammdaten & Dokumente")
+    st.subheader("Mitarbeiter-Stammdaten und Dokumente")
     supabase = get_supabase_client()
-    alle_ma = _load_admin_mitarbeiter()
+    # Schritt 1: Verbindung prüfen, bevor Stammdaten-UI gerendert wird.
+    try:
+        supabase.table("mitarbeiter").select("id").limit(1).execute()
+    except Exception as exc:
+        st.error(f"Datenbankverbindung für Personalakte fehlgeschlagen: {exc}")
+        return
 
-    with st.expander("➕ Mitarbeiter neu anlegen", expanded=False):
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
+    alle_ma = _load_admin_mitarbeiter()
+    st.caption(
+        "Hinweis: 'Stundenlohn' ist ein Personalakten-Feld und hat keinen Einfluss auf Dienstplan- oder Zeiterfassungsberechnungen."
+    )
+
+    with st.expander("Mitarbeiter neu anlegen", expanded=False):
         with st.form("neuer_mitarbeiter_form"):
             n1, n2, n3 = st.columns(3)
             with n1:
@@ -442,15 +815,23 @@ def _show_mitarbeiter_stammdaten_tab():
             with n11:
                 new_soll = st.number_input("Monatliche Sollstunden", min_value=0.0, value=160.0, step=0.5)
             with n12:
-                new_lohn = st.number_input("Stundenlohn (brutto)", min_value=0.0, value=0.0, step=0.5)
+                new_monatsbrutto = st.number_input("Monatliche Brutto-Vergütung", min_value=0.0, value=0.0, step=50.0)
 
-            n13, n14, n15 = st.columns(3)
+            n13, n14, n15, n16 = st.columns(4)
             with n13:
                 new_urlaub = st.number_input("Urlaubstage/Jahr", min_value=0.0, value=28.0, step=0.5)
             with n14:
                 new_resturlaub = st.number_input("Resturlaub Vorjahr", min_value=0.0, value=0.0, step=0.5)
             with n15:
                 new_geburtsdatum = st.date_input("Geburtsdatum", value=date(1990, 1, 1), format="DD.MM.YYYY")
+            with n16:
+                new_stundenlohn = st.number_input(
+                    "Stundenlohn (Personalakte)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.5,
+                    format="%.2f",
+                )
 
             create = st.form_submit_button("Mitarbeiter anlegen", type="primary", use_container_width=True)
             if create:
@@ -471,14 +852,17 @@ def _show_mitarbeiter_stammdaten_tab():
                         "eintrittsdatum": new_eintritt.isoformat(),
                         "geburtsdatum": new_geburtsdatum.isoformat(),
                         "monatliche_soll_stunden": float(new_soll),
-                        "stundenlohn_brutto": float(new_lohn),
-                        "jahres_urlaubstage": float(new_urlaub),
+                        "monatliche_brutto_verguetung": float(new_monatsbrutto),
+                        "jahres_urlaubstage": _to_int(new_urlaub, 28),
                         "resturlaub_vorjahr": float(new_resturlaub),
                         "sonntagszuschlag_aktiv": False,
                         "feiertagszuschlag_aktiv": False,
                     }
+                    if stundenlohn_col:
+                        payload[stundenlohn_col] = float(new_stundenlohn)
                     try:
                         supabase.table("mitarbeiter").insert(payload).execute()
+                        _refresh_after_write()
                         st.success("Mitarbeiter erfolgreich angelegt.")
                         st.rerun()
                     except Exception as e:
@@ -496,12 +880,19 @@ def _show_mitarbeiter_stammdaten_tab():
         key="stammdaten_ma",
     )
     ma = ma_options[selected_label]
+    _render_upload_status(int(ma["id"]))
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Personalnummer", ma.get("personalnummer") or "-")
     c2.metric("Soll (Monat)", f"{_to_float(ma.get('monatliche_soll_stunden')):.2f} h")
-    c3.metric("Stundenlohn", f"{_to_float(ma.get('stundenlohn_brutto')):.2f} EUR")
+    c3.metric("Monatsbrutto", f"{_to_float(ma.get('monatliche_brutto_verguetung')):.2f} EUR")
     c4.metric("Urlaub/Jahr", f"{_to_float(ma.get('jahres_urlaubstage')):.1f} Tg")
+    c5.metric("Stundenlohn (Akte)", f"{_to_float(ma.get('akten_stundenlohn')):.2f} EUR")
+    if not stundenlohn_col:
+        st.info(
+            "Im aktuellen DB-Schema wurde keine Stundenlohn-Spalte gefunden. "
+            "Das Feld wird angezeigt, aber erst nach Hinzufügen einer passenden Spalte dauerhaft gespeichert."
+        )
 
     eintritt_default = _safe_date(ma.get("eintrittsdatum")) or date.today()
     austritt_default = _safe_date(ma.get("austrittsdatum"))
@@ -554,21 +945,22 @@ def _show_mitarbeiter_stammdaten_tab():
                 step=0.5,
             )
         with l2:
-            stundenlohn_brutto = st.number_input(
-                "Stundenlohn (brutto)",
+            monatliche_brutto_verguetung = st.number_input(
+                "Monatliche Brutto-Vergütung",
                 min_value=0.0,
-                value=_to_float(ma.get("stundenlohn_brutto")),
-                step=0.5,
+                value=_to_float(ma.get("monatliche_brutto_verguetung")),
+                step=50.0,
             )
         with l3:
             jahres_urlaubstage = st.number_input(
                 "Urlaubstage/Jahr",
                 min_value=0.0,
                 value=_to_float(ma.get("jahres_urlaubstage")),
-                step=0.5,
+                step=1.0,
+                format="%.0f",
             )
 
-        z1, z2, z3 = st.columns(3)
+        z1, z2, z3, z4 = st.columns(4)
         with z1:
             resturlaub_vorjahr = st.number_input(
                 "Resturlaub Vorjahr",
@@ -586,6 +978,14 @@ def _show_mitarbeiter_stammdaten_tab():
                 "Feiertagszuschlag aktiv",
                 value=bool(ma.get("feiertagszuschlag_aktiv")),
             )
+        with z4:
+            akten_stundenlohn = st.number_input(
+                "Stundenlohn (Personalakte)",
+                min_value=0.0,
+                value=_to_float(ma.get("akten_stundenlohn")),
+                step=0.5,
+                format="%.2f",
+            )
 
         save = st.form_submit_button("Stammdaten speichern", type="primary", use_container_width=True)
         if save:
@@ -602,20 +1002,34 @@ def _show_mitarbeiter_stammdaten_tab():
                 "eintrittsdatum": eintrittsdatum.isoformat(),
                 "austrittsdatum": austrittsdatum.isoformat() if hat_austritt else None,
                 "monatliche_soll_stunden": float(monatliche_soll_stunden),
-                "stundenlohn_brutto": float(stundenlohn_brutto),
-                "jahres_urlaubstage": float(jahres_urlaubstage),
+                "monatliche_brutto_verguetung": float(monatliche_brutto_verguetung),
+                "jahres_urlaubstage": _to_int(jahres_urlaubstage, _to_int(ma.get("jahres_urlaubstage"), 28)),
                 "resturlaub_vorjahr": float(resturlaub_vorjahr),
                 "sonntagszuschlag_aktiv": bool(sonntagszuschlag_aktiv),
                 "feiertagszuschlag_aktiv": bool(feiertagszuschlag_aktiv),
             }
-            ok = update_mitarbeiter(ma["id"], payload)
+            if stundenlohn_col:
+                payload[stundenlohn_col] = float(akten_stundenlohn)
+            ok, info, dropped_columns = _update_mitarbeiter_stammdaten_robust(
+                mitarbeiter_id=int(ma["id"]),
+                betrieb_id=st.session_state.get("betrieb_id"),
+                payload=payload,
+            )
             if ok:
+                _refresh_after_write()
                 st.success("Stammdaten gespeichert.")
+                if dropped_columns:
+                    st.warning(
+                        "Speichern war nur teilweise möglich. Nicht im DB-Schema vorhandene Felder wurden ausgelassen: "
+                        + ", ".join(dropped_columns)
+                    )
                 st.rerun()
             else:
                 st.error("Speichern fehlgeschlagen. Bitte Felder/Schema prüfen.")
+                st.caption("Technische Details (kopierbar):")
+                st.code(info, language="text")
 
-    with st.expander("📎 Vertrag oder Dokument hochladen", expanded=True):
+    with st.expander("Vertrag oder Dokument hochladen", expanded=True):
         with st.form(f"dokument_upload_form_{ma['id']}"):
             u1, u2, u3 = st.columns(3)
             with u1:
@@ -655,11 +1069,11 @@ def _show_mitarbeiter_stammdaten_tab():
                     step=0.5,
                 )
             with u8:
-                vertrag_lohn = st.number_input(
-                    "Stundenlohn (Vertrag)",
+                vertrag_monatsbrutto = st.number_input(
+                    "Monatliche Brutto-Vergütung (Vertrag)",
                     min_value=0.0,
-                    value=float(ma.get("stundenlohn_brutto") or 0.0),
-                    step=0.5,
+                    value=float(ma.get("monatliche_brutto_verguetung") or 0.0),
+                    step=50.0,
                 )
             with u9:
                 dokument_status = st.selectbox("Status", ["aktiv", "abgelaufen", "fehlend"])
@@ -673,7 +1087,13 @@ def _show_mitarbeiter_stammdaten_tab():
             save_upload = st.form_submit_button("Dokument hochladen", type="primary", use_container_width=True)
 
             if save_upload:
+                _clear_upload_status(int(ma["id"]))
                 if upload is None:
+                    _set_upload_status(
+                        int(ma["id"]),
+                        level="error",
+                        message="Bitte zuerst eine Datei auswählen.",
+                    )
                     st.error("Bitte zuerst eine Datei auswählen.")
                 else:
                     file_bytes = upload.read()
@@ -687,6 +1107,18 @@ def _show_mitarbeiter_stammdaten_tab():
                         fallback_buckets=["arbeitsvertraege"],
                     )
                     if not upload_result.get("ok"):
+                        details = (
+                            f"bucket=dokumente|arbeitsvertraege\n"
+                            f"path={file_path}\n"
+                            f"status_code={upload_result.get('status_code') or '-'}\n"
+                            f"error={upload_result.get('error') or 'unbekannt'}"
+                        )
+                        _set_upload_status(
+                            int(ma["id"]),
+                            level="error",
+                            message="Upload in Supabase Storage fehlgeschlagen.",
+                            details=details,
+                        )
                         st.error(
                             "Upload in Supabase Storage fehlgeschlagen. "
                             f"Details: {upload_result.get('status_code') or '-'} "
@@ -694,44 +1126,67 @@ def _show_mitarbeiter_stammdaten_tab():
                         )
                     else:
                         used_bucket = upload_result.get("bucket") or "dokumente"
-                        file_url = _storage_signed_url(used_bucket, file_path)
-                        try:
-                            supabase.table("mitarbeiter_dokumente").insert(
-                                {
+                        file_url = _storage_public_url(used_bucket, file_path)
+                        metadata_saved = True
+                        warning_details: list[str] = []
+                        meta_payload = {
+                            "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                            "mitarbeiter_id": ma["id"],
+                            "name": notiz or upload.name,
+                            "typ": dokument_typ,
+                            "file_path": file_path,
+                            "file_url": file_url,
+                            "status": dokument_status,
+                            "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
+                            "metadaten": {
+                                "uploaded_at": datetime.now().isoformat(),
+                                "source": "admin_dashboard",
+                            },
+                            "erstellt_von": st.session_state.get("user_id"),
+                        }
+                        meta_ok, meta_msg = _insert_mitarbeiter_dokument_robust(
+                            supabase, meta_payload
+                        )
+                        if not meta_ok:
+                            metadata_saved = False
+                            details = (
+                                f"bucket={used_bucket}\n"
+                                f"path={file_path}\n"
+                                f"file_name={safe_name}\n"
+                                f"metadata_error={meta_msg}"
+                            )
+                            _set_upload_status(
+                                int(ma["id"]),
+                                level="error",
+                                message=(
+                                    "Datei wurde in Storage geladen, aber Dokument-Metadaten "
+                                    "konnten nicht gespeichert werden."
+                                ),
+                                details=details,
+                            )
+                            st.error(
+                                "Datei wurde hochgeladen, aber die Zuordnung zur Personalakte "
+                                "ist fehlgeschlagen. Details stehen oben dauerhaft."
+                            )
+                        elif "variant=full" not in meta_msg or "client=primary" not in meta_msg:
+                            warning_details.append(f"metadata_fallback={meta_msg}")
+
+                        if metadata_saved and dokument_typ == "arbeitsvertrag":
+                            try:
+                                payload_vertrag = {
                                     "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
                                     "mitarbeiter_id": ma["id"],
-                                    "name": notiz or upload.name,
-                                    "typ": dokument_typ,
-                                    "file_path": file_path,
-                                    "file_url": file_url,
-                                    "status": dokument_status,
+                                    "gueltig_ab": gueltig_ab.isoformat(),
                                     "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
-                                    "metadaten": {
-                                        "uploaded_at": datetime.now().isoformat(),
-                                        "source": "admin_dashboard",
-                                    },
-                                    "erstellt_von": st.session_state.get("user_id"),
+                                    "wochenstunden": float(vertrag_wochenstunden or 0.0),
+                                    "soll_stunden_monat": float(vertrag_soll_monat or 0.0),
+                                    "urlaubstage_jahr": float(vertrag_urlaub or 0.0),
+                                    "monatsbrutto_verguetung": float(vertrag_monatsbrutto or 0.0),
+                                    "vertrag_dokument_pfad": file_path,
                                 }
-                            ).execute()
-                        except Exception as e:
-                            st.warning(f"Dokument-Metadaten konnten nicht gespeichert werden: {e}")
-
-                        if dokument_typ == "arbeitsvertrag":
-                            try:
-                                supabase.table("vertraege").insert(
-                                    {
-                                        "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                                        "mitarbeiter_id": ma["id"],
-                                        "gueltig_ab": gueltig_ab.isoformat(),
-                                        "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
-                                        "wochenstunden": float(vertrag_wochenstunden or 0.0),
-                                        "soll_stunden_monat": float(vertrag_soll_monat or 0.0),
-                                        "urlaubstage_jahr": float(vertrag_urlaub or 0.0),
-                                        "stundenlohn_brutto": float(vertrag_lohn or 0.0),
-                                        "vertrag_dokument_pfad": file_path,
-                                    }
-                                ).execute()
+                                supabase.table("vertraege").insert(payload_vertrag).execute()
                             except Exception as e:
+                                warning_details.append(f"vertraege_insert_error={str(e)}")
                                 st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
 
                             # Legacy-Fallback-Felder
@@ -744,8 +1199,30 @@ def _show_mitarbeiter_stammdaten_tab():
                             except Exception:
                                 pass
 
-                        st.success("Dokument erfolgreich hochgeladen.")
-                        st.rerun()
+                        if metadata_saved:
+                            if warning_details:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="warning",
+                                    message=(
+                                        "Dokument hochgeladen, aber Vertrags-Metadaten konnten "
+                                        "nicht vollständig gespeichert werden."
+                                    ),
+                                    details=(
+                                        f"bucket={used_bucket}\npath={file_path}\n"
+                                        + "\n".join(warning_details)
+                                    ),
+                                )
+                            else:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="success",
+                                    message="Dokument erfolgreich hochgeladen.",
+                                    details=f"bucket={used_bucket}\npath={file_path}\nfile_name={safe_name}",
+                                )
+                            _refresh_after_write()
+                            st.success("Dokument erfolgreich hochgeladen.")
+                            st.rerun()
 
     st.markdown("#### Hinterlegte Verträge")
     try:
@@ -753,7 +1230,7 @@ def _show_mitarbeiter_stammdaten_tab():
             supabase.table("vertraege")
             .select(
                 "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
-                "wochenstunden, urlaubstage_jahr, stundenlohn_brutto"
+                "wochenstunden, urlaubstage_jahr, monatsbrutto_verguetung"
             )
             .eq("mitarbeiter_id", ma["id"])
             .order("gueltig_ab", desc=True)
@@ -774,7 +1251,7 @@ def _show_mitarbeiter_stammdaten_tab():
                     "Soll (Monat)": float(v.get("soll_stunden_monat") or 0.0),
                     "Wochenstunden": float(v.get("wochenstunden") or 0.0),
                     "Urlaub/Jahr": float(v.get("urlaubstage_jahr") or 0.0),
-                    "Stundenlohn": float(v.get("stundenlohn_brutto") or 0.0),
+                    "Monatsbrutto": float(v.get("monatsbrutto_verguetung") or 0.0),
                 }
                 for v in vertraege
             ],
@@ -841,12 +1318,12 @@ def _show_mitarbeiter_stammdaten_tab():
                             key=f"vg_urlaub_{vid}",
                         )
 
-                    vg_lohn = st.number_input(
-                        "Stundenlohn",
+                    vg_monatsbrutto = st.number_input(
+                        "Monatliche Brutto-Vergütung",
                         min_value=0.0,
-                        value=float(v.get("stundenlohn_brutto") or 0.0),
-                        step=0.5,
-                        key=f"vg_lohn_{vid}",
+                        value=float(v.get("monatsbrutto_verguetung") or 0.0),
+                        step=50.0,
+                        key=f"vg_monatsbrutto_{vid}",
                     )
 
                     s_col, d_col = st.columns(2)
@@ -857,16 +1334,16 @@ def _show_mitarbeiter_stammdaten_tab():
 
                     if save_vertrag:
                         try:
-                            supabase.table("vertraege").update(
-                                {
-                                    "gueltig_ab": vg_ab.isoformat(),
-                                    "gueltig_bis": vg_bis.isoformat() if vg_befristet else None,
-                                    "wochenstunden": float(vg_wochen),
-                                    "soll_stunden_monat": float(vg_soll),
-                                    "urlaubstage_jahr": float(vg_urlaub),
-                                    "stundenlohn_brutto": float(vg_lohn),
-                                }
-                            ).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            update_payload = {
+                                "gueltig_ab": vg_ab.isoformat(),
+                                "gueltig_bis": vg_bis.isoformat() if vg_befristet else None,
+                                "wochenstunden": float(vg_wochen),
+                                "soll_stunden_monat": float(vg_soll),
+                                "urlaubstage_jahr": float(vg_urlaub),
+                                "monatsbrutto_verguetung": float(vg_monatsbrutto),
+                            }
+                            supabase.table("vertraege").update(update_payload).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
                             st.success("Vertrag aktualisiert.")
                             st.rerun()
                         except Exception as e:
@@ -875,6 +1352,7 @@ def _show_mitarbeiter_stammdaten_tab():
                     if delete_vertrag:
                         try:
                             supabase.table("vertraege").delete().eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
                             st.success("Vertrag gelöscht.")
                             st.rerun()
                         except Exception as e:
@@ -899,7 +1377,7 @@ def _show_mitarbeiter_stammdaten_tab():
     if docs:
         rows = []
         for d in docs:
-            url = _storage_signed_url("dokumente", d.get("file_path"))
+            url = d.get("file_url") or _storage_public_url("dokumente", d.get("file_path"))
             rows.append(
                 {
                     "Name": d.get("name"),
@@ -916,342 +1394,20 @@ def _show_mitarbeiter_stammdaten_tab():
 
 
 def _show_vertrag_generator_tab():
-    st.subheader("📄 Vertragsgenerator")
-    st.caption(
-        "Vertrag individuell anpassen und als PDF direkt herunterladen. "
-        "Änderbare Felder: Name, Anschrift, Geburtsdatum, Datum, Eintrittsdatum, "
-        "monatliche Arbeitszeit, Probezeit, Zusatzvereinbarungen, gültig ab und weitere vertragsrelevante Angaben."
-    )
-    supabase = get_supabase_client()
-    alle_ma = _load_admin_mitarbeiter()
-    if not alle_ma:
-        st.info("Keine Mitarbeiter vorhanden.")
-        return
+    from pages import vertraege
 
-    ma_options = {
-        f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
-        for m in alle_ma
-    }
-    selected_label = st.selectbox(
-        "Mitarbeiter",
-        list(ma_options.keys()),
-        key="vertrag_ma_select",
-    )
-    ma = ma_options[selected_label]
-
-    template_key = st.selectbox(
-        "Vertragsvorlage",
-        list(VERTRAG_TEMPLATE_OPTIONS.keys()),
-        format_func=lambda x: VERTRAG_TEMPLATE_OPTIONS.get(x, x),
-        key="vertrag_template_select",
-    )
-    payload = build_default_contract_payload(ma, template_key=template_key)
-    st.markdown("---")
-
-    # Alte Browser-Widgetzustände nach Deploys bereinigen (kann sonst date_input crashen).
-    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]))
-    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload["vertragsdatum"]))
-    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload["eintrittsdatum"]))
-    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload["gueltig_ab"]))
-
-    # Stabilisiert Date-Widgets nach Hot-Deploys/alten Session-State-Werten.
-    _sanitize_date_widget_state("v_an_geb", fallback=_safe_date_input_value(payload.get("arbeitnehmer_geburtsdatum")))
-    _sanitize_date_widget_state("v_vertragsdatum", fallback=_safe_date_input_value(payload.get("vertragsdatum")))
-    _sanitize_date_widget_state("v_eintritt", fallback=_safe_date_input_value(payload.get("eintrittsdatum")))
-    _sanitize_date_widget_state("v_gueltig_ab", fallback=_safe_date_input_value(payload.get("gueltig_ab")))
-
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### Arbeitgeber")
-        ag_name = st.text_input("Firmenname", value=payload["arbeitgeber_name"], key="v_ag_name")
-        ag_vertretung = st.text_input("Vertreten durch", value=payload["arbeitgeber_vertreten_durch"], key="v_ag_vertreter")
-        ag_strasse = st.text_input("Straße / Hausnummer", value=payload["arbeitgeber_strasse"], key="v_ag_strasse")
-        ag_plz_ort = st.text_input("PLZ / Ort", value=payload["arbeitgeber_plz_ort"], key="v_ag_plz_ort")
-
-        st.markdown("#### Arbeitnehmer – persönliche Daten")
-        an_name = st.text_input("Name", value=payload["arbeitnehmer_name"], key="v_an_name")
-        an_geburtsdatum = st.date_input(
-            "Geburtsdatum",
-            value=_safe_date_input_value(payload["arbeitnehmer_geburtsdatum"]),
-            format="DD.MM.YYYY",
-            key="v_an_geb",
-        )
-        an_anschrift = st.text_input("Anschrift", value=payload["arbeitnehmer_anschrift"], key="v_an_anschrift")
-        an_personaldaten = st.text_area("Weitere persönliche Daten", value=payload["persoenliche_daten"], key="v_person_daten")
-
-    with c2:
-        st.markdown("#### Vertragsdaten")
-        vertragsdatum = st.date_input(
-            "Vertragsdatum",
-            value=_safe_date_input_value(payload["vertragsdatum"]),
-            format="DD.MM.YYYY",
-            key="v_vertragsdatum",
-        )
-        eintrittsdatum = st.date_input(
-            "Eintrittsdatum",
-            value=_safe_date_input_value(payload["eintrittsdatum"]),
-            format="DD.MM.YYYY",
-            key="v_eintritt",
-        )
-        gueltig_ab = st.date_input(
-            "Gültig ab",
-            value=_safe_date_input_value(payload["gueltig_ab"]),
-            format="DD.MM.YYYY",
-            key="v_gueltig_ab",
-        )
-        monatliche_arbeitszeit = st.number_input(
-            "Monatliche Arbeitszeit (Stunden)",
-            min_value=0.0,
-            value=float(payload["monatliche_arbeitszeit"]),
-            step=0.5,
-            key="v_monatszeit",
-        )
-        probezeit_monate = st.number_input(
-            "Probezeit (Monate)",
-            min_value=0,
-            max_value=24,
-            value=int(payload["probezeit_monate"]),
-            step=1,
-            key="v_probezeit",
-        )
-        wochenarbeitstage = st.text_input("Arbeitstage pro Woche", value=payload["wochenarbeitstage"], key="v_arbeitstage")
-        stundenlohn_brutto = st.number_input(
-            "Stundenlohn (brutto)",
-            min_value=0.0,
-            value=float(payload["stundenlohn_brutto"]),
-            step=0.5,
-            key="v_stundenlohn",
-        )
-        zuschlaege = st.text_area("Zuschläge / Vergütungsdetails", value=payload["zuschlaege"], key="v_zuschlaege")
-        zusatzvereinbarungen = st.text_area(
-            "Zusatzvereinbarungen",
-            value=payload["zusatzvereinbarungen"],
-            key="v_zusatz",
-        )
-
-    generated_payload = {
-        "arbeitgeber_name": ag_name.strip(),
-        "arbeitgeber_vertreten_durch": ag_vertretung.strip(),
-        "arbeitgeber_strasse": ag_strasse.strip(),
-        "arbeitgeber_plz_ort": ag_plz_ort.strip(),
-        "arbeitnehmer_name": an_name.strip(),
-        "arbeitnehmer_geburtsdatum": an_geburtsdatum,
-        "arbeitnehmer_anschrift": an_anschrift.strip(),
-        "persoenliche_daten": an_personaldaten.strip(),
-        "vertragsdatum": vertragsdatum,
-        "eintrittsdatum": eintrittsdatum,
-        "gueltig_ab": gueltig_ab,
-        "monatliche_arbeitszeit": float(monatliche_arbeitszeit),
-        "probezeit_monate": int(probezeit_monate),
-        "wochenarbeitstage": wochenarbeitstage.strip(),
-        "stundenlohn_brutto": float(stundenlohn_brutto),
-        "zuschlaege": zuschlaege.strip(),
-        "zusatzvereinbarungen": zusatzvereinbarungen.strip(),
-        "template_name": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
-    }
-
-    pdf_bytes = generate_contract_pdf(generated_payload)
-    file_suffix = ma.get("nachname") or "Mitarbeiter"
-    file_name = f"Vertrag_{file_suffix}_{gueltig_ab.strftime('%Y%m%d')}.pdf"
-
-    st.download_button(
-        "📥 Vertrag als PDF herunterladen",
-        data=pdf_bytes,
-        file_name=file_name,
-        mime="application/pdf",
-        use_container_width=True,
-        key="vertrag_pdf_download",
-    )
-
-    if st.button("💾 Als Vertrags-Dokument beim Mitarbeiter speichern", use_container_width=True, key="vertrag_store_doc"):
-        file_path = (
-            f"vertraege/{ma['id']}/{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file_name.replace(' ', '_')}"
-        )
-        upload_result = upload_file_to_storage_result(
-            "dokumente",
-            file_path,
-            pdf_bytes,
-            fallback_buckets=["arbeitsvertraege"],
-        )
-        if not upload_result.get("ok"):
-            st.error(
-                "PDF-Upload fehlgeschlagen. "
-                f"Details: {upload_result.get('status_code') or '-'} {upload_result.get('error') or ''}"
-            )
-            return
-        used_bucket = upload_result.get("bucket") or "dokumente"
-        file_url = _storage_signed_url(used_bucket, file_path)
-        try:
-            supabase.table("mitarbeiter_dokumente").insert(
-                {
-                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                    "mitarbeiter_id": ma["id"],
-                    "name": f"Vertrag {gueltig_ab.strftime('%d.%m.%Y')}",
-                    "typ": "arbeitsvertrag",
-                    "file_path": file_path,
-                    "file_url": file_url,
-                    "status": "aktiv",
-                    "gueltig_bis": None,
-                    "metadaten": {
-                        "generated_by": "vertrag_generator",
-                        "template": VERTRAG_TEMPLATE_OPTIONS.get(template_key, template_key),
-                    },
-                    "erstellt_von": st.session_state.get("user_id"),
-                }
-            ).execute()
-        except Exception as e:
-            st.warning(f"Dokument-Metadaten konnten nicht gespeichert werden: {e}")
-        try:
-            supabase.table("vertraege").insert(
-                {
-                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
-                    "mitarbeiter_id": ma["id"],
-                    "gueltig_ab": gueltig_ab.isoformat(),
-                    "gueltig_bis": None,
-                    "wochenstunden": 0.0,
-                    "soll_stunden_monat": float(monatliche_arbeitszeit),
-                    "urlaubstage_jahr": float(ma.get("jahres_urlaubstage") or 0.0),
-                    "stundenlohn_brutto": float(stundenlohn_brutto),
-                    "vertrag_dokument_pfad": file_path,
-                }
-            ).execute()
-        except Exception as e:
-            st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
-        st.success("Vertrag als Dokument gespeichert.")
-
-
-def _show_planovo_import_tab():
-    st.subheader("📥 Planovo-Import (historische Daten)")
-    supabase = get_supabase_client()
-    alle_ma = _load_admin_mitarbeiter()
-    if not alle_ma:
-        st.info("Keine Mitarbeiter vorhanden.")
-        return
-
-    ma_options = {f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m for m in alle_ma}
-    selected_label = st.selectbox(
-        "Ziel-Mitarbeiter",
-        list(ma_options.keys()),
-        key="planovo_target_ma",
-        help="Importierte Planovo-Daten werden diesem Mitarbeiter zugeordnet.",
-    )
-    ma = ma_options[selected_label]
-    ueberschreiben = st.checkbox(
-        "Import-Monat vollständig überschreiben (empfohlen)",
-        value=True,
-        help="Löscht bestehende Importdaten im Zielmonat und schreibt den Monat neu, damit keine Doppeleinträge entstehen.",
-    )
-    upload = st.file_uploader(
-        "Planovo Datei (.xlsx oder .csv)",
-        type=["xlsx", "csv"],
-        key="planovo_import_upload",
-    )
-
-    if upload is None:
-        st.info("Bitte eine Planovo-Exportdatei hochladen.")
-        return
-
-    parsed = lese_upload_datei(upload)
-    fehler = parsed.get("fehler") or []
-    if fehler:
-        st.error("Datei konnte nicht verarbeitet werden.")
-        for f in fehler:
-            st.write(f"- {f}")
-        return
-
-    zeitraum = parsed.get("zeitraum", {})
-    tage = parsed.get("tage", [])
-    startsaldo = float(parsed.get("startsaldo") or 0.0)
-    k1, k2, k3 = st.columns(3)
-    k1.metric("Tage erkannt", len(tage))
-    k2.metric("Zeitraum", f"{zeitraum.get('monat', '-')}/{zeitraum.get('jahr', '-')}")
-    k3.metric("Startsaldo", f"{startsaldo:+.2f} h")
-
-    if tage:
-        preview_rows = []
-        for row in tage[:20]:
-            preview_rows.append(
-                {
-                    "Datum": row.get("datum").strftime("%d.%m.%Y") if row.get("datum") else "-",
-                    "Ist": float(row.get("ist") or 0.0),
-                    "Soll": float(row.get("soll") or 0.0),
-                    "Saldo": float(row.get("saldo") or 0.0),
-                    "Notiz": row.get("korrektur_notiz") or "",
-                }
-            )
-        st.markdown("#### Vorschau (erste 20 Zeilen)")
-        st.dataframe(preview_rows, use_container_width=True, hide_index=True)
-
-    st.markdown("#### Trockenlauf (vor Import)")
-    dryrun = dry_run_import_summary(
-        parsed,
-        mitarbeiter_id=ma["id"],
-        supabase_client=supabase,
-    )
-    if dryrun.get("ok"):
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Würde importieren", int(dryrun.get("would_import") or 0))
-        d2.metric("Würde überspringen", int(dryrun.get("would_skip") or 0))
-        d3.metric("Würde löschen (Zeit)", int(dryrun.get("would_delete_zeiterfassung") or 0))
-        d4.metric("Würde löschen (Krank)", int(dryrun.get("would_delete_krankheitstage") or 0))
-        st.caption(
-            f"Zeitraum: {dryrun.get('range_start')} bis {dryrun.get('range_end')} | "
-            f"Legacy-Konto-Löschung: {int(dryrun.get('would_delete_arbeitszeitkonto') or 0)}"
-        )
-    else:
-        for err in dryrun.get("fehler", []):
-            st.warning(err)
-
-    if st.button("Planovo-Daten importieren", type="primary", use_container_width=True):
-        with st.spinner("Import läuft..."):
-            _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
-            if not _bid:
-                st.error("Fehler: Betrieb nicht erkannt. Bitte neu einloggen.")
-                st.stop()
-            result = importiere_in_crewbase(
-                parsed,
-                mitarbeiter_id=ma["id"],
-                betrieb_id=_bid,
-                supabase_client=supabase,
-                ueberschreiben=ueberschreiben,
-            )
-        if result.get("ok"):
-            st.success("Import abgeschlossen.")
-        else:
-            st.warning("Import mit Fehlern abgeschlossen.")
-
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Importiert", int(result.get("importiert") or 0))
-        r2.metric("Übersprungen", int(result.get("uebersprungen") or 0))
-        r3.metric("Kranktage", int(result.get("kranktage_importiert") or 0))
-        r4.metric("AZK Sync-Monate", int(result.get("azk_sync_monate") or 0))
-
-        if result.get("fehler"):
-            st.markdown("#### Fehlerdetails")
-            for err in result["fehler"]:
-                st.write(f"- {err}")
+    vertraege.show_vertraege_page()
 
 
 def _show_system_tab():
-    st.subheader("🛠️ Systemstatus")
+    st.subheader("Systemstatus")
     supabase = get_supabase_client()
     betrieb_id = st.session_state.get("betrieb_id")
 
     col1, col2, col3 = st.columns(3)
-    try:
-        users_q = supabase.table("users").select("id", count="exact")
-        ma_q = supabase.table("mitarbeiter").select("id", count="exact")
-        zeit_q = supabase.table("zeiterfassung").select("id", count="exact")
-        if betrieb_id is not None:
-            users_q = users_q.eq("betrieb_id", betrieb_id)
-            ma_q = ma_q.eq("betrieb_id", betrieb_id)
-            zeit_q = zeit_q.eq("betrieb_id", betrieb_id)
-
-        users_count = users_q.limit(1).execute().count or 0
-        ma_count = ma_q.limit(1).execute().count or 0
-        zeit_count = zeit_q.limit(1).execute().count or 0
-    except Exception:
-        users_count = ma_count = zeit_count = 0
+    users_count, ma_count, zeit_count = _cached_system_counts(
+        int(betrieb_id) if betrieb_id is not None else None
+    )
 
     with col1:
         st.metric("Benutzer", users_count)
@@ -1263,7 +1419,7 @@ def _show_system_tab():
     st.caption(f"Berichtsdatum: {date.today().strftime('%d.%m.%Y')}")
 
     st.markdown("---")
-    st.markdown("### 🔄 Geschlossener Kreislauf – AZK Konsistenzcheck")
+    st.markdown("### Geschlossener Kreislauf – AZK Konsistenzcheck")
     st.caption(
         "Prüft, ob Zeiteinträge/Abwesenheiten und berechneter AZK-Snapshot zueinander passen. "
         "Abweichungen weisen auf Dateninkonsistenzen oder fehlerhafte Zweckzuordnung hin."
@@ -1287,7 +1443,7 @@ def _show_system_tab():
             key="sys_check_jahr",
         )
 
-    if st.button("🔍 Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
+    if st.button("Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
         ma_list = _load_admin_mitarbeiter()
         if not ma_list:
             st.info("Keine Mitarbeiter für den Konsistenzcheck gefunden.")
@@ -1297,13 +1453,9 @@ def _show_system_tab():
         ok_count = 0
         for ma in ma_list:
             try:
-                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
-                if not _bid:
-                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
-                    continue
                 validation = validate_work_account_month(
                     supabase,
-                    betrieb_id=_bid,
+                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
                     mitarbeiter_id=ma["id"],
                     monat=int(check_monat),
                     jahr=int(check_jahr),
@@ -1337,7 +1489,7 @@ def _show_system_tab():
 
 
 def _show_arbeitszeitkonten_tab():
-    st.subheader("📅 Arbeitszeitkonten (neu)")
+    st.subheader("Arbeitszeitkonten")
     supabase = get_supabase_client()
     alle_ma = _load_admin_mitarbeiter()
     if not alle_ma:
@@ -1354,13 +1506,9 @@ def _show_arbeitszeitkonten_tab():
         closed_count = 0
         for ma in alle_ma:
             try:
-                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
-                if not _bid:
-                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
-                    continue
                 snapshot = sync_work_account_for_month(
                     supabase,
-                    betrieb_id=_bid,
+                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1376,13 +1524,9 @@ def _show_arbeitszeitkonten_tab():
     if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
         for ma in alle_ma:
             try:
-                _bid = ma.get("betrieb_id") or st.session_state.get("betrieb_id")
-                if not _bid:
-                    st.error(f"Betrieb fehlt für Mitarbeiter {ma.get('id')} – übersprungen.")
-                    continue
                 close_work_account_month(
                     supabase,
-                    betrieb_id=_bid,
+                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1392,16 +1536,118 @@ def _show_arbeitszeitkonten_tab():
                 pass
         st.success(f"Monat {int(monat):02d}/{int(jahr)} wurde abgeschlossen.")
 
-    konto_res = (
-        supabase.table("arbeitszeit_konten")
-        .select(
-            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
-            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
+    st.markdown("---")
+    with st.expander("Einmalige Initialisierung 2026 (Altdaten-Vorträge)", expanded=False):
+        st.caption(
+            "Erfasst den Startbestand für 2026 (Produktivstart April/Mai): "
+            "Überstunden-Saldo, bereits genommene Urlaubstage und Krankheitstage."
         )
-        .order("mitarbeiter_id")
-        .execute()
-    )
-    rows = konto_res.data or []
+        init_ma_options = {
+            f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
+            for m in alle_ma
+        }
+        init_label = st.selectbox(
+            "Mitarbeiter für Initialisierung",
+            list(init_ma_options.keys()),
+            key="azk_init_ma",
+        )
+        init_ma = init_ma_options[init_label]
+        c_init_1, c_init_2 = st.columns(2)
+        with c_init_1:
+            init_monat = st.selectbox(
+                "Startmonat 2026",
+                options=[4, 5],
+                format_func=lambda m: f"{m:02d}/2026",
+                key="azk_init_monat_2026",
+            )
+        with c_init_2:
+            init_jahr = st.number_input(
+                "Startjahr",
+                min_value=2026,
+                max_value=2026,
+                value=2026,
+                step=1,
+                key="azk_init_jahr_2026",
+            )
+
+        k_i1, k_i2, k_i3 = st.columns(3)
+        with k_i1:
+            init_saldo = st.number_input(
+                "Übertrag Überstunden (+/-)",
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_saldo",
+            )
+        with k_i2:
+            init_urlaub_genommen = st.number_input(
+                "Urlaubstage bereits genommen (Jan-Startmonat)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_urlaub_genommen",
+            )
+        with k_i3:
+            init_krank_tage = st.number_input(
+                "Krankheitstage bisher",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_krank_tage",
+            )
+
+        init_reason = st.text_area(
+            "Begründung / Nachweis *",
+            placeholder="Pflichtfeld: z.B. Übernahme Planungsstand bis 31.03.2026 aus Vorzeitsystem",
+            key="azk_init_reason",
+        )
+
+        existing_init = _cached_existing_init_marker(int(init_ma["id"]))
+
+        start_month_editable = int(init_jahr) == 2026 and int(init_monat) in (4, 5)
+        if not start_month_editable:
+            st.warning("Initialisierung ist nur für den Startmonat 04/2026 oder 05/2026 erlaubt.")
+        if existing_init:
+            st.info(
+                f"Für diesen Mitarbeiter existiert bereits eine Initialisierung "
+                f"({int(existing_init.get('monat') or 0):02d}/{int(existing_init.get('jahr') or 0)}). "
+                "Die Einmal-Initialisierung ist damit gesperrt."
+            )
+
+        do_init = st.button(
+            "Einmal-Initialisierung speichern",
+            type="primary",
+            use_container_width=True,
+            disabled=(not start_month_editable) or bool(existing_init),
+            key="azk_init_save_btn",
+        )
+        if do_init:
+            if not (init_reason or "").strip():
+                st.error("Bitte eine Begründung eintragen (Pflicht für Audit/GoBD).")
+            else:
+                try:
+                    set_work_account_opening_balance(
+                        supabase,
+                        betrieb_id=int(init_ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1),
+                        mitarbeiter_id=int(init_ma["id"]),
+                        monat=int(init_monat),
+                        jahr=int(init_jahr),
+                        opening_hours=float(init_saldo),
+                        opening_vacation_taken=float(init_urlaub_genommen),
+                        opening_sick_days=float(init_krank_tage),
+                        correction_reason=init_reason.strip(),
+                        created_by=st.session_state.get("user_id"),
+                        is_initialization=True,
+                    )
+                    _refresh_after_write()
+                    st.success("Einmal-Initialisierung gespeichert.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Initialisierung fehlgeschlagen: {exc}")
+
+    rows = _cached_arbeitszeitkonten_rows(st.session_state.get("betrieb_id"))
     if not rows:
         st.info("Keine Einträge in arbeitszeit_konten vorhanden.")
         return
@@ -1419,27 +1665,46 @@ def _show_arbeitszeitkonten_tab():
     st.markdown("---")
 
     closed_ids = set()
+    closed_meta = {}
     try:
-        closed_q = supabase.table("azk_monatsabschluesse").select("mitarbeiter_id").eq("monat", int(monat)).eq("jahr", int(jahr))
-        betrieb_id = st.session_state.get("betrieb_id")
-        if betrieb_id is not None:
-            closed_q = closed_q.eq("betrieb_id", betrieb_id)
-        closed_rows = closed_q.execute().data or []
+        closed_rows = _cached_azk_closed_rows(
+            st.session_state.get("betrieb_id"),
+            int(monat),
+            int(jahr),
+        )
         closed_ids = {int(r.get("mitarbeiter_id")) for r in closed_rows if r.get("mitarbeiter_id") is not None}
+        for r in closed_rows:
+            ma_id = r.get("mitarbeiter_id")
+            if ma_id is not None:
+                closed_meta[int(ma_id)] = r
     except Exception:
         closed_ids = set()
+        closed_meta = {}
 
     ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
     view_rows = []
     for row in rows:
         ma_id = row.get("mitarbeiter_id")
+        ist_h = float(row.get("ist_stunden") or 0.0)
+        soll_h = float(row.get("soll_stunden") or 0.0)
+        saldo_h = float(row.get("ueberstunden_saldo") or 0.0)
+        differenz_h = round(ist_h - soll_h, 2)
+        saldenvortrag = round(saldo_h - differenz_h, 2)
+        meta_row = closed_meta.get(int(ma_id)) if ma_id is not None else None
+        manuelle_korr = saldenvortrag
+        if meta_row is not None and meta_row.get("manuelle_korrektur_saldo") is not None:
+            try:
+                manuelle_korr = float(meta_row.get("manuelle_korrektur_saldo") or 0.0)
+            except Exception:
+                manuelle_korr = saldenvortrag
         view_rows.append(
             {
                 "Mitarbeiter": ma_lookup.get(ma_id, str(ma_id)),
                 "Monat fixiert": "Ja" if ma_id in closed_ids else "Nein",
-                "Soll (h)": float(row.get("soll_stunden") or 0),
-                "Ist (h)": float(row.get("ist_stunden") or 0),
-                "Saldo (h)": float(row.get("ueberstunden_saldo") or 0),
+                "Soll (h)": soll_h,
+                "Ist (h)": ist_h,
+                "Manuelle Korrekturen / Saldenvortrag (h)": round(manuelle_korr, 2),
+                "Saldo (h)": saldo_h,
                 "Urlaub gesamt": float(row.get("urlaubstage_gesamt") or 0),
                 "Urlaub genommen": float(row.get("urlaubstage_genommen") or 0),
                 "Krankheitstage": float(row.get("krankheitstage_gesamt") or 0),
@@ -1448,93 +1713,67 @@ def _show_arbeitszeitkonten_tab():
     st.dataframe(view_rows, use_container_width=True, hide_index=True)
 
 
-def _show_premium_tab():
-    """Premium-Module – nur bei Buchung aktiv."""
-    supabase = st.session_state.get("supabase")
-    betrieb_id = st.session_state.get("betrieb_id", "")
-    user_id = st.session_state.get("user_id", "")
-
-    user_plan = get_user_plan(supabase, betrieb_id)
-
-    st.markdown("## 🛡️ Premium-Module")
-    st.caption(
-        f"Dein aktueller Plan: **{user_plan.capitalize()}**"
-    )
-    st.markdown("---")
-
-    modul_tab1, modul_tab2, modul_tab3, modul_tab4 = st.tabs([
-        "🔍 Gefährdungsbeurteilung",
-        "⏰ ArbZG-Wächter",
-        "📤 DATEV-Export",
-        "⚖️ Rechtsstand"
-    ])
-
-    with modul_tab1:
-        show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
-
-    with modul_tab2:
-        st.info(
-            "⏰ **Arbeitszeitgesetz-Wächter** – kommt in Kürze.\n\n"
-            "Automatische Erkennung von ArbZG-Verstößen in Echtzeit."
-        )
-
-    with modul_tab3:
-        st.info(
-            "📤 **DATEV-Export** – kommt in Kürze.\n\n"
-            "Lohnabrechnung direkt für deinen Steuerberater exportieren."
-        )
-
-    with modul_tab4:
-        show_rechtsstand_admin(supabase)
-
-
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
+    if st.session_state.get("admin_nav") is None:
+        st.session_state["admin_nav"] = "Dienstplanung"
 
-    from modules.onboarding.onboarding_ui import show_testphase_banner
-    _betrieb_id = st.session_state.get("betrieb_id")
-    if _betrieb_id:
-        show_testphase_banner(_betrieb_id)
+    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
+    top_logo, top_nav = st.columns([1.2, 5], vertical_alignment="center")
+    with top_logo:
+        with st.container(key="header_logo"):
+            st.image(BRAND_LOGO_IMAGE, width=230)
+    with top_nav:
+        nav_options = ["Dienstplanung", "Personalakte", "Abwesenheiten", "Arbeitszeitkonten", "Zeitauswertung", "Verträge"]
+        current_nav = st.session_state.get("admin_nav", "Dienstplanung")
+        if current_nav == "Vertraege":
+            current_nav = "Verträge"
+        if current_nav == "Mitarbeiter":
+            current_nav = "Personalakte"
+        default_idx = nav_options.index(current_nav) if current_nav in nav_options else 0
+        selected = option_menu(
+            menu_title=None,
+            options=nav_options,
+            icons=["calendar", "people", "calendar-x", "clock", "bar-chart-2", "file-text"],
+            orientation="horizontal",
+            default_index=default_idx,
+            key="admin_top_option_menu",
+            styles={
+                "container": {"padding": "0", "background-color": "transparent"},
+                "icon": {"color": "#ffffff", "font-size": "16px"},
+                "nav-link": {
+                    "font-size": "14px",
+                    "font-weight": "600",
+                    "color": "#ffffff",
+                    "padding": "10px 14px",
+                    "margin": "0 4px 0 0",
+                    "border-radius": "10px",
+                    "background-color": "#121212",
+                    "border": "1px solid #2a2a2a",
+                },
+                "nav-link-selected": {"background-color": "#2563eb", "color": "#ffffff"},
+            },
+        )
+        st.session_state["admin_nav"] = selected
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    c_logo, c_title = st.columns([1, 5], vertical_alignment="center")
-    with c_logo:
-        st.image(BRAND_LOGO_IMAGE, width=90)
-    with c_title:
-        st.title(f"{BRAND_APP_NAME} – Admin")
+    st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+    if selected == "Dienstplanung":
+        from pages import admin_dienstplan
 
-    tabs = st.tabs(
-        [
-            "📅 Dienstplanung",
-            "🏖️ Abwesenheiten",
-            "👥 Mitarbeiter",
-            "📊 Zeitauswertung",
-            "🧾 Verträge",
-            "⏱️ Arbeitszeitkonten",
-            "🖥️ Mastergeräte",
-            "⚙️ System",
-            "🛡️ Premium",
-        ]
-    )
-
-    with tabs[0]:
         admin_dienstplan.show_dienstplanung()
-    with tabs[1]:
-        _show_absenzen_tab()
-    with tabs[2]:
+    elif selected == "Personalakte":
         _show_mitarbeiter_stammdaten_tab()
-    with tabs[3]:
-        _show_zeitauswertung_tab()
-    with tabs[4]:
-        _show_vertrag_generator_tab()
-    with tabs[5]:
+    elif selected == "Abwesenheiten":
+        _show_absenzen_tab()
+    elif selected == "Arbeitszeitkonten":
         _show_arbeitszeitkonten_tab()
-    with tabs[6]:
-        admin_mastergeraete.show_mastergeraete()
-    with tabs[7]:
-        _show_system_tab()
-    with tabs[8]:
-        _show_premium_tab()
+    elif selected == "Zeitauswertung":
+        _show_zeitauswertung_tab()
+    else:
+        _show_vertrag_generator_tab()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
