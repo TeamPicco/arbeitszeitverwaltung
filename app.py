@@ -95,146 +95,169 @@ def _find_mitarbeiter_by_pin(pin: str) -> Optional[Dict[str, Any]]:
 
 
 def _wrap_card_start() -> None:
-    st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+    pass
 
 
 def _wrap_card_end() -> None:
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:#0a0a0a;border-top:1px solid #1a1a1a;
+    padding:10px 28px;display:flex;justify-content:space-between;
+    margin-top:1rem">
+        <div style="font-size:10px;color:#333">
+            © 2026 Complio · support@complio.de
+        </div>
+        <div style="display:flex;gap:16px">
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> DSGVO-konform
+            </span>
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> SSL verschlüsselt
+            </span>
+            <span style="font-size:10px;color:#444">
+                <span style="color:#F97316">✓</span> §5 ArbSchG konform
+            </span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def _render_login_branding() -> None:
-    def _logo_data_uri(path: str) -> str:
-        try:
-            with open(path, "rb") as fh:
-                raw = fh.read()
-            mime = mimetypes.guess_type(path)[0] or "image/png"
-            encoded = base64.b64encode(raw).decode("ascii")
-            return f"data:{mime};base64,{encoded}"
-        except Exception:
-            return ""
+    st.markdown("""
+    <style>
+    [data-testid="stAppViewContainer"] {
+        background: #0a0a0a !important;
+    }
+    [data-testid="stHeader"] {
+        background: #0a0a0a !important;
+    }
+    .block-container {
+        padding-top: 0 !important;
+        padding-bottom: 0 !important;
+        max-width: 100% !important;
+    }
+    .login-topbar {
+        background: #0a0a0a;
+        border-bottom: 1px solid #1f1f1f;
+        padding: 14px 28px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+    }
+    .login-logo {
+        font-size: 26px;
+        font-weight: 700;
+        color: #ffffff;
+        letter-spacing: -0.5px;
+    }
+    .login-logo span { color: #F97316; }
+    .login-tagline {
+        font-size: 10px;
+        color: #444;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+    .left-panel {
+        background: #0a0a0a;
+        padding: 2rem;
+        border-right: 1px solid #1a1a1a;
+        min-height: 60vh;
+    }
+    .left-panel h1 {
+        font-size: 26px !important;
+        font-weight: 700 !important;
+        color: #ffffff !important;
+        line-height: 1.3 !important;
+        margin-bottom: 10px !important;
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+    }
+    .left-panel h1 em { color: #F97316; font-style: normal; }
+    .left-panel p {
+        font-size: 13px;
+        color: #555;
+        line-height: 1.7;
+        margin-bottom: 20px;
+    }
+    .stat-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+    .stat-icon {
+        width: 28px;
+        height: 28px;
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+    .stat-text { font-size: 12px; color: #666; }
+    .stat-text strong { color: #aaa; }
+    .right-panel {
+        background: #111111;
+        padding: 2rem;
+        min-height: 60vh;
+    }
+    .login-footer {
+        background: #0a0a0a;
+        border-top: 1px solid #1a1a1a;
+        padding: 10px 28px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 1rem;
+    }
+    .footer-text { font-size: 10px; color: #333; }
+    .trust-badges { display: flex; gap: 16px; }
+    .trust-badge { font-size: 10px; color: #444; }
+    .trust-badge span { color: #F97316; }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:#0a0a0a;border-bottom:1px solid #1f1f1f;
+    padding:14px 28px;display:flex;justify-content:space-between;
+    align-items:center;margin-bottom:1rem">
+        <div style="font-size:24px;font-weight:700;color:#fff;
+        letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+        <div style="font-size:10px;color:#444;letter-spacing:1.5px;
+        text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
+    </div>
+    """, unsafe_allow_html=True)
+    col_left, col_right = st.columns([1, 1], gap="small")
+    with col_left:
+        st.markdown("""
+        <div class="left-panel">
+            <h1>Dein Betrieb.<br><em>Rechtssicher.</em><br>Organisiert.</h1>
+            <p>Dienstplanung, Personalakte und Arbeitssicherheit –
+            alles in einer Plattform. Nie wieder Bußgelder wegen 
+            fehlender Dokumentation.</p>
+            <div class="stat-row">
+                <div class="stat-icon">🛡️</div>
+                <div class="stat-text">Bis zu <strong>30.000 € Bußgeld</strong> automatisch vermeiden</div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-icon">📅</div>
+                <div class="stat-text"><strong>Dienstplanung</strong> mit automatischer Kostenberechnung</div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-icon">⏰</div>
+                <div class="stat-text"><strong>ArbZG-Verstöße</strong> in Echtzeit erkennen</div>
+            </div>
+            <div class="stat-row">
+                <div class="stat-icon">👥</div>
+                <div class="stat-text"><strong>Personalakte</strong> DSGVO-konform verwalten</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.markdown(
-        """
-        <style>
-        [data-testid="stMainBlockContainer"] > div.block-container {
-            min-height: 92vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-        }
-        .coreo-login-root {
-            width: min(760px, 96vw);
-            margin: 0 auto;
-        }
-        .coreo-logo-wrap {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            margin: 0 auto 1.25rem auto;
-        }
-        .coreo-logo-wrap img {
-            width: min(92vw, 560px);
-            max-width: 560px;
-            height: auto;
-            object-fit: contain;
-            display: block;
-        }
-        div[data-testid="stTabs"] {
-            max-width: 680px !important;
-            margin: 0 auto !important;
-        }
-        div[data-testid="stForm"] {
-            border: 1px solid #2a2a2a !important;
-            border-radius: 12px !important;
-            background: #0b0b0b !important;
-            padding: 1.2rem 1.2rem 0.6rem 1.2rem !important;
-            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45) !important;
-            max-width: 680px !important;
-            margin: 0 auto !important;
-        }
-        div[data-testid="stForm"] * {
-            color: #ffffff !important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab-list"] {
-            background: #0b0b0b !important;
-            border-bottom: 1px solid #2a2a2a !important;
-        }
-        div[data-testid="stTabs"] [data-baseweb="tab"] {
-            color: #ffffff !important;
-            background: #121212 !important;
-            border: 1px solid #2a2a2a !important;
-            border-radius: 10px 10px 0 0 !important;
-        }
-        div[data-testid="stTabs"] [aria-selected="true"] {
-            background: #2563eb !important;
-            color: #ffffff !important;
-            border-color: #2563eb !important;
-        }
-        div[data-testid="stTextInput"] input {
-            min-height: 52px !important;
-            font-size: 1rem !important;
-            border-radius: 10px !important;
-            padding: 0 0.85rem !important;
-            background: #121212 !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-            border: 1px solid #2a2a2a !important;
-        }
-        div[data-testid="stTextInput"] input:focus {
-            border-color: #2563eb !important;
-            box-shadow: 0 0 0 1px #2563eb !important;
-            background: #000000 !important;
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-        }
-        div[data-testid="stWidgetLabel"], label {
-            color: #ffffff !important;
-        }
-        .coreo-topbar {
-            position: sticky;
-            top: 0;
-            z-index: 50;
-            background: #0b0b0b;
-            border-bottom: 1px solid #2a2a2a;
-            margin-bottom: 1rem;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-        }
-        .st-key-top_nav_main {
-            margin-top: 0.35rem;
-        }
-        @media (max-width: 768px) {
-            .coreo-login-root {
-                max-width: 96vw;
-            }
-            .coreo-logo-wrap img {
-                width: min(94vw, 460px);
-                max-width: 460px;
-            }
-            div[data-testid="stTabs"],
-            div[data-testid="stForm"] {
-                max-width: 96vw !important;
-            }
-            div[data-testid="stTabs"] [data-baseweb="tab"] {
-                font-size: 0.9rem !important;
-                padding: 0.5rem 0.4rem !important;
-            }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    data_uri = _logo_data_uri(BRAND_LOGO_IMAGE) if BRAND_LOGO_IMAGE else ""
-    if data_uri:
-        st.markdown(
-            f"<div class='coreo-login-root'><div class='coreo-logo-wrap'><img src='{data_uri}' alt='Logo'></div></div>",
-            unsafe_allow_html=True,
-        )
-    elif BRAND_LOGO_IMAGE:
-        _, center, _ = st.columns([1, 2, 1])
-        with center:
-            st.image(BRAND_LOGO_IMAGE, use_container_width=True)
+    return col_right
 
 # --- RESET LOGIK ---
 if st.session_state.get("trigger_reset"):
@@ -244,7 +267,11 @@ if st.session_state.get("trigger_reset"):
 
 @st.fragment
 def _render_login_fragment() -> None:
-    tab_stempel, tab_admin = st.tabs(["Mitarbeiter Stempeluhr", "Admin Login"])
+    tab_stempel, tab_admin, tab_registrierung = st.tabs([
+        "🕒 Stempeluhr",
+        "🔐 Admin Login", 
+        "🏢 Registrieren"
+    ])
 
     with tab_stempel:
         pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
@@ -338,7 +365,7 @@ def _render_login_fragment() -> None:
 
     with tab_admin:
         with st.form("login"):
-            bnr = st.text_input("Betriebsnummer", value="20262204")
+            bnr = st.text_input("Betriebsnummer")
             usr = st.text_input("Benutzername")
             pwd = st.text_input("Passwort", type="password")
             if st.form_submit_button("Login", use_container_width=True):
@@ -381,13 +408,26 @@ def _render_login_fragment() -> None:
                 else:
                     st.error("Login fehlgeschlagen. Bitte Zugangsdaten prüfen.")
 
+    with tab_registrierung:
+        from modules.onboarding.onboarding_ui import show_registrierung
+        show_registrierung()
+
 
 # --- HAUPTLOGIK ---
 if not st.session_state.get('logged_in'):
-    _render_login_branding()
-    _wrap_card_start()
-    _render_login_fragment()
-    _wrap_card_end()
+    col_right = _render_login_branding()
+    with col_right:
+        _render_login_fragment()
+    st.markdown("""
+    <div class="login-footer">
+        <div class="footer-text">© 2026 Complio · support@complio.de</div>
+        <div class="trust-badges">
+            <div class="trust-badge"><span>✓</span> DSGVO-konform</div>
+            <div class="trust-badge"><span>✓</span> SSL verschlüsselt</div>
+            <div class="trust-badge"><span>✓</span> §5 ArbSchG konform</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 else:
     st.markdown(
         """

@@ -10,7 +10,6 @@ showSidebarNavigation = false
 
 [ui]
 hideTopBar = false
-hideSidebarNav = true
 
 [theme]
 base = "dark"
