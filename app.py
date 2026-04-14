@@ -414,10 +414,7 @@ def _render_login_fragment() -> None:
 
 
 # --- HAUPTLOGIK ---
-if not st.session_state.get('logged_in') and not st.session_state.get('show_app', False):
-    from pages.landing import show_landing
-    show_landing()
-    st.stop()
+# Landing Page temporär deaktiviert
 if not st.session_state.get('logged_in'):
     col_right = _render_login_branding()
     with col_right:
