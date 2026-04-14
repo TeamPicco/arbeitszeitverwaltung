@@ -22,6 +22,8 @@ LOGO_FALLBACK = _ASSETS / "crewbase_logo_optimized.png"
 LOGO_FALLBACK_LEGACY = _ASSETS / "piccolo_logo.jpeg"
 ICON_PRIMARY = _ASSETS / "coreo_flow_icon.png"
 ICON_FALLBACK = _ASSETS / "favicon.png"
+LOGO_COMPLIO = _ASSETS / "complio_logo.svg"
+ICON_COMPLIO = _ASSETS / "complio_favicon.svg"
 
 
 def get_logo_path() -> str:
@@ -29,6 +31,7 @@ def get_logo_path() -> str:
     if env_logo:
         return env_logo
     for candidate in (
+        LOGO_COMPLIO,
         LOGO_PRIMARY,
         LOGO_PRIMARY_ALT_JPG,
         LOGO_PRIMARY_ALT_JPEG,
@@ -48,6 +51,7 @@ def get_icon_path() -> str:
     if env_icon:
         return env_icon
     for candidate in (
+        ICON_COMPLIO,
         ICON_PRIMARY,
         ICON_FALLBACK,
         LOGO_PRIMARY,
