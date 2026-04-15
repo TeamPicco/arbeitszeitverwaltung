@@ -1,15 +1,11 @@
 [server]
 headless = true
-port = 8501
+enableCORS = false
+enableXsrfProtection = false
 
 [browser]
-gatherUsageStats = false
-
-[client]
-showSidebarNavigation = false
-
-[ui]
-hideTopBar = false
+serverAddress = "app.getcomplio.de"
+serverPort = 443
 
 [theme]
 base = "dark"
