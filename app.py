@@ -102,7 +102,7 @@ def _wrap_card_end() -> None:
     pass
 
 
-def _render_login_branding() -> None:
+def _render_login_branding() -> tuple:
     st.markdown("""
     <style>
     [data-testid="stAppViewContainer"]{background:#0a0a0a!important}
