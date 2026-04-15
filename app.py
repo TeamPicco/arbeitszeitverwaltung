@@ -115,32 +115,34 @@ def _render_login_branding() -> None:
     <style>
     [data-testid="stAppViewContainer"]{background:#0a0a0a!important}
     [data-testid="stHeader"]{display:none!important}
-    [data-testid="stMainBlockContainer"]{padding:0!important;max-width:100%!important}
-    .block-container{padding:0!important;max-width:100%!important}
+    [data-testid="stMainBlockContainer"]{padding-top:0!important;max-width:480px!important;margin:0 auto!important}
+    .block-container{padding-top:0!important;padding-bottom:2rem!important;max-width:480px!important;margin:0 auto!important}
     section[data-testid="stSidebar"]{display:none!important}
     [data-testid="stDecoration"]{display:none!important}
-    div[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#111!important;border:1px solid #1a1a1a!important;border-radius:7px!important;padding:3px!important;gap:3px!important}
-    div[data-testid="stTabs"] [data-baseweb="tab"]{color:#444!important;font-size:12px!important;padding:6px 12px!important;border-radius:5px!important;border:none!important}
+    div[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#111!important;border:1px solid #1a1a1a!important;border-radius:7px!important;padding:3px!important;gap:0!important}
+    div[data-testid="stTabs"] [data-baseweb="tab"]{color:#555!important;font-size:12px!important;padding:7px 8px!important;border-radius:5px!important;border:none!important;flex:1!important;text-align:center!important}
     div[data-testid="stTabs"] [aria-selected="true"]{background:#1a1a1a!important;color:#fff!important}
-    div[data-testid="stTextInput"] label{font-size:10px!important;color:#444!important;font-weight:600!important;letter-spacing:0.5px!important;text-transform:uppercase!important}
-    div[data-testid="stTextInput"] input{background:#111!important;border:1px solid #1a1a1a!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-radius:7px!important;font-size:13px!important;padding:8px 12px!important}
-    div[data-testid="stTextInput"] input:focus{border-color:#F97316!important}
+    div[data-testid="stTextInput"] label{font-size:10px!important;color:#555!important;font-weight:600!important;letter-spacing:0.5px!important;text-transform:uppercase!important}
+    div[data-testid="stTextInput"] input{background:#111!important;border:1px solid #1a1a1a!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-radius:7px!important;font-size:14px!important;min-height:42px!important}
+    div[data-testid="stTextInput"] input:focus{border-color:#F97316!important;box-shadow:none!important}
+    div[data-testid="stTextInput"] input::placeholder{color:#333!important;-webkit-text-fill-color:#333!important}
     div[data-testid="stForm"]{border:none!important;background:transparent!important;padding:0!important;box-shadow:none!important}
-    div[data-testid="stFormSubmitButton"] button{background:#F97316!important;color:#fff!important;border:none!important;border-radius:7px!important;font-weight:600!important;font-size:13px!important;width:100%!important;padding:10px!important}
+    div[data-testid="stFormSubmitButton"] button{background:#F97316!important;color:#fff!important;border:none!important;border-radius:7px!important;font-weight:600!important;font-size:14px!important;width:100%!important;padding:12px!important;margin-top:4px!important}
     div[data-testid="stFormSubmitButton"] button:hover{background:#EA6C0A!important}
-    div[data-testid="stNumberInput"] input{background:#111!important;border:1px solid #1a1a1a!important;color:#fff!important;border-radius:7px!important}
+    div[data-testid="stButton"] button{color:#888!important;background:transparent!important;border:1px solid #1a1a1a!important;border-radius:7px!important;font-size:13px!important;width:100%!important}
+    div[data-testid="stAlert"]{background:#1a1a1a!important;border:1px solid #222!important;border-radius:7px!important}
+    div[data-testid="stAlert"] p{color:#888!important;font-size:13px!important}
     </style>
-    <div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:14px 24px;display:flex;justify-content:space-between;align-items:center">
-        <div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+    """, unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:#0a0a0a;padding:16px 0 20px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a1a1a;margin-bottom:28px">
+        <div style="font-size:20px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
         <div style="font-size:9px;color:#333;letter-spacing:1.5px;text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
     </div>
-    <div style="min-height:calc(100vh - 100px);display:flex;align-items:center;justify-content:center;padding:32px 16px">
-    <div style="width:100%;max-width:400px;background:#0a0a0a;border:1px solid #222;border-radius:12px;overflow:hidden">
-        <div style="padding:28px 28px 0 28px">
-            <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:4px">Anmelden</div>
-            <div style="font-size:12px;color:#444;margin-bottom:20px">Noch kein Konto? <a href="https://getcomplio.de" style="color:#F97316;text-decoration:none">30 Tage kostenlos</a></div>
-        </div>
-        <div style="padding:0 28px 28px 28px" id="login-form-area">
+    <div style="margin-bottom:20px">
+        <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">Anmelden</div>
+        <div style="font-size:13px;color:#444">Noch kein Konto? <a href="https://getcomplio.de" style="color:#F97316;text-decoration:none;font-weight:500">30 Tage kostenlos starten</a></div>
+    </div>
     """, unsafe_allow_html=True)
     
 # --- RESET LOGIK ---
@@ -252,7 +254,7 @@ def _render_login_fragment() -> None:
             bnr = st.text_input("Betriebsnummer")
             usr = st.text_input("Benutzername")
             pwd = st.text_input("Passwort", type="password")
-            if st.form_submit_button("Login", use_container_width=True):
+            if st.form_submit_button("Anmelden", use_container_width=True):
                 user = verify_credentials_with_betrieb(bnr, usr, pwd)
                 if user and user['role'] == 'admin':
                     st.session_state.update(
@@ -301,6 +303,7 @@ def _render_login_fragment() -> None:
 # Landing Page temporär deaktiviert
 if not st.session_state.get('logged_in'):
     _render_login_branding()
+    _wrap_card_start()
     _render_login_fragment()
     _wrap_card_end()
 else:
