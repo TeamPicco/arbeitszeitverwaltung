@@ -1,5 +1,5 @@
 import streamlit as st
-import time
+from datetime import date
 import base64
 import mimetypes
 from typing import Any, Dict, Optional
@@ -72,6 +72,7 @@ def _load_mitarbeiter_profile_for_user(user: Dict[str, Any], username: str) -> O
     return None
 
 
+@st.cache_data(ttl=120, show_spinner=False)
 def _find_mitarbeiter_by_pin(pin: str) -> Optional[Dict[str, Any]]:
     """
     Sucht Mitarbeiter per Terminal-PIN.
@@ -92,6 +93,23 @@ def _find_mitarbeiter_by_pin(pin: str) -> Optional[Dict[str, Any]]:
         except Exception:
             continue
     return None
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def _get_event_state_cached(mitarbeiter_id: int, day_iso: str) -> Dict[str, Any]:
+    """Kurzzeit-Cache für Terminal-Status, reduziert DB-Last bei Reruns."""
+    return get_event_state_for_day(
+        supabase,
+        mitarbeiter_id=mitarbeiter_id,
+        day=date.fromisoformat(day_iso),
+    )
+
+
+def _refresh_after_terminal_event() -> None:
+    """Leichtgewichtiger Refresh nach Event-Schreiben."""
+    _get_event_state_cached.clear()
+    st.session_state["trigger_reset"] = True
+    st.rerun()
 
 
 def _wrap_card_start() -> None:
@@ -165,10 +183,9 @@ def _render_login_fragment() -> None:
             ma = _find_mitarbeiter_by_pin(pin)
             if ma:
                 st.info(f"Hallo {ma['vorname']}! Schicht: {now_berlin().strftime('%d.%m.%Y')}")
-                state = get_event_state_for_day(
-                    supabase,
-                    mitarbeiter_id=ma["id"],
-                    day=now_berlin().date(),
+                state = _get_event_state_cached(
+                    ma["id"],
+                    now_berlin().date().isoformat(),
                 )
 
                 c1, c2 = st.columns(2)
@@ -185,8 +202,7 @@ def _render_login_fragment() -> None:
                         st.error(result.get("error", "Einstempeln fehlgeschlagen."))
                     else:
                         st.success(f"Eingestempelt um {format_datetime_de(now_berlin())}")
-                    st.session_state["trigger_reset"] = True
-                    time.sleep(1.5); st.rerun()
+                    _refresh_after_terminal_event()
 
                 if c2.button("GEHEN", key=f"g_{ma['id']}", use_container_width=True):
                     result = register_time_event(
@@ -201,8 +217,7 @@ def _render_login_fragment() -> None:
                         st.error(result.get("error", "Ausstempeln fehlgeschlagen."))
                     else:
                         st.success("Schönen Feierabend!")
-                    st.session_state["trigger_reset"] = True
-                    time.sleep(1.5); st.rerun()
+                    _refresh_after_terminal_event()
 
                 c3, c4 = st.columns(2)
                 if c3.button(
@@ -223,8 +238,7 @@ def _render_login_fragment() -> None:
                         st.error(result.get("error", "Pausenstart fehlgeschlagen."))
                     else:
                         st.success("Pause gestartet.")
-                    st.session_state["trigger_reset"] = True
-                    time.sleep(1.5); st.rerun()
+                    _refresh_after_terminal_event()
 
                 if c4.button(
                     "PAUSE ENDE",
@@ -244,8 +258,7 @@ def _render_login_fragment() -> None:
                         st.error(result.get("error", "Pausenende fehlgeschlagen."))
                     else:
                         st.success("Pause beendet.")
-                    st.session_state["trigger_reset"] = True
-                    time.sleep(1.5); st.rerun()
+                    _refresh_after_terminal_event()
             else:
                 st.error("PIN unbekannt.")
 
