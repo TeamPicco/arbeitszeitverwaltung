@@ -99,164 +99,73 @@ def _wrap_card_start() -> None:
 
 
 def _wrap_card_end() -> None:
-    st.markdown("""
-    <div style="background:#0a0a0a;border-top:1px solid #1a1a1a;
-    padding:10px 28px;display:flex;justify-content:space-between;
-    margin-top:1rem">
-        <div style="font-size:10px;color:#333">
-            © 2026 Complio · support@complio.de
-        </div>
-        <div style="display:flex;gap:16px">
-            <span style="font-size:10px;color:#444">
-                <span style="color:#F97316">✓</span> DSGVO-konform
-            </span>
-            <span style="font-size:10px;color:#444">
-                <span style="color:#F97316">✓</span> SSL verschlüsselt
-            </span>
-            <span style="font-size:10px;color:#444">
-                <span style="color:#F97316">✓</span> §5 ArbSchG konform
-            </span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    pass
 
 
-def _render_login_branding() -> None:
+def _render_login_branding() -> tuple:
     st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] {
-        background: #0a0a0a !important;
-    }
-    [data-testid="stHeader"] {
-        background: #0a0a0a !important;
-    }
-    .block-container {
-        padding-top: 0 !important;
-        padding-bottom: 0 !important;
-        max-width: 100% !important;
-    }
-    .login-topbar {
-        background: #0a0a0a;
-        border-bottom: 1px solid #1f1f1f;
-        padding: 14px 28px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1.5rem;
-    }
-    .login-logo {
-        font-size: 26px;
-        font-weight: 700;
-        color: #ffffff;
-        letter-spacing: -0.5px;
-    }
-    .login-logo span { color: #F97316; }
-    .login-tagline {
-        font-size: 10px;
-        color: #444;
-        letter-spacing: 2px;
-        text-transform: uppercase;
-    }
-    .left-panel {
-        background: #0a0a0a;
-        padding: 2rem;
-        border-right: 1px solid #1a1a1a;
-        min-height: 60vh;
-    }
-    .left-panel h1 {
-        font-size: 26px !important;
-        font-weight: 700 !important;
-        color: #ffffff !important;
-        line-height: 1.3 !important;
-        margin-bottom: 10px !important;
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-    .left-panel h1 em { color: #F97316; font-style: normal; }
-    .left-panel p {
-        font-size: 13px;
-        color: #555;
-        line-height: 1.7;
-        margin-bottom: 20px;
-    }
-    .stat-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-    .stat-icon {
-        width: 28px;
-        height: 28px;
-        background: #1a1a1a;
-        border: 1px solid #2a2a2a;
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 12px;
-        flex-shrink: 0;
-    }
-    .stat-text { font-size: 12px; color: #666; }
-    .stat-text strong { color: #aaa; }
-    .right-panel {
-        background: #111111;
-        padding: 2rem;
-        min-height: 60vh;
-    }
-    .login-footer {
-        background: #0a0a0a;
-        border-top: 1px solid #1a1a1a;
-        padding: 10px 28px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 1rem;
-    }
-    .footer-text { font-size: 10px; color: #333; }
-    .trust-badges { display: flex; gap: 16px; }
-    .trust-badge { font-size: 10px; color: #444; }
-    .trust-badge span { color: #F97316; }
+    [data-testid="stAppViewContainer"],[data-testid="stHeader"]{background:#0a0a0a!important}
+    .block-container{padding-top:0!important;padding-bottom:0!important;max-width:100%!important}
+    [data-testid="stMainBlockContainer"]{padding:0!important}
+    section[data-testid="stSidebar"]{display:none}
+    div[data-testid="column"]:first-child{background:#0a0a0a;border-right:1px solid #1a1a1a;padding:2rem!important}
+    div[data-testid="column"]:last-child{background:#111;padding:2rem!important}
+    div[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#0a0a0a!important;border-bottom:1px solid #222!important}
+    div[data-testid="stTabs"] [data-baseweb="tab"]{color:#888!important;background:transparent!important;border:none!important;font-size:13px!important;padding:8px 16px!important}
+    div[data-testid="stTabs"] [aria-selected="true"]{color:#F97316!important;border-bottom:2px solid #F97316!important}
+    div[data-testid="stTextInput"] input{background:#0a0a0a!important;border:1px solid #222!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-radius:8px!important;min-height:44px!important}
+    div[data-testid="stTextInput"] input:focus{border-color:#F97316!important;box-shadow:0 0 0 1px #F97316!important}
+    div[data-testid="stForm"]{border:none!important;background:transparent!important;padding:0!important}
+    div[data-testid="stFormSubmitButton"] button{background:#F97316!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;min-height:44px!important;width:100%!important}
+    div[data-testid="stFormSubmitButton"] button:hover{background:#EA6C0A!important}
     </style>
     """, unsafe_allow_html=True)
     st.markdown("""
-    <div style="background:#0a0a0a;border-bottom:1px solid #1f1f1f;
-    padding:14px 28px;display:flex;justify-content:space-between;
-    align-items:center;margin-bottom:1rem">
-        <div style="font-size:24px;font-weight:700;color:#fff;
-        letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
-        <div style="font-size:10px;color:#444;letter-spacing:1.5px;
-        text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
+    <div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:14px 24px;display:flex;justify-content:space-between;align-items:center;margin-bottom:0">
+        <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+        <div style="font-size:10px;color:#444;letter-spacing:2px;text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
     </div>
     """, unsafe_allow_html=True)
     col_left, col_right = st.columns([1, 1], gap="small")
     with col_left:
         st.markdown("""
-        <div class="left-panel">
-            <h1>Dein Betrieb.<br><em>Rechtssicher.</em><br>Organisiert.</h1>
-            <p>Dienstplanung, Personalakte und Arbeitssicherheit –
-            alles in einer Plattform. Nie wieder Bußgelder wegen 
-            fehlender Dokumentation.</p>
-            <div class="stat-row">
-                <div class="stat-icon">🛡️</div>
-                <div class="stat-text">Bis zu <strong>30.000 € Bußgeld</strong> automatisch vermeiden</div>
+        <div style="padding:1rem 0">
+        <h2 style="font-size:24px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:12px">
+            Dein Betrieb.<br>
+            <span style="color:#F97316">Rechtssicher.</span>
+        </h2>
+        <p style="font-size:13px;color:#555;line-height:1.7;margin-bottom:24px">
+            Dienstplanung, Personalakte und Arbeitssicherheit in einer Plattform.
+            Nie wieder Bußgelder wegen fehlender Dokumentation.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+                <div style="min-width:30px;height:30px;background:#1a1a1a;border:1px solid #222;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">🛡️</div>
+                <div style="font-size:12px;color:#555">Bis zu <strong style="color:#aaa">30.000€ Bußgeld</strong> vermeiden</div>
             </div>
-            <div class="stat-row">
-                <div class="stat-icon">📅</div>
-                <div class="stat-text"><strong>Dienstplanung</strong> mit automatischer Kostenberechnung</div>
+            <div style="display:flex;align-items:center;gap:10px">
+                <div style="min-width:30px;height:30px;background:#1a1a1a;border:1px solid #222;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">📅</div>
+                <div style="font-size:12px;color:#555"><strong style="color:#aaa">Dienstplanung</strong> mit Kostenberechnung</div>
             </div>
-            <div class="stat-row">
-                <div class="stat-icon">⏰</div>
-                <div class="stat-text"><strong>ArbZG-Verstöße</strong> in Echtzeit erkennen</div>
+            <div style="display:flex;align-items:center;gap:10px">
+                <div style="min-width:30px;height:30px;background:#1a1a1a;border:1px solid #222;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">⏰</div>
+                <div style="font-size:12px;color:#555"><strong style="color:#aaa">ArbZG-Verstöße</strong> in Echtzeit erkennen</div>
             </div>
-            <div class="stat-row">
-                <div class="stat-icon">👥</div>
-                <div class="stat-text"><strong>Personalakte</strong> DSGVO-konform verwalten</div>
+            <div style="display:flex;align-items:center;gap:10px">
+                <div style="min-width:30px;height:30px;background:#1a1a1a;border:1px solid #222;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px">👥</div>
+                <div style="font-size:12px;color:#555"><strong style="color:#aaa">Personalakte</strong> DSGVO-konform</div>
             </div>
         </div>
+        <div style="margin-top:2rem;padding-top:1.5rem;border-top:1px solid #1a1a1a">
+            <div style="font-size:11px;color:#333;display:flex;gap:16px">
+                <span><span style="color:#F97316">✓</span> DSGVO-konform</span>
+                <span><span style="color:#F97316">✓</span> SSL</span>
+                <span><span style="color:#F97316">✓</span> §5 ArbSchG</span>
+            </div>
+        </div>
+        </div>
         """, unsafe_allow_html=True)
-
     return col_right
 
 # --- RESET LOGIK ---
@@ -414,10 +323,7 @@ def _render_login_fragment() -> None:
 
 
 # --- HAUPTLOGIK ---
-if not st.session_state.get('logged_in') and not st.session_state.get('show_app', False):
-    from pages.landing import show_landing
-    show_landing()
-    st.stop()
+# Landing Page temporär deaktiviert
 if not st.session_state.get('logged_in'):
     col_right = _render_login_branding()
     with col_right:
