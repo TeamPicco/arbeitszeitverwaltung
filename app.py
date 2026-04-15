@@ -99,63 +99,50 @@ def _wrap_card_start() -> None:
 
 
 def _wrap_card_end() -> None:
-    pass
+    st.markdown("""
+        </div>
+        <div style="padding:14px 28px;border-top:1px solid #1a1a1a;background:#0a0a0a">
+            <div style="font-size:10px;color:#2a2a2a;text-align:center">
+                © 2026 Complio &nbsp;·&nbsp; DSGVO-konform &nbsp;·&nbsp; SSL &nbsp;·&nbsp; §5 ArbSchG
+            </div>
+        </div>
+    </div></div>
+    """, unsafe_allow_html=True)
 
 
-def _render_login_branding() -> tuple:
+def _render_login_branding() -> None:
     st.markdown("""
     <style>
     [data-testid="stAppViewContainer"]{background:#0a0a0a!important}
-    [data-testid="stHeader"]{background:#0a0a0a!important;display:none}
+    [data-testid="stHeader"]{display:none!important}
+    [data-testid="stMainBlockContainer"]{padding:0!important;max-width:100%!important}
     .block-container{padding:0!important;max-width:100%!important}
-    [data-testid="stMainBlockContainer"]{padding:0 0 2rem 0!important}
     section[data-testid="stSidebar"]{display:none!important}
-    div[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#111!important;border-bottom:1px solid #222!important;gap:4px}
-    div[data-testid="stTabs"] [data-baseweb="tab"]{color:#666!important;font-size:13px!important;padding:10px 20px!important;border-radius:0!important}
-    div[data-testid="stTabs"] [aria-selected="true"]{color:#F97316!important;border-bottom:2px solid #F97316!important;background:transparent!important}
-    div[data-testid="stTextInput"] label{color:#888!important;font-size:12px!important;font-weight:500!important;letter-spacing:0.5px!important}
-    div[data-testid="stTextInput"] input{background:#1a1a1a!important;border:1px solid #222!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-radius:8px!important;font-size:14px!important;padding:10px 14px!important}
+    [data-testid="stDecoration"]{display:none!important}
+    div[data-testid="stTabs"] [data-baseweb="tab-list"]{background:#111!important;border:1px solid #1a1a1a!important;border-radius:7px!important;padding:3px!important;gap:3px!important}
+    div[data-testid="stTabs"] [data-baseweb="tab"]{color:#444!important;font-size:12px!important;padding:6px 12px!important;border-radius:5px!important;border:none!important}
+    div[data-testid="stTabs"] [aria-selected="true"]{background:#1a1a1a!important;color:#fff!important}
+    div[data-testid="stTextInput"] label{font-size:10px!important;color:#444!important;font-weight:600!important;letter-spacing:0.5px!important;text-transform:uppercase!important}
+    div[data-testid="stTextInput"] input{background:#111!important;border:1px solid #1a1a1a!important;color:#fff!important;-webkit-text-fill-color:#fff!important;border-radius:7px!important;font-size:13px!important;padding:8px 12px!important}
     div[data-testid="stTextInput"] input:focus{border-color:#F97316!important}
     div[data-testid="stForm"]{border:none!important;background:transparent!important;padding:0!important;box-shadow:none!important}
-    div[data-testid="stFormSubmitButton"] button{background:#F97316!important;color:#fff!important;border:none!important;border-radius:8px!important;font-weight:600!important;font-size:14px!important;padding:10px!important;width:100%!important;margin-top:4px!important}
+    div[data-testid="stFormSubmitButton"] button{background:#F97316!important;color:#fff!important;border:none!important;border-radius:7px!important;font-weight:600!important;font-size:13px!important;width:100%!important;padding:10px!important}
     div[data-testid="stFormSubmitButton"] button:hover{background:#EA6C0A!important}
-    div[data-testid="stButton"] button{border:1px solid #222!important;color:#888!important;background:transparent!important;border-radius:8px!important}
-    div[data-testid="stAlert"]{background:#1a1a1a!important;border:1px solid #222!important;color:#888!important}
+    div[data-testid="stNumberInput"] input{background:#111!important;border:1px solid #1a1a1a!important;color:#fff!important;border-radius:7px!important}
     </style>
-    <div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:16px 32px;display:flex;justify-content:space-between;align-items:center">
-        <div style="font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
-        <div style="font-size:10px;color:#333;letter-spacing:2px;text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
+    <div style="background:#0a0a0a;border-bottom:1px solid #1a1a1a;padding:14px 24px;display:flex;justify-content:space-between;align-items:center">
+        <div style="font-size:18px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+        <div style="font-size:9px;color:#333;letter-spacing:1.5px;text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;min-height:calc(100vh - 60px)">
-        <div style="background:#0a0a0a;padding:48px;border-right:1px solid #1a1a1a;display:flex;flex-direction:column;justify-content:center">
-            <div style="font-size:11px;font-weight:600;color:#F97316;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px">HR & COMPLIANCE SOFTWARE</div>
-            <h1 style="font-size:36px;font-weight:700;color:#fff;line-height:1.2;letter-spacing:-0.5px;margin-bottom:16px">Dein Betrieb.<br><span style="color:#F97316">Rechtssicher.</span><br>Organisiert.</h1>
-            <p style="font-size:14px;color:#555;line-height:1.7;margin-bottom:32px">Dienstplanung, Personalakte und Arbeitssicherheit in einer Plattform. Automatisch. Rechtssicher.</p>
-            <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:32px">
-                <div style="display:flex;align-items:flex-start;gap:12px">
-                    <div style="width:32px;height:32px;min-width:32px;background:#1a1a1a;border:1px solid #222;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#F97316;font-weight:700;font-size:13px">!</div>
-                    <div><div style="font-size:13px;font-weight:600;color:#ccc">Bis zu 30.000€ Bußgeld vermeiden</div><div style="font-size:12px;color:#444;margin-top:2px">Gefährdungsbeurteilung automatisch mit KI</div></div>
-                </div>
-                <div style="display:flex;align-items:flex-start;gap:12px">
-                    <div style="width:32px;height:32px;min-width:32px;background:#1a1a1a;border:1px solid #222;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#F97316;font-weight:700;font-size:13px">T</div>
-                    <div><div style="font-size:13px;font-weight:600;color:#ccc">Dienstplanung mit Kostenberechnung</div><div style="font-size:12px;color:#444;margin-top:2px">Automatische Stundenberechnung ab Dienstbeginn</div></div>
-                </div>
-                <div style="display:flex;align-items:flex-start;gap:12px">
-                    <div style="width:32px;height:32px;min-width:32px;background:#1a1a1a;border:1px solid #222;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#F97316;font-weight:700;font-size:13px">P</div>
-                    <div><div style="font-size:13px;font-weight:600;color:#ccc">Personalakte DSGVO-konform</div><div style="font-size:12px;color:#444;margin-top:2px">Alle Dokumente sicher und rechtssicher verwalten</div></div>
-                </div>
-            </div>
-            <div style="padding-top:24px;border-top:1px solid #1a1a1a;display:flex;gap:20px">
-                <div style="font-size:11px;color:#333"><span style="color:#F97316;margin-right:4px">✓</span>DSGVO-konform</div>
-                <div style="font-size:11px;color:#333"><span style="color:#F97316;margin-right:4px">✓</span>SSL verschlüsselt</div>
-                <div style="font-size:11px;color:#333"><span style="color:#F97316;margin-right:4px">✓</span>§5 ArbSchG</div>
-            </div>
+    <div style="min-height:calc(100vh - 100px);display:flex;align-items:center;justify-content:center;padding:32px 16px">
+    <div style="width:100%;max-width:400px;background:#0a0a0a;border:1px solid #222;border-radius:12px;overflow:hidden">
+        <div style="padding:28px 28px 0 28px">
+            <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:4px">Anmelden</div>
+            <div style="font-size:12px;color:#444;margin-bottom:20px">Noch kein Konto? <a href="https://getcomplio.de" style="color:#F97316;text-decoration:none">30 Tage kostenlos</a></div>
         </div>
-        <div style="background:#111;padding:0" id="login-right-panel">
-        </div>
-    </div>
+        <div style="padding:0 28px 28px 28px" id="login-form-area">
     """, unsafe_allow_html=True)
-
+    
 # --- RESET LOGIK ---
 if st.session_state.get("trigger_reset"):
     st.session_state["terminal_pin_entry"] = ""
@@ -314,24 +301,8 @@ def _render_login_fragment() -> None:
 # Landing Page temporär deaktiviert
 if not st.session_state.get('logged_in'):
     _render_login_branding()
-    st.markdown("""
-    <style>
-    #login-form-container{padding:48px}
-    </style>
-    """, unsafe_allow_html=True)
-    col1, col2 = st.columns([1,1])
-    with col2:
-        _render_login_fragment()
-    st.markdown("""
-    <div class="login-footer">
-        <div class="footer-text">© 2026 Complio · support@complio.de</div>
-        <div class="trust-badges">
-            <div class="trust-badge"><span>✓</span> DSGVO-konform</div>
-            <div class="trust-badge"><span>✓</span> SSL verschlüsselt</div>
-            <div class="trust-badge"><span>✓</span> §5 ArbSchG konform</div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    _render_login_fragment()
+    _wrap_card_end()
 else:
     st.markdown(
         """
