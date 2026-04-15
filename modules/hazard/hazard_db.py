@@ -38,17 +38,15 @@ def erstelle_beurteilung(supabase, betrieb_id: str,
                           erstellt_von: str) -> Optional[str]:
     """Erstellt eine neue Gefährdungsbeurteilung mit 5 leeren Schritten."""
     try:
-        heute = datetime.now().isoformat()
-        naechste_pruefung = (datetime.now() + timedelta(days=365)).isoformat()
+        heute = datetime.now().strftime("%Y-%m-%d")
         
         result = supabase.table("hazard_assessments").insert({
-            "betrieb_id": betrieb_id,
+            "betrieb_id": int(betrieb_id) if betrieb_id else 1,
             "title": title,
             "industry": industry,
             "status": "entwurf",
             "last_reviewed_at": heute,
-            "next_review_due": naechste_pruefung,
-            "created_by": erstellt_von
+            "created_by": int(erstellt_von) if erstellt_von else None
         }).execute()
         
         assessment_id = result.data[0]["id"]
