@@ -4,7 +4,6 @@ import re
 from datetime import date, datetime
 
 import streamlit as st
-from streamlit_option_menu import option_menu
 
 from utils.absences import delete_absence, store_absence, update_absence
 from utils.absence_policy import (
@@ -1767,30 +1766,18 @@ def show_admin_dashboard():
             current_nav = "Verträge"
         if current_nav == "Mitarbeiter":
             current_nav = "Personalakte"
-        default_idx = nav_options.index(current_nav) if current_nav in nav_options else 0
-        selected = option_menu(
-            menu_title=None,
-            options=nav_options,
-            icons=["calendar", "people", "calendar-x", "clock", "bar-chart-2", "file-text", "shield"],
-            orientation="horizontal",
-            default_index=default_idx,
-            key="admin_top_option_menu",
-            styles={
-                "container": {"padding": "0", "background-color": "transparent"},
-                "icon": {"color": "#ffffff", "font-size": "16px"},
-                "nav-link": {
-                    "font-size": "14px",
-                    "font-weight": "600",
-                    "color": "#ffffff",
-                    "padding": "10px 14px",
-                    "margin": "0 4px 0 0",
-                    "border-radius": "10px",
-                    "background-color": "#121212",
-                    "border": "1px solid #2a2a2a",
-                },
-                "nav-link-selected": {"background-color": "#2563eb", "color": "#ffffff"},
-            },
-        )
+        nav_cols = st.columns(len(nav_options))
+        selected = current_nav
+        for i, (col, opt) in enumerate(zip(nav_cols, nav_options)):
+            with col:
+                is_active = selected == opt
+                if st.button(
+                    opt,
+                    key=f"nav_{opt}",
+                    use_container_width=True,
+                    type="primary" if is_active else "secondary"
+                ):
+                    selected = opt
         st.session_state["admin_nav"] = selected
     st.markdown("</div>", unsafe_allow_html=True)
 

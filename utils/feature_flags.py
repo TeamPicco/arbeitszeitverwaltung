@@ -1,3 +1,5 @@
+import streamlit as st
+
 FEATURES = {
     "HAZARD_ASSESSMENT": {
         "name": "Gefährdungsbeurteilung KI",
@@ -27,10 +29,13 @@ def is_feature_enabled(feature_key: str, user_plan: str) -> bool:
     """Gibt True zurück wenn das Feature im aktuellen Plan enthalten ist."""
     return feature_key in PLAN_FEATURES.get(user_plan, [])
 
-def get_user_plan(supabase_client, betrieb_id: str) -> str:
+@st.cache_data(ttl=120, show_spinner=False)
+def get_user_plan(_supabase_client, betrieb_id: str) -> str:
     """Liest den aktuellen Plan des Betriebs aus der Datenbank."""
+    if not betrieb_id:
+        return "starter"
     try:
-        result = supabase_client.table("user_feature_plans")\
+        result = _supabase_client.table("user_feature_plans")\
             .select("plan")\
             .eq("betrieb_id", betrieb_id)\
             .single()\
