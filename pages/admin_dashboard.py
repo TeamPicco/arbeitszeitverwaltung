@@ -1735,6 +1735,18 @@ def _show_premium_tab():
         "📤 DATEV-Export",
         "⚖️ Rechtsstand"
     ])
+    with modul_tab1:
+        show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
+    with modul_tab2:
+        st.markdown("### ⏰ ArbZG-Wächter")
+        st.caption("Automatische Erkennung von Arbeitszeitverstößen")
+        st.info("Dieses Modul wird in Kürze verfügbar. Es prüft automatisch alle Arbeitszeiten auf ArbZG-Verstöße.")
+    with modul_tab3:
+        st.markdown("### 📤 DATEV-Export")
+        st.caption("Lohnabrechnung für deinen Steuerberater")
+        st.info("DATEV-Export wird in Kürze verfügbar. Exportiere Lohndaten direkt für deinen Steuerberater.")
+    with modul_tab4:
+        show_rechtsstand_admin(supabase)
 
 
 def show_admin_dashboard():
