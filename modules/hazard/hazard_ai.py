@@ -310,7 +310,7 @@ Sei konkret, praxisnah und beziehe dich auf die spezifischen Antworten.
 Verwende deutsche Rechtsbegriffe und nenne konkrete Bußgeldhöhen wo relevant."""
 
         message = client.messages.create(
-            model="claude-sonnet-4-5",
+            model="claude-sonnet-4-20250514",
             max_tokens=4000,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -318,5 +318,9 @@ Verwende deutsche Rechtsbegriffe und nenne konkrete Bußgeldhöhen wo relevant."
         return message.content[0].text
 
     except Exception as e:
-        print(f"KI-Fehler: {e}")
+        import traceback
+        error_msg = f"KI-Fehler: {type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+        print(error_msg)
+        import streamlit as st
+        st.error(f"KI-Fehler: {str(e)[:200]}")
         return None
