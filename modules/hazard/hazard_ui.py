@@ -9,6 +9,16 @@ from modules.hazard.hazard_db import (
 from modules.hazard.hazard_ai import generiere_ki_vorschlag, pruefe_api_key
 
 
+def _format_review_date(value) -> str:
+    """Formatiert next_review_due sicher für die Anzeige."""
+    if value is None:
+        return "–"
+    text = str(value).strip()
+    if not text or text.lower() == "none":
+        return "–"
+    return text[:10]
+
+
 def show_upgrade_prompt():
     """Zeigt einen Hinweis wenn das Feature nicht gebucht ist."""
     st.markdown("---")
@@ -59,9 +69,10 @@ def show_beurteilungs_liste(supabase, betrieb_id: str, user_id: str):
         return
 
     for b in beurteilungen:
+        review_due = _format_review_date(b.get("next_review_due"))
         status_text, status_farbe = get_status_farbe(
             b.get("status", "entwurf"),
-            b.get("next_review_due", "")
+            b.get("next_review_due") or ""
         )
         with st.container(border=True):
             col1, col2, col3 = st.columns([3, 1, 1])
@@ -70,7 +81,7 @@ def show_beurteilungs_liste(supabase, betrieb_id: str, user_id: str):
                 st.caption(
                     f"Branche: {b.get('industry', '–')} · "
                     f"Nächste Prüfung: "
-                    f"{b.get('next_review_due', '–')[:10]}"
+                    f"{review_due}"
                 )
             with col2:
                 st.markdown(
@@ -155,9 +166,10 @@ def show_beurteilung_bearbeiten(supabase, betrieb_id: str):
         return
 
     st.markdown(f"## ✏️ {beurteilung.get('title', '')}")
+    review_due = _format_review_date(beurteilung.get("next_review_due"))
     st.caption(
         f"Branche: {beurteilung.get('industry', '–')} · "
-        f"Nächste Prüfung: {beurteilung.get('next_review_due', '–')[:10]}"
+        f"Nächste Prüfung: {review_due}"
     )
 
     fertige_schritte = sum(1 for s in schritte if s.get("completed"))
@@ -244,26 +256,40 @@ def show_beurteilung_bearbeiten(supabase, betrieb_id: str):
                         )
 
 
-def show_hazard_modul(supabase, betrieb_id: str,
-                      user_id: str, user_plan: str):
-    """
-    Haupteinstiegspunkt für das Gefährdungsbeurteilungs-Modul.
-    Wird von admin_dashboard.py aufgerufen.
-    """
-    from utils.feature_flags import is_feature_enabled
+def show_hazard_modul(supabase, betrieb_id: str, user_id: str, user_plan: str = "complete"):
+    """Hauptansicht für das Gefährdungsbeurteilungs-Modul."""
 
-    if not is_feature_enabled("HAZARD_ASSESSMENT", user_plan):
+    if user_plan not in ("compliance", "complete"):
         show_upgrade_prompt()
         return
 
-    if "hazard_ansicht" not in st.session_state:
-        st.session_state["hazard_ansicht"] = "liste"
-
     ansicht = st.session_state.get("hazard_ansicht", "liste")
 
-    if ansicht == "liste":
-        show_beurteilungs_liste(supabase, betrieb_id, user_id)
+    if ansicht == "wizard":
+        from modules.hazard.hazard_wizard import show_wizard
+        if st.button("← Abbrechen"):
+            st.session_state["hazard_ansicht"] = "liste"
+            st.session_state.wizard_step = 0
+            st.session_state.wizard_antworten = {}
+            st.rerun()
+        show_wizard(supabase, betrieb_id, user_id)
+
     elif ansicht == "neu":
-        show_neue_beurteilung(supabase, betrieb_id, user_id)
-    elif ansicht == "bearbeiten":
-        show_beurteilung_bearbeiten(supabase, betrieb_id)
+        st.markdown("### Wie möchtest du starten?")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🤖 Mit KI-Wizard (empfohlen)", type="primary", use_container_width=True):
+                st.session_state["hazard_ansicht"] = "wizard"
+                st.session_state.wizard_step = 0
+                st.session_state.wizard_antworten = {}
+                st.rerun()
+        with col2:
+            if st.button("✏️ Manuell erstellen", use_container_width=True):
+                st.session_state["hazard_ansicht"] = "manuell"
+                st.rerun()
+        if st.button("← Zurück"):
+            st.session_state["hazard_ansicht"] = "liste"
+            st.rerun()
+
+    else:
+        show_beurteilungs_liste(supabase, betrieb_id, user_id)

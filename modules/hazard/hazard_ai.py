@@ -238,3 +238,85 @@ def pruefe_api_key() -> bool:
     """Prüft ob ein gültiger Anthropic API-Key vorhanden ist."""
     key = os.environ.get("ANTHROPIC_API_KEY", "")
     return key.startswith("sk-ant-") and len(key) > 20
+
+
+def generiere_komplette_beurteilung(antworten: dict, branche: str = "gastronomie") -> Optional[str]:
+    """Generiert komplette Gefährdungsbeurteilung aus Wizard-Antworten."""
+    try:
+        import os
+        from anthropic import Anthropic
+
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return None
+
+        client = Anthropic(api_key=api_key)
+
+        antworten_text = "\n".join([
+            f"- {data['frage']}: {data['antwort']}"
+            for key, data in antworten.items()
+        ])
+
+        prompt = f"""Du bist ein Experte für Arbeitsschutz in der Gastronomie nach §5 ArbSchG.
+
+Hier sind die Antworten eines Gastronomiebetriebs zur Objektanalyse:
+
+{antworten_text}
+
+Erstelle eine vollständige Gefährdungsbeurteilung. Nutze folgende Struktur:
+
+## 1. BETRIEBSPROFIL
+[Zusammenfassung des Betriebs in 2-3 Sätzen]
+
+## 2. IDENTIFIZIERTE GEFÄHRDUNGEN
+
+### 2.1 Mechanische Gefährdungen
+[Konkrete Gefahren mit Risikostufe (Niedrig/Mittel/Hoch)]
+
+### 2.2 Thermische Gefährdungen  
+[Verbrennungen, Verbrühungen etc.]
+
+### 2.3 Elektrische Gefährdungen
+[Falls Geräte vorhanden]
+
+### 2.4 Chemische Gefährdungen
+[Reinigungsmittel etc.]
+
+### 2.5 Brand- und Explosionsgefahren
+[Insbesondere bei Gas, Fritteuse]
+
+### 2.6 Physische Belastungen
+[Heben, Tragen, langes Stehen]
+
+### 2.7 Psychische Belastungen
+[Stress, Konflikte – Pflicht ab 2026!]
+
+### 2.8 Hygienische Gefährdungen
+[HACCP-relevant]
+
+## 3. SCHUTZMASSNAHMEN
+[Konkrete Maßnahmen für jede Gefahr - priorisiert]
+
+## 4. UNTERWEISUNGEN
+[Welche Schulungen sind verpflichtend - mit Häufigkeit]
+
+## 5. RECHTSGRUNDLAGEN
+[ArbSchG, ArbStättV, BGV, DGUV-Vorschriften]
+
+## 6. NÄCHSTE PRÜFUNG
+[Empfehlung für nächste Überprüfung]
+
+Sei konkret, praxisnah und beziehe dich auf die spezifischen Antworten.
+Verwende deutsche Rechtsbegriffe und nenne konkrete Bußgeldhöhen wo relevant."""
+
+        message = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        return message.content[0].text
+
+    except Exception as e:
+        print(f"KI-Fehler: {e}")
+        return None
