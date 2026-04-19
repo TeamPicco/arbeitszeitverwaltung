@@ -310,7 +310,7 @@ Sei konkret, praxisnah und beziehe dich auf die spezifischen Antworten.
 Verwende deutsche Rechtsbegriffe und nenne konkrete Bußgeldhöhen wo relevant."""
 
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-5",
             max_tokens=4000,
             messages=[{"role": "user", "content": prompt}]
         )
