@@ -1,5 +1,6 @@
 import os
 import anthropic
+from typing import Optional
 
 DGUV_2026_HINWEIS = (
     "NEU ab 2026: DGUV Vorschrift 2 gilt jetzt für Betriebe "
@@ -241,7 +242,7 @@ def pruefe_api_key() -> bool:
 
 
 def generiere_komplette_beurteilung(antworten: dict, branche: str = "gastronomie") -> Optional[str]:
-    """Generiert komplette Gefährdungsbeurteilung aus Wizard-Antworten."""
+    """Generiert rechtssichere Gefährdungsbeurteilung nach aktuellem deutschem Recht."""
     try:
         import os
         from anthropic import Anthropic
@@ -257,62 +258,139 @@ def generiere_komplette_beurteilung(antworten: dict, branche: str = "gastronomie
             for key, data in antworten.items()
         ])
 
-        prompt = f"""Du bist ein Experte für Arbeitsschutz in der Gastronomie nach §5 ArbSchG.
+        system_prompt = """Du bist Fachkraft für Arbeitssicherheit (Sifa) mit Schwerpunkt Gastronomie und Hotellerie in Deutschland.
 
-Hier sind die Antworten eines Gastronomiebetriebs zur Objektanalyse:
+Du erstellst rechtssichere Gefährdungsbeurteilungen nach aktuellem Rechtsstand (Stand 2026).
+
+RELEVANTE RECHTSGRUNDLAGEN:
+- Arbeitsschutzgesetz (ArbSchG) §§ 3, 5, 6 - Grundpflicht des Arbeitgebers
+- Arbeitsstättenverordnung (ArbStättV) - ASR A1.3, A1.5, A2.3, A3.4, A3.5, A3.6, A4.1
+- Betriebssicherheitsverordnung (BetrSichV)
+- Gefahrstoffverordnung (GefStoffV)
+- Biostoffverordnung (BioStoffV)
+- Jugendarbeitsschutzgesetz (JArbSchG)
+- Mutterschutzgesetz (MuSchG) - Gefährdungsbeurteilung nach § 10 MuSchG
+- DGUV Vorschrift 1 - Grundsätze der Prävention
+- DGUV Vorschrift 2 (NEUE FASSUNG AB 01.01.2026!) - Betreuung durch Sifa und Betriebsarzt
+- DGUV Regel 110-003 - Branchenregel Gastgewerbe (BGN)
+- DGUV Information 208-050 - Stand auf dem Fußboden (Rutschgefahr)
+- DGUV Information 207-006 - Bodenbeläge für Nassbereiche (Stand 2026)
+- LMHV - Lebensmittelhygiene-Verordnung
+- VO (EG) Nr. 852/2004 - EU-Hygieneverordnung (HACCP-Konzept Pflicht)
+- IfSG § 43 - Erstbelehrung durch Gesundheitsamt
+
+WICHTIG AB 2026:
+- DGUV Vorschrift 2 NEU: Bei Betrieben bis 20 Mitarbeiter gilt jetzt das KPZ-Modell (vorher 10)
+- Selbsterklärung zur Gefährdungsbeurteilung bei Nutzung alternativer Betreuungsmodelle PFLICHT
+- Fortbildungspflicht für Inhaber bei alternativem Betreuungsmodell
+- Psychische Belastungen müssen nach § 5 ArbSchG berücksichtigt werden
+
+BUSSGELD-RAHMEN:
+- Fehlende Gefährdungsbeurteilung: bis 30.000 € (§ 25 ArbSchG)
+- Keine Unterweisungen: bis 5.000 €
+- Fehlende Erste-Hilfe-Organisation: bis 5.000 €
+- HACCP-Verstöße: bis 50.000 € (LFGB)
+- IfSG § 43 Verstöße: bis 25.000 €"""
+
+        user_prompt = f"""Betrieb: Gastronomie
+Betriebsanalyse (Wizard-Antworten):
 
 {antworten_text}
 
-Erstelle eine vollständige Gefährdungsbeurteilung. Nutze folgende Struktur:
+Erstelle eine VOLLSTÄNDIGE rechtssichere Gefährdungsbeurteilung.
+
+Format:
+
+# GEFÄHRDUNGSBEURTEILUNG
+**Nach § 5 ArbSchG, DGUV Vorschrift 1 und DGUV Regel 110-003**
 
 ## 1. BETRIEBSPROFIL
-[Zusammenfassung des Betriebs in 2-3 Sätzen]
+[Kurze Zusammenfassung des Betriebs basierend auf den Antworten]
 
-## 2. IDENTIFIZIERTE GEFÄHRDUNGEN
+## 2. RECHTLICHE EINORDNUNG
+[Aktueller Rechtsstand speziell für diesen Betrieb, Verweis auf DGUV V2 ab 2026 falls anwendbar]
 
-### 2.1 Mechanische Gefährdungen
-[Konkrete Gefahren mit Risikostufe (Niedrig/Mittel/Hoch)]
+## 3. SYSTEMATISCHE GEFÄHRDUNGSERMITTLUNG
 
-### 2.2 Thermische Gefährdungen  
-[Verbrennungen, Verbrühungen etc.]
+Nutze diese 10 Gefährdungskategorien (nach DGUV). Für jede zutreffende Kategorie:
+- Konkrete Gefährdung benennen
+- Risikostufe: NIEDRIG / MITTEL / HOCH / KRITISCH
+- Konkrete Schutzmaßnahmen
+- Rechtsgrundlage
 
-### 2.3 Elektrische Gefährdungen
-[Falls Geräte vorhanden]
+### 3.1 Mechanische Gefährdungen
+(Schnittverletzungen, Stoßen, Quetschen, Sturz)
 
-### 2.4 Chemische Gefährdungen
-[Reinigungsmittel etc.]
+### 3.2 Elektrische Gefährdungen
+(Elektrische Geräte, Feuchträume)
 
-### 2.5 Brand- und Explosionsgefahren
-[Insbesondere bei Gas, Fritteuse]
+### 3.3 Gefahrstoffe
+(Reinigungsmittel, Desinfektionsmittel - GefStoffV, Betriebsanweisungen)
 
-### 2.6 Physische Belastungen
-[Heben, Tragen, langes Stehen]
+### 3.4 Biologische Arbeitsstoffe
+(Lebensmittel, Mikroorganismen - BioStoffV)
 
-### 2.7 Psychische Belastungen
-[Stress, Konflikte – Pflicht ab 2026!]
+### 3.5 Brand- und Explosionsgefahren
+(Gas, Fritteusen, offene Flammen - DGUV V 49)
 
-### 2.8 Hygienische Gefährdungen
-[HACCP-relevant]
+### 3.6 Thermische Gefährdungen
+(Verbrennungen, Verbrühungen, Kälte)
 
-## 3. SCHUTZMASSNAHMEN
-[Konkrete Maßnahmen für jede Gefahr - priorisiert]
+### 3.7 Physische Belastungen
+(Heben/Tragen - LasthandhabV, Zwangshaltungen, langes Stehen)
 
-## 4. UNTERWEISUNGEN
-[Welche Schulungen sind verpflichtend - mit Häufigkeit]
+### 3.8 Psychische Belastungen
+(PFLICHT nach § 5 ArbSchG! Stress, Zeitdruck, Konflikte)
 
-## 5. RECHTSGRUNDLAGEN
-[ArbSchG, ArbStättV, BGV, DGUV-Vorschriften]
+### 3.9 Arbeitsorganisation
+(Arbeitszeit, Pausen, Nachtarbeit - ArbZG)
 
-## 6. NÄCHSTE PRÜFUNG
-[Empfehlung für nächste Überprüfung]
+### 3.10 Besondere Personengruppen
+(Jugendliche - JArbSchG, Schwangere - MuSchG)
 
-Sei konkret, praxisnah und beziehe dich auf die spezifischen Antworten.
-Verwende deutsche Rechtsbegriffe und nenne konkrete Bußgeldhöhen wo relevant."""
+## 4. PRIORISIERTER MASSNAHMENPLAN
+Tabelle mit:
+| Priorität | Maßnahme | Verantwortlich | Umsetzungsfrist | Status |
+
+Priorität 1 = Sofort (kritische Gefahren)
+Priorität 2 = Innerhalb 4 Wochen
+Priorität 3 = Innerhalb 3 Monate
+
+## 5. UNTERWEISUNGSPFLICHTEN
+Für diesen Betrieb konkret erforderliche Unterweisungen mit Häufigkeit:
+- Erstunterweisung (vor Aufnahme der Tätigkeit)
+- Jährliche Wiederholungsunterweisung (DGUV V1 § 4)
+- Anlassbezogene Unterweisungen
+
+## 6. PFLICHTDOKUMENTE
+Checkliste der zu führenden Nachweise:
+- [ ] Gefährdungsbeurteilung (dieses Dokument)
+- [ ] Unterweisungsnachweise (jährlich)
+- [ ] HACCP-Dokumentation
+- [ ] IfSG § 43 Belehrungen
+- [ ] Erste-Hilfe-Organisation
+- [ ] Betriebsanweisungen für Gefahrstoffe
+- [ ] Prüfnachweise ortsveränderliche elektrische Geräte (DGUV V3)
+- [ ] Mutterschutz-Gefährdungsbeurteilung (falls zutreffend)
+
+## 7. NÄCHSTE SCHRITTE
+1. Sofortige Maßnahmen umsetzen
+2. Mitarbeiterunterweisung durchführen
+3. Betreuung durch Sifa/Betriebsarzt organisieren (DGUV V2 ab 2026)
+4. Wiederholungsprüfung in 12 Monaten
+
+## 8. RECHTSHINWEIS
+Diese KI-generierte Beurteilung ersetzt nicht die abschließende Prüfung durch eine Fachkraft für Arbeitssicherheit. Bei Unklarheiten wende dich an die BGN (0621 4456-3232) oder einen Sifa-Dienstleister.
+
+---
+
+Sei PRÄZISE, KONKRET und beziehe dich auf die spezifischen Wizard-Antworten. Nenne Bußgeld-Höhen zur Sensibilisierung. Priorisiere Sofortmaßnahmen."""
 
         message = client.messages.create(
             model="claude-sonnet-4-5",
-            max_tokens=4000,
-            messages=[{"role": "user", "content": prompt}]
+            max_tokens=6000,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_prompt}]
         )
 
         return message.content[0].text
