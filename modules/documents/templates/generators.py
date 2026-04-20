@@ -447,7 +447,7 @@ def generate_unterweisung():
     for x, label in [(MARGIN + 2*mm, "Nr."), (MARGIN + 10*mm, "Name"),
                       (MARGIN + 70*mm, "Personalnr."), (MARGIN + 90*mm, "Tätigkeit"),
                       (MARGIN + 130*mm, "Unterschrift")]:
-        c.drawString(x, label)
+        c.drawString(x, y, label)
     c.setStrokeColor(ORANGE)
     c.line(MARGIN, y - 2*mm, PAGE_W - MARGIN, y - 2*mm)
     y -= 6*mm
