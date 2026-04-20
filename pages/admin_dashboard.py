@@ -1728,23 +1728,32 @@ def _show_premium_tab():
     st.caption(f"Dein aktueller Plan: **{user_plan.capitalize()}**")
     st.markdown("---")
 
-    modul_tab1, modul_tab2, modul_tab3, modul_tab4 = st.tabs([
+    modul_tab1, modul_tab2, modul_tab3, modul_tab4, modul_tab5 = st.tabs([
         "🔍 Gefährdungsbeurteilung",
+        "📄 Vorlagen & Nachweise",
         "⏰ ArbZG-Wächter",
         "📤 DATEV-Export",
         "⚖️ Rechtsstand"
     ])
+
     with modul_tab1:
         show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
+
     with modul_tab2:
+        from modules.documents.ui import show_document_center
+        show_document_center()
+
+    with modul_tab3:
         st.markdown("### ⏰ ArbZG-Wächter")
         st.caption("Automatische Erkennung von Arbeitszeitverstößen")
-        st.info("Dieses Modul wird in Kürze verfügbar. Es prüft automatisch alle Arbeitszeiten auf ArbZG-Verstöße.")
-    with modul_tab3:
+        st.info("Dieses Modul wird in Kürze verfügbar.")
+
+    with modul_tab4:
         st.markdown("### 📤 DATEV-Export")
         st.caption("Lohnabrechnung für deinen Steuerberater")
-        st.info("DATEV-Export wird in Kürze verfügbar. Exportiere Lohndaten direkt für deinen Steuerberater.")
-    with modul_tab4:
+        st.info("DATEV-Export wird in Kürze verfügbar.")
+
+    with modul_tab5:
         show_rechtsstand_admin(supabase)
 
 
