@@ -112,19 +112,43 @@ def _refresh_after_terminal_event() -> None:
     st.rerun()
 
 
-def _wrap_card_start() -> None:
-    pass
+def _get_terminal_betrieb_id(mitarbeiter: Dict[str, Any]) -> int:
+    """
+    Ermittelt den Betriebskontext für Terminal-Buchungen.
+    Hält die bisherige Fallback-Logik zentral an einer Stelle.
+    """
+    return int(mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1)
 
 
-def _wrap_card_end() -> None:
+def _submit_terminal_event(
+    mitarbeiter: Dict[str, Any],
+    *,
+    action: str,
+    success_message: str,
+    error_message: str,
+) -> None:
+    result = register_time_event(
+        supabase,
+        betrieb_id=_get_terminal_betrieb_id(mitarbeiter),
+        mitarbeiter_id=mitarbeiter["id"],
+        action=action,
+        source="terminal",
+        created_by=st.session_state.get("user_id"),
+    )
+    if not result.get("ok"):
+        st.error(result.get("error", error_message))
+    else:
+        st.success(success_message)
+    _refresh_after_terminal_event()
+
+
+def _render_login_footer() -> None:
     st.markdown("""
-        </div>
-        <div style="padding:14px 28px;border-top:1px solid #1a1a1a;background:#0a0a0a">
+        <div style="padding:14px 8px;border-top:1px solid #1a1a1a;background:#0a0a0a;margin-top:12px">
             <div style="font-size:10px;color:#2a2a2a;text-align:center">
                 © 2026 Complio &nbsp;·&nbsp; DSGVO-konform &nbsp;·&nbsp; SSL &nbsp;·&nbsp; §5 ArbSchG
             </div>
         </div>
-    </div></div>
     """, unsafe_allow_html=True)
 
 
@@ -190,34 +214,20 @@ def _render_login_fragment() -> None:
 
                 c1, c2 = st.columns(2)
                 if c1.button("KOMMEN", key=f"k_{ma['id']}", use_container_width=True):
-                    result = register_time_event(
-                        supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
-                        mitarbeiter_id=ma["id"],
+                    _submit_terminal_event(
+                        ma,
                         action=EVENT_CLOCK_IN,
-                        source="terminal",
-                        created_by=st.session_state.get("user_id"),
+                        success_message=f"Eingestempelt um {format_datetime_de(now_berlin())}",
+                        error_message="Einstempeln fehlgeschlagen.",
                     )
-                    if not result.get("ok"):
-                        st.error(result.get("error", "Einstempeln fehlgeschlagen."))
-                    else:
-                        st.success(f"Eingestempelt um {format_datetime_de(now_berlin())}")
-                    _refresh_after_terminal_event()
 
                 if c2.button("GEHEN", key=f"g_{ma['id']}", use_container_width=True):
-                    result = register_time_event(
-                        supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
-                        mitarbeiter_id=ma["id"],
+                    _submit_terminal_event(
+                        ma,
                         action=EVENT_CLOCK_OUT,
-                        source="terminal",
-                        created_by=st.session_state.get("user_id"),
+                        success_message="Schönen Feierabend!",
+                        error_message="Ausstempeln fehlgeschlagen.",
                     )
-                    if not result.get("ok"):
-                        st.error(result.get("error", "Ausstempeln fehlgeschlagen."))
-                    else:
-                        st.success("Schönen Feierabend!")
-                    _refresh_after_terminal_event()
 
                 c3, c4 = st.columns(2)
                 if c3.button(
@@ -226,19 +236,12 @@ def _render_login_fragment() -> None:
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or state["pause_aktiv"]),
                 ):
-                    result = register_time_event(
-                        supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
-                        mitarbeiter_id=ma["id"],
+                    _submit_terminal_event(
+                        ma,
                         action=EVENT_BREAK_START,
-                        source="terminal",
-                        created_by=st.session_state.get("user_id"),
+                        success_message="Pause gestartet.",
+                        error_message="Pausenstart fehlgeschlagen.",
                     )
-                    if not result.get("ok"):
-                        st.error(result.get("error", "Pausenstart fehlgeschlagen."))
-                    else:
-                        st.success("Pause gestartet.")
-                    _refresh_after_terminal_event()
 
                 if c4.button(
                     "PAUSE ENDE",
@@ -246,19 +249,12 @@ def _render_login_fragment() -> None:
                     use_container_width=True,
                     disabled=(not state["eingestempelt"] or not state["pause_aktiv"]),
                 ):
-                    result = register_time_event(
-                        supabase,
-                        betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
-                        mitarbeiter_id=ma["id"],
+                    _submit_terminal_event(
+                        ma,
                         action=EVENT_BREAK_END,
-                        source="terminal",
-                        created_by=st.session_state.get("user_id"),
+                        success_message="Pause beendet.",
+                        error_message="Pausenende fehlgeschlagen.",
                     )
-                    if not result.get("ok"):
-                        st.error(result.get("error", "Pausenende fehlgeschlagen."))
-                    else:
-                        st.success("Pause beendet.")
-                    _refresh_after_terminal_event()
             else:
                 st.error("PIN unbekannt.")
 
@@ -316,9 +312,8 @@ def _render_login_fragment() -> None:
 # Landing Page temporär deaktiviert
 if not st.session_state.get('logged_in'):
     _render_login_branding()
-    _wrap_card_start()
     _render_login_fragment()
-    _wrap_card_end()
+    _render_login_footer()
 else:
     st.markdown(
         """

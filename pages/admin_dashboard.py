@@ -44,6 +44,19 @@ STUNDENLOHN_PERSONAL_COLUMNS = (
     "stundenlohn_brutto",
     "stundenlohn",
 )
+ADMIN_NAV_OPTIONS = (
+    "Dienstplanung",
+    "Personalakte",
+    "Abwesenheiten",
+    "Arbeitszeitkonten",
+    "Zeitauswertung",
+    "Verträge",
+    "Premium",
+)
+ADMIN_NAV_ALIASES = {
+    "Vertraege": "Verträge",
+    "Mitarbeiter": "Personalakte",
+}
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -189,6 +202,13 @@ def _cached_system_counts(betrieb_id: int | None) -> tuple[int, int, int]:
 
 def _refresh_after_write() -> None:
     clear_app_caches()
+
+
+def _normalize_admin_nav(selection: str | None) -> str:
+    normalized = ADMIN_NAV_ALIASES.get(str(selection or ""), str(selection or "Dienstplanung"))
+    if normalized not in ADMIN_NAV_OPTIONS:
+        return "Dienstplanung"
+    return normalized
 
 
 def _safe_date(value):
@@ -1769,15 +1789,10 @@ def show_admin_dashboard():
         with st.container(key="header_logo"):
             st.image(BRAND_LOGO_IMAGE, width=230)
     with top_nav:
-        nav_options = ["Dienstplanung", "Personalakte", "Abwesenheiten", "Arbeitszeitkonten", "Zeitauswertung", "Verträge", "Premium"]
-        current_nav = st.session_state.get("admin_nav", "Dienstplanung")
-        if current_nav == "Vertraege":
-            current_nav = "Verträge"
-        if current_nav == "Mitarbeiter":
-            current_nav = "Personalakte"
-        nav_cols = st.columns(len(nav_options))
+        current_nav = _normalize_admin_nav(st.session_state.get("admin_nav", "Dienstplanung"))
+        nav_cols = st.columns(len(ADMIN_NAV_OPTIONS))
         selected = current_nav
-        for i, (col, opt) in enumerate(zip(nav_cols, nav_options)):
+        for col, opt in zip(nav_cols, ADMIN_NAV_OPTIONS):
             with col:
                 is_active = selected == opt
                 if st.button(
@@ -1787,26 +1802,32 @@ def show_admin_dashboard():
                     type="primary" if is_active else "secondary"
                 ):
                     selected = opt
-        st.session_state["admin_nav"] = selected
+        st.session_state["admin_nav"] = _normalize_admin_nav(selected)
     st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+    selected = _normalize_admin_nav(st.session_state.get("admin_nav"))
     if selected == "Dienstplanung":
         from pages import admin_dienstplan
 
         admin_dienstplan.show_dienstplanung()
-    elif selected == "Personalakte":
-        _show_mitarbeiter_stammdaten_tab()
-    elif selected == "Abwesenheiten":
-        _show_absenzen_tab()
-    elif selected == "Arbeitszeitkonten":
-        _show_arbeitszeitkonten_tab()
-    elif selected == "Zeitauswertung":
-        _show_zeitauswertung_tab()
-    elif selected == "Verträge":
-        _show_vertrag_generator_tab()
-    elif selected == "Premium":
-        _show_premium_tab()
+    else:
+        section_handlers = {
+            "Personalakte": _show_mitarbeiter_stammdaten_tab,
+            "Abwesenheiten": _show_absenzen_tab,
+            "Arbeitszeitkonten": _show_arbeitszeitkonten_tab,
+            "Zeitauswertung": _show_zeitauswertung_tab,
+            "Verträge": _show_vertrag_generator_tab,
+            "Premium": _show_premium_tab,
+        }
+        handler = section_handlers.get(selected)
+        if handler is None:
+            st.warning("Unbekannter Bereich. Es wird Dienstplanung geladen.")
+            st.session_state["admin_nav"] = "Dienstplanung"
+            from pages import admin_dienstplan
+            admin_dienstplan.show_dienstplanung()
+        else:
+            handler()
     st.markdown("</div>", unsafe_allow_html=True)
 
 
