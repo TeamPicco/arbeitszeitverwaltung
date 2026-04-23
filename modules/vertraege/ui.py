@@ -483,17 +483,57 @@ def _show_betriebsdaten():
     if logo_bytes:
         st.image(logo_bytes, width=200)
 
-    uploaded = st.file_uploader("Logo hochladen (PNG, JPG)", type=["png", "jpg", "jpeg"])
+    uploaded = st.file_uploader(
+        "Logo hochladen (PNG, JPG, max 10 MB)",
+        type=["png", "jpg", "jpeg"],
+        help="Das Logo wird automatisch auf 800x400 px komprimiert für optimale Performance."
+    )
     if uploaded:
         try:
             import base64
+            import io as _io
+            from PIL import Image
+
             file_bytes = uploaded.read()
+            original_size_kb = len(file_bytes) / 1024
+
+            # Bild öffnen und komprimieren
+            img = Image.open(_io.BytesIO(file_bytes))
+
+            # Konvertiere zu RGB falls RGBA oder Palette (für JPEG)
+            if img.mode in ("RGBA", "LA", "P"):
+                # Weißer Hintergrund für Transparenz
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                if img.mode == "P":
+                    img = img.convert("RGBA")
+                if img.mode in ("RGBA", "LA"):
+                    background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
+                    img = background
+                else:
+                    img = img.convert("RGB")
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # Auf max. 800x400 verkleinern (proportional)
+            img.thumbnail((800, 400), Image.Resampling.LANCZOS)
+
+            # Als JPEG mit guter Qualität speichern
+            buf = _io.BytesIO()
+            img.save(buf, format="JPEG", quality=85, optimize=True)
+            compressed_bytes = buf.getvalue()
+            compressed_size_kb = len(compressed_bytes) / 1024
+
+            # Upload zu Supabase
             supabase.table("betrieb_logos").upsert({
                 "betrieb_id": int(betrieb_id),
-                "logo_bytes": base64.b64encode(file_bytes).decode("utf-8"),
-                "logo_mime": uploaded.type,
+                "logo_bytes": base64.b64encode(compressed_bytes).decode("utf-8"),
+                "logo_mime": "image/jpeg",
             }).execute()
-            st.success("✅ Logo hochgeladen")
+
+            st.success(
+                f"✅ Logo hochgeladen (von {original_size_kb:.0f} KB auf "
+                f"{compressed_size_kb:.0f} KB komprimiert)"
+            )
             st.rerun()
         except Exception as e:
             st.error(f"Upload-Fehler: {str(e)[:200]}")
