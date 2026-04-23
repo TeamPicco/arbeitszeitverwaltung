@@ -1413,9 +1413,8 @@ def _show_mitarbeiter_stammdaten_tab():
 
 
 def _show_vertrag_generator_tab():
-    from pages import vertraege
-
-    vertraege.show_vertraege_page()
+    from modules.vertraege.ui import show_vertraege
+    show_vertraege()
 
 
 def _show_system_tab():
