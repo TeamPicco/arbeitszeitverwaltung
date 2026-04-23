@@ -392,6 +392,23 @@ def _pdf_unterschriften(elements):
     elements.append(st)
 
 
+def _pdf_page_footer(canvas, doc):
+    """Einheitlicher Footer für alle Dienstplan-PDFs."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+
+    canvas.saveState()
+    canvas.setFont('Helvetica', 8)
+    canvas.setFillColor(colors.grey)
+    canvas.drawCentredString(
+        A4[0] / 2,
+        1.5 * cm,
+        f"Seite {doc.page} | Erstellt am {date.today().strftime('%d.%m.%Y')} | Vertraulich",
+    )
+    canvas.restoreState()
+
+
 def erstelle_einzelner_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jahr: int, monat: int) -> bytes:
     """Erstellt ein professionelles PDF des Dienstplans f\u00fcr einen Mitarbeiter"""
     from reportlab.lib import colors
@@ -411,15 +428,7 @@ def erstelle_einzelner_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jah
     _pdf_dienste_tabelle(elements, dienstplaene)
     _pdf_unterschriften(elements)
 
-    def add_footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont('Helvetica', 8)
-        canvas.setFillColor(colors.grey)
-        canvas.drawCentredString(A4[0] / 2, 1.5*cm,
-            f"Seite {doc.page} | Erstellt am {date.today().strftime('%d.%m.%Y')} | Vertraulich")
-        canvas.restoreState()
-
-    doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+    doc.build(elements, onFirstPage=_pdf_page_footer, onLaterPages=_pdf_page_footer)
     return buffer.getvalue()
 
 
@@ -443,24 +452,12 @@ def erstelle_admin_dienstplan_pdf(mitarbeiter_liste: list, dienste_map: dict, ja
         name = f"{mitarbeiter.get('vorname', '')} {mitarbeiter.get('nachname', '')}"
         _pdf_header(elements, logo_path, monat, jahr, name)
 
-        ma_dienste = []
-        for key, eintraege in dienste_map.items():
-            if key[0] == mitarbeiter['id']:
-                ma_dienste.extend(eintraege)
-        ma_dienste_sorted = sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00')))
+        ma_dienste_sorted = _collect_employee_dienste(dienste_map, mitarbeiter["id"])
 
         _pdf_dienste_tabelle(elements, ma_dienste_sorted)
         _pdf_unterschriften(elements)
 
-    def add_footer(canvas, doc):
-        canvas.saveState()
-        canvas.setFont('Helvetica', 8)
-        canvas.setFillColor(colors.grey)
-        canvas.drawCentredString(A4[0] / 2, 1.5*cm,
-            f"Seite {doc.page} | Erstellt am {date.today().strftime('%d.%m.%Y')} | Vertraulich")
-        canvas.restoreState()
-
-    doc.build(elements, onFirstPage=add_footer, onLaterPages=add_footer)
+    doc.build(elements, onFirstPage=_pdf_page_footer, onLaterPages=_pdf_page_footer)
     return buffer.getvalue()
 
 
