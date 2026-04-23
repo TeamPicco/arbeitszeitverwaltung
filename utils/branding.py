@@ -31,7 +31,6 @@ def get_logo_path() -> str:
     if env_logo:
         return env_logo
     for candidate in (
-        LOGO_COMPLIO,
         LOGO_PRIMARY,
         LOGO_PRIMARY_ALT_JPG,
         LOGO_PRIMARY_ALT_JPEG,
