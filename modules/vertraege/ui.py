@@ -9,6 +9,87 @@ from modules.vertraege.inhalte import VERTRAGSTYPEN
 from utils.database import get_supabase_client
 
 
+PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
+
+
+def _add_months(d: date, months: int) -> date:
+    """Addiert 'months' Monate kalendergenau (inklusive Monatslängen)."""
+    if not months:
+        return d
+    total_month = (d.month - 1) + int(months)
+    year = d.year + total_month // 12
+    month = total_month % 12 + 1
+    import calendar
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _probezeit_label(months: int) -> str:
+    return "Keine" if months == 0 else f"{months} Monat{'e' if months > 1 else ''}"
+
+
+def _render_probezeit_select(label: str = "Probezeit", default_index: int = 4, key_suffix: str = "") -> int:
+    return st.selectbox(
+        label,
+        PROBEZEIT_OPTIONEN,
+        index=default_index,
+        format_func=_probezeit_label,
+        key=f"probezeit_{key_suffix}" if key_suffix else None,
+    )
+
+
+def _render_auszahlung_block(
+    default_urlaub: int,
+    default_auszahlung_tag: int = 15,
+    *,
+    with_abschlag: bool = True,
+) -> dict:
+    """
+    Rendert Standardblock Urlaub + Auszahlungstag (+ optional Abschlag).
+    Gibt die erfassten Werte als Dict zurück.
+    """
+    col_a, col_b = st.columns(2)
+    with col_a:
+        urlaubstage = st.number_input(
+            "Urlaubstage/Jahr",
+            min_value=20, max_value=30,
+            value=int(default_urlaub),
+        )
+    with col_b:
+        auszahlung_tag = st.number_input(
+            "Auszahlung zum Tag",
+            min_value=1, max_value=28,
+            value=int(default_auszahlung_tag),
+        )
+
+    abschlag = 0
+    abschlag_tag = 3
+    if with_abschlag:
+        abschlag = st.number_input(
+            "Abschlagszahlung netto (€, 0 = keine)",
+            min_value=0, value=0,
+        )
+        if abschlag > 0:
+            abschlag_tag = st.number_input(
+                "Abschlag-Auszahlung zum Werktag",
+                min_value=1, max_value=5, value=3,
+            )
+
+    return {
+        "urlaubstage": int(urlaubstage),
+        "auszahlung_tag": int(auszahlung_tag),
+        "abschlag": int(abschlag),
+        "abschlag_tag": int(abschlag_tag),
+    }
+
+
+def _build_arbeitnehmer_filename(arbeitnehmer: dict, vertragstyp: str) -> str:
+    name_safe = f"{arbeitnehmer.get('nachname', '')}_{arbeitnehmer.get('vorname', '')}".strip("_").replace(" ", "_")
+    datum_str = datetime.now().strftime("%Y%m%d")
+    titel = VERTRAGSTYPEN[vertragstyp]["name"].replace(" ", "_")
+    return f"{titel}_{name_safe or 'Mitarbeiter'}_{datum_str}.pdf"
+
+
 def _get_supabase():
     """Liefert einen gültigen Supabase-Client (Session oder Fallback)."""
     supabase = st.session_state.get("supabase")
@@ -192,12 +273,9 @@ def _form_vollzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col1:
             beginn = st.date_input("Vertragsbeginn *", value=date.today())
         with col2:
-            probezeit_monate = st.selectbox(
-                "Probezeit", [0, 1, 2, 3, 6], index=4,
-                format_func=lambda x: "Keine" if x == 0 else f"{x} Monat{'e' if x > 1 else ''}"
-            )
+            probezeit_monate = _render_probezeit_select(key_suffix="vollzeit")
 
-        probezeit_ende = beginn + timedelta(days=probezeit_monate * 30) if probezeit_monate else None
+        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
         if probezeit_ende:
             st.caption(f"Probezeit endet: {probezeit_ende.strftime('%d.%m.%Y')}")
 
@@ -213,16 +291,7 @@ def _form_vollzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col2:
             stundenlohn = st.text_input("Stundenlohn brutto (€)", value="14,20")
 
-        col3, col4 = st.columns(2)
-        with col3:
-            urlaubstage = st.number_input("Urlaubstage/Jahr", min_value=20, max_value=30, value=24)
-        with col4:
-            auszahlung_tag = st.number_input("Auszahlung zum Tag", min_value=1, max_value=28, value=15)
-
-        abschlag = st.number_input("Abschlagszahlung netto (€, 0 = keine)", min_value=0, value=0)
-        abschlag_tag = 3
-        if abschlag > 0:
-            abschlag_tag = st.number_input("Abschlag-Auszahlung zum Werktag", min_value=1, max_value=5, value=3)
+        pay = _render_auszahlung_block(default_urlaub=24)
 
     with st.expander("💼 Tätigkeit", expanded=True):
         taetigkeit = st.text_area(
@@ -240,14 +309,11 @@ def _form_vollzeit(supabase, betrieb_id, betrieb, logo_bytes):
             "probezeit_ende": probezeit_ende.isoformat() if probezeit_ende else None,
             "befristung": befristung,
             "befristung_bis": befristung_bis.isoformat() if befristung_bis else None,
-            "wochenstunden": wochenstunden,
+            "wochenstunden": int(wochenstunden),
             "stundenlohn": stundenlohn,
-            "urlaubstage": urlaubstage,
-            "auszahlung_tag": auszahlung_tag,
-            "abschlag": abschlag,
-            "abschlag_tag": abschlag_tag,
             "taetigkeit": taetigkeit,
             "arbeitsort": arbeitsort,
+            **pay,
         }
     )
 
@@ -261,11 +327,8 @@ def _form_teilzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col1:
             beginn = st.date_input("Vertragsbeginn *", value=date.today())
         with col2:
-            probezeit_monate = st.selectbox(
-                "Probezeit", [0, 1, 2, 3, 6], index=4,
-                format_func=lambda x: "Keine" if x == 0 else f"{x} Monat{'e' if x > 1 else ''}"
-            )
-        probezeit_ende = beginn + timedelta(days=probezeit_monate * 30) if probezeit_monate else None
+            probezeit_monate = _render_probezeit_select(key_suffix="teilzeit")
+        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
 
     with st.expander("⏰ Arbeitszeit & Vergütung", expanded=True):
         col1, col2 = st.columns(2)
@@ -274,16 +337,7 @@ def _form_teilzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col2:
             stundenlohn = st.text_input("Stundenlohn brutto (€)", value="14,20")
 
-        col3, col4 = st.columns(2)
-        with col3:
-            urlaubstage = st.number_input("Urlaubstage/Jahr", min_value=20, max_value=30, value=22)
-        with col4:
-            auszahlung_tag = st.number_input("Auszahlung zum Tag", min_value=1, max_value=28, value=15)
-
-        abschlag = st.number_input("Abschlagszahlung netto (€, 0 = keine)", min_value=0, value=0)
-        abschlag_tag = 3
-        if abschlag > 0:
-            abschlag_tag = st.number_input("Abschlag-Auszahlung zum Werktag", min_value=1, max_value=5, value=3)
+        pay = _render_auszahlung_block(default_urlaub=22)
 
     with st.expander("💼 Tätigkeit", expanded=True):
         taetigkeit = st.text_area(
@@ -299,14 +353,11 @@ def _form_teilzeit(supabase, betrieb_id, betrieb, logo_bytes):
             "beginn": beginn.isoformat(),
             "probezeit_monate": probezeit_monate,
             "probezeit_ende": probezeit_ende.isoformat() if probezeit_ende else None,
-            "monatsstunden": monatsstunden,
+            "monatsstunden": int(monatsstunden),
             "stundenlohn": stundenlohn,
-            "urlaubstage": urlaubstage,
-            "auszahlung_tag": auszahlung_tag,
-            "abschlag": abschlag,
-            "abschlag_tag": abschlag_tag,
             "taetigkeit": taetigkeit,
             "arbeitsort": arbeitsort,
+            **pay,
         }
     )
 
@@ -325,11 +376,7 @@ def _form_minijob(supabase, betrieb_id, betrieb, logo_bytes):
         with col2:
             stundenlohn = st.text_input("Stundenlohn brutto (€)", value="14,20")
 
-        col3, col4 = st.columns(2)
-        with col3:
-            urlaubstage = st.number_input("Urlaubstage/Jahr", min_value=20, max_value=30, value=20)
-        with col4:
-            auszahlung_tag = st.number_input("Auszahlung zum Tag", min_value=1, max_value=28, value=15)
+        pay = _render_auszahlung_block(default_urlaub=20, with_abschlag=False)
 
         st.info("💡 Minijob-Grenze 2026: **556 € / Monat**. Überschreitung nur unvorhergesehen in max. 2 Monaten/Jahr zulässig.")
 
@@ -343,10 +390,10 @@ def _form_minijob(supabase, betrieb_id, betrieb, logo_bytes):
             "beginn": beginn.isoformat(),
             "wochenstunden": wochenstunden,
             "stundenlohn": stundenlohn,
-            "urlaubstage": urlaubstage,
-            "auszahlung_tag": auszahlung_tag,
             "taetigkeit": taetigkeit,
             "arbeitsort": arbeitsort,
+            "urlaubstage": pay["urlaubstage"],
+            "auszahlung_tag": pay["auszahlung_tag"],
         }
     )
 
@@ -441,18 +488,16 @@ def _submit_button(supabase, betrieb_id, vertragstyp, betrieb, arbeitnehmer, log
         st.warning("⚠️ Bitte Vorname und Nachname des Arbeitnehmers ausfüllen.")
         return
 
-    # Verschwiegenheit vom Betrieb übernehmen
-    betrieb["verschwiegenheit"] = betrieb.get("verschwiegenheit", True)
+    # Kopie, um Eingaben des Aufrufers nicht zu mutieren
+    betrieb_effective = dict(betrieb or {})
+    betrieb_effective.setdefault("verschwiegenheit", True)
 
     col1, col2 = st.columns([3, 1])
     with col1:
         generator = VERTRAGSTYPEN[vertragstyp]["generator"]
         try:
-            pdf_bytes = generator(betrieb, arbeitnehmer, daten, logo_bytes)
-
-            name_safe = f"{arbeitnehmer['nachname']}_{arbeitnehmer['vorname']}".replace(" ", "_")
-            datum_str = datetime.now().strftime("%Y%m%d")
-            filename = f"{VERTRAGSTYPEN[vertragstyp]['name'].replace(' ', '_')}_{name_safe}_{datum_str}.pdf"
+            pdf_bytes = generator(betrieb_effective, arbeitnehmer, daten, logo_bytes)
+            filename = _build_arbeitnehmer_filename(arbeitnehmer, vertragstyp)
 
             st.download_button(
                 label=f"📥 **{VERTRAGSTYPEN[vertragstyp]['name']}** als PDF herunterladen",
@@ -472,7 +517,7 @@ def _submit_button(supabase, betrieb_id, vertragstyp, betrieb, arbeitnehmer, log
                     "betrieb_id": int(betrieb_id),
                     "vertragstyp": vertragstyp,
                     "vertragsdaten": {
-                        "betrieb": betrieb,
+                        "betrieb": betrieb_effective,
                         "arbeitnehmer": arbeitnehmer,
                         "daten": daten,
                     },
@@ -561,67 +606,7 @@ def _show_betriebsdaten():
         help="Das Logo wird automatisch auf 800x400 px komprimiert für optimale Performance."
     )
     if uploaded:
-        try:
-            import base64
-            import io as _io
-            from PIL import Image, ImageOps
-
-            file_bytes = uploaded.read()
-            original_size_kb = len(file_bytes) / 1024
-
-            # Bild öffnen und komprimieren
-            img = Image.open(_io.BytesIO(file_bytes))
-            img = ImageOps.exif_transpose(img)
-
-            # Konvertiere zu RGB falls RGBA oder Palette (für JPEG)
-            if img.mode in ("RGBA", "LA", "P"):
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode in ("P", "LA"):
-                    img = img.convert("RGBA")
-                background.paste(img, mask=img.split()[-1])
-                img = background
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
-
-            # Auf max. 800x400 verkleinern (proportional)
-            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
-            img.thumbnail((800, 400), resampling)
-
-            # Als JPEG mit guter Qualität speichern
-            buf = _io.BytesIO()
-            img.save(buf, format="JPEG", quality=85, optimize=True)
-            compressed_bytes = buf.getvalue()
-            compressed_size_kb = len(compressed_bytes) / 1024
-
-            # Upload zu Supabase (erst update, dann fallback insert)
-            payload = {
-                "logo_bytes": base64.b64encode(compressed_bytes).decode("utf-8"),
-                "logo_mime": "image/jpeg",
-            }
-            updated_rows = []
-            try:
-                update_res = (
-                    supabase.table("betrieb_logos")
-                    .update(payload)
-                    .eq("betrieb_id", int(betrieb_id))
-                    .execute()
-                )
-                updated_rows = update_res.data or []
-            except Exception:
-                updated_rows = []
-            if not updated_rows:
-                supabase.table("betrieb_logos").insert({
-                    "betrieb_id": int(betrieb_id),
-                    **payload,
-                }).execute()
-
-            st.success(
-                f"✅ Logo hochgeladen (von {original_size_kb:.0f} KB auf "
-                f"{compressed_size_kb:.0f} KB komprimiert)"
-            )
-            st.rerun()
-        except Exception as e:
-            st.error(f"Upload-Fehler: {str(e)[:200]}")
+        _handle_logo_upload(supabase, int(betrieb_id), uploaded)
 
 
 def _show_archiv():
@@ -697,6 +682,79 @@ def _show_archiv():
                     )
     except Exception as e:
         st.error(f"Fehler beim Laden: {str(e)[:200]}")
+
+
+def _compress_logo(file_bytes: bytes) -> tuple[bytes, float, float]:
+    """
+    Komprimiert ein Logo-Bild für die Speicherung in Supabase.
+    Gibt (jpeg_bytes, original_kb, compressed_kb) zurück.
+    Löst Exceptions bei ungültigen Bildern aus.
+    """
+    import io as _io
+    from PIL import Image, ImageOps
+
+    original_size_kb = len(file_bytes) / 1024
+    img = Image.open(_io.BytesIO(file_bytes))
+    img = ImageOps.exif_transpose(img)
+
+    if img.mode in ("RGBA", "LA", "P"):
+        background = Image.new("RGB", img.size, (255, 255, 255))
+        if img.mode in ("P", "LA"):
+            img = img.convert("RGBA")
+        background.paste(img, mask=img.split()[-1])
+        img = background
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+    img.thumbnail((800, 400), resampling)
+
+    buf = _io.BytesIO()
+    img.save(buf, format="JPEG", quality=85, optimize=True)
+    compressed_bytes = buf.getvalue()
+    return compressed_bytes, original_size_kb, len(compressed_bytes) / 1024
+
+
+def _upsert_logo_row(supabase, betrieb_id: int, compressed_bytes: bytes) -> None:
+    """
+    Speichert das Logo idempotent: erst Update per betrieb_id, sonst Insert.
+    """
+    import base64
+
+    payload = {
+        "logo_bytes": base64.b64encode(compressed_bytes).decode("utf-8"),
+        "logo_mime": "image/jpeg",
+    }
+    updated_rows: list = []
+    try:
+        update_res = (
+            supabase.table("betrieb_logos")
+            .update(payload)
+            .eq("betrieb_id", int(betrieb_id))
+            .execute()
+        )
+        updated_rows = update_res.data or []
+    except Exception:
+        updated_rows = []
+    if not updated_rows:
+        supabase.table("betrieb_logos").insert({
+            "betrieb_id": int(betrieb_id),
+            **payload,
+        }).execute()
+
+
+def _handle_logo_upload(supabase, betrieb_id: int, uploaded) -> None:
+    """UI-Handler: komprimiert und speichert das hochgeladene Logo."""
+    try:
+        file_bytes = uploaded.read()
+        compressed_bytes, original_kb, compressed_kb = _compress_logo(file_bytes)
+        _upsert_logo_row(supabase, betrieb_id, compressed_bytes)
+        st.success(
+            f"✅ Logo hochgeladen (von {original_kb:.0f} KB auf {compressed_kb:.0f} KB komprimiert)"
+        )
+        st.rerun()
+    except Exception as e:
+        st.error(f"Upload-Fehler: {str(e)[:200]}")
 
 
 def _load_betriebsdaten(supabase, betrieb_id):
