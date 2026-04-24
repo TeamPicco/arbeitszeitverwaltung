@@ -28,19 +28,7 @@ FARBE_ORANGE = (200, 100, 0)
 FARBE_BLAU_HELL = (220, 235, 255)
 
 
-def h_zu_hhmm(stunden: float) -> str:
-    """Konvertiert Dezimalstunden in HH:MM Format (auch negativ)."""
-    if stunden is None:
-        return '00:00'
-    negativ = stunden < 0
-    stunden_abs = abs(stunden)
-    h = int(stunden_abs)
-    m = round((stunden_abs - h) * 60)
-    if m == 60:
-        h += 1
-        m = 0
-    prefix = '-' if negativ else ''
-    return f"{prefix}{h:02d}:{m:02d}"
+from utils.azk import h_zu_hhmm as h_zu_hhmm  # re-export, keep public API stable
 
 
 def erstelle_azk_pdf(

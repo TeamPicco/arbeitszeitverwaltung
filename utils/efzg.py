@@ -35,12 +35,7 @@ def _safe_date(value, default: Optional[date] = None) -> Optional[date]:
         return default
 
 
-def _add_months(d: date, months: int) -> date:
-    month_index = (d.month - 1) + int(months)
-    year = d.year + (month_index // 12)
-    month = (month_index % 12) + 1
-    last_day = calendar.monthrange(year, month)[1]
-    return date(year, month, min(d.day, last_day))
+from utils.date_utils import add_months as _add_months
 
 
 def _normalize_diagnose_key(value) -> Optional[str]:

@@ -131,8 +131,17 @@ def format_waehrung(betrag: float) -> str:
 
 
 def format_stunden(stunden: float) -> str:
-    h = int(float(stunden or 0))
-    m = int(round((float(stunden or 0) - h) * 60))
+    """
+    Formatiert Dezimalstunden als ``HH:MM``.
+
+    Negative Werte werden auf ``00:00`` geklemmt. Für Saldo-Anzeigen mit
+    Vorzeichen ist :func:`utils.azk.h_zu_hhmm` vorgesehen.
+    """
+    value = float(stunden or 0)
+    if value < 0:
+        value = 0.0
+    h = int(value)
+    m = int(round((value - h) * 60))
     if m == 60:
         h += 1
         m = 0
@@ -179,54 +188,6 @@ def berechne_urlaubstage(von_datum: date, bis_datum: date) -> float:
 
 def _row_stunden(row: dict) -> float:
     return float(row.get("arbeitsstunden") or row.get("stunden") or 0.0)
-
-
-def _row_zeitpunkt(row: dict) -> date | None:
-    datum_str = row.get("datum")
-    if datum_str:
-        try:
-            return date.fromisoformat(str(datum_str))
-        except Exception:
-            return None
-    monat = row.get("monat")
-    jahr = row.get("jahr")
-    try:
-        if monat and jahr:
-            return date(int(jahr), int(monat), 1)
-    except Exception:
-        return None
-    return None
-
-
-def berechne_azk_kumuliert(mitarbeiter_id, bis_monat, bis_jahr, supabase_client) -> float:
-    """
-    Kumuliertes Zeitkonto bis inkl. Monat/Jahr.
-    """
-    bis_datum = date(int(bis_jahr), int(bis_monat), 1)
-
-    res = (
-        supabase_client.table("zeiterfassung")
-        .select("datum, monat, jahr, arbeitsstunden, stunden")
-        .eq("mitarbeiter_id", mitarbeiter_id)
-        .execute()
-    )
-    ist_gesamt = 0.0
-    for row in res.data or []:
-        zeitpunkt = _row_zeitpunkt(row)
-        if zeitpunkt and (zeitpunkt.year < bis_datum.year or (zeitpunkt.year == bis_datum.year and zeitpunkt.month <= bis_datum.month)):
-            ist_gesamt += _row_stunden(row)
-
-    ma_res = (
-        supabase_client.table("mitarbeiter")
-        .select("monatliche_soll_stunden, soll_stunden_monat")
-        .eq("id", mitarbeiter_id)
-        .single()
-        .execute()
-    )
-    ma_data = ma_res.data or {}
-    soll_monat = float(ma_data.get("monatliche_soll_stunden") or ma_data.get("soll_stunden_monat") or 160.0)
-    soll_gesamt = (bis_datum.year * 12 + bis_datum.month) * soll_monat
-    return round(ist_gesamt - soll_gesamt, 2)
 
 
 def erstelle_zeitraum_auswertung(mitarbeiter_id, start_datum, end_datum, supabase):

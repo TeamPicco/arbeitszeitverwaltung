@@ -26,8 +26,13 @@ def ist_ruhetag(d: date) -> bool:
     return d.weekday() in (0, 1)
 
 
-def h_zu_hhmm(stunden: float) -> str:
-    """Konvertiert Dezimalstunden in HH:MM Format. Negativ wird als -HH:MM dargestellt."""
+def h_zu_hhmm(stunden: float | None) -> str:
+    """
+    Konvertiert Dezimalstunden in HH:MM-Format.
+    Negativ wird als ``-HH:MM`` dargestellt, ``None`` wird als ``00:00`` behandelt.
+    """
+    if stunden is None:
+        return "00:00"
     negativ = stunden < 0
     stunden_abs = abs(stunden)
     h = int(stunden_abs)

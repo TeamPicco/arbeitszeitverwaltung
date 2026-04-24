@@ -7,6 +7,77 @@ from datetime import datetime, date, timedelta
 import re
 from modules.vertraege.inhalte import VERTRAGSTYPEN
 from utils.database import get_supabase_client
+from utils.date_utils import add_months
+from utils.session import require_betrieb_id
+
+
+PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
+
+
+def _probezeit_label(months: int) -> str:
+    return "Keine" if months == 0 else f"{months} Monat{'e' if months > 1 else ''}"
+
+
+def _render_probezeit_select(label: str = "Probezeit", default_index: int = 4, key_suffix: str = "") -> int:
+    return st.selectbox(
+        label,
+        PROBEZEIT_OPTIONEN,
+        index=default_index,
+        format_func=_probezeit_label,
+        key=f"probezeit_{key_suffix}" if key_suffix else None,
+    )
+
+
+def _render_auszahlung_block(
+    default_urlaub: int,
+    default_auszahlung_tag: int = 15,
+    *,
+    with_abschlag: bool = True,
+) -> dict:
+    """
+    Rendert Standardblock Urlaub + Auszahlungstag (+ optional Abschlag).
+    Gibt die erfassten Werte als Dict zurück.
+    """
+    col_a, col_b = st.columns(2)
+    with col_a:
+        urlaubstage = st.number_input(
+            "Urlaubstage/Jahr",
+            min_value=20, max_value=30,
+            value=int(default_urlaub),
+        )
+    with col_b:
+        auszahlung_tag = st.number_input(
+            "Auszahlung zum Tag",
+            min_value=1, max_value=28,
+            value=int(default_auszahlung_tag),
+        )
+
+    abschlag = 0
+    abschlag_tag = 3
+    if with_abschlag:
+        abschlag = st.number_input(
+            "Abschlagszahlung netto (€, 0 = keine)",
+            min_value=0, value=0,
+        )
+        if abschlag > 0:
+            abschlag_tag = st.number_input(
+                "Abschlag-Auszahlung zum Werktag",
+                min_value=1, max_value=5, value=3,
+            )
+
+    return {
+        "urlaubstage": int(urlaubstage),
+        "auszahlung_tag": int(auszahlung_tag),
+        "abschlag": int(abschlag),
+        "abschlag_tag": int(abschlag_tag),
+    }
+
+
+def _build_arbeitnehmer_filename(arbeitnehmer: dict, vertragstyp: str) -> str:
+    name_safe = f"{arbeitnehmer.get('nachname', '')}_{arbeitnehmer.get('vorname', '')}".strip("_").replace(" ", "_")
+    datum_str = datetime.now().strftime("%Y%m%d")
+    titel = VERTRAGSTYPEN[vertragstyp]["name"].replace(" ", "_")
+    return f"{titel}_{name_safe or 'Mitarbeiter'}_{datum_str}.pdf"
 
 
 PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
@@ -182,7 +253,7 @@ def show_vertraege():
 def _show_neuer_vertrag():
     """Erstellen eines neuen Vertrags."""
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return
@@ -275,7 +346,7 @@ def _form_vollzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col2:
             probezeit_monate = _render_probezeit_select(key_suffix="vollzeit")
 
-        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
+        probezeit_ende = add_months(beginn, probezeit_monate) if probezeit_monate else None
         if probezeit_ende:
             st.caption(f"Probezeit endet: {probezeit_ende.strftime('%d.%m.%Y')}")
 
@@ -328,7 +399,7 @@ def _form_teilzeit(supabase, betrieb_id, betrieb, logo_bytes):
             beginn = st.date_input("Vertragsbeginn *", value=date.today())
         with col2:
             probezeit_monate = _render_probezeit_select(key_suffix="teilzeit")
-        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
+        probezeit_ende = add_months(beginn, probezeit_monate) if probezeit_monate else None
 
     with st.expander("⏰ Arbeitszeit & Vergütung", expanded=True):
         col1, col2 = st.columns(2)
@@ -534,7 +605,7 @@ def _show_betriebsdaten():
     st.caption("Diese Daten werden automatisch in allen Verträgen verwendet.")
 
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return
@@ -614,7 +685,7 @@ def _show_archiv():
     st.markdown("### 📚 Vertragsarchiv")
 
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return
