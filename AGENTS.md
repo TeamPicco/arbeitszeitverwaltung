@@ -4,7 +4,7 @@
 
 ### Overview
 
-This is a single-service **Streamlit** Python web application ("Coreo-Flow / Arbeitszeitverwaltung") for German-language workforce time-tracking. It uses an **external Supabase** (hosted PostgreSQL) backend for all data persistence.
+This is a single-service **Streamlit** Python web application ("Complio") for German-language workforce time-tracking. It uses an **external Supabase** (hosted PostgreSQL) backend for all data persistence.
 
 ### Running the app
 
