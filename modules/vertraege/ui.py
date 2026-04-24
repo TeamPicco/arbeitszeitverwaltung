@@ -4,6 +4,7 @@ Formulare zum Erstellen von Arbeitsverträgen.
 """
 import streamlit as st
 from datetime import datetime, date, timedelta
+import re
 from modules.vertraege.inhalte import VERTRAGSTYPEN
 from utils.database import get_supabase_client
 
@@ -19,6 +20,57 @@ def _get_supabase():
         return supabase
     except Exception:
         return None
+
+
+def _extract_missing_column(exc: Exception) -> str:
+    """Extrahiert fehlenden Spaltennamen aus PostgREST-Fehlermeldungen."""
+    msg = str(exc or "")
+    m = re.search(r'column\s+([a-zA-Z0-9_\."]+)\s+does not exist', msg, flags=re.IGNORECASE)
+    if not m:
+        return ""
+    col = str(m.group(1) or "").strip().strip('"')
+    return col.split(".")[-1] if col else ""
+
+
+def _load_archiv_rows_robust(supabase, betrieb_id: int) -> list[dict]:
+    """
+    Lädt Vertragsarchiv robust über unterschiedliche DB-Schemas.
+    Entfernt unbekannte Spalten automatisch aus SELECT und sortiert über
+    das beste verfügbare Datumsfeld.
+    """
+    select_columns = [
+        "id",
+        "vertragstyp",
+        "vertragsdaten",
+        "erstellt_am",
+        "created_at",
+        "gueltig_ab",
+        "gueltig_bis",
+        "wochenstunden",
+        "soll_stunden_monat",
+        "urlaubstage_jahr",
+        "monatsbrutto_verguetung",
+        "mitarbeiter_id",
+    ]
+    # Mehrere Versuche: bei "column ... does not exist" Spalte entfernen.
+    for _ in range(len(select_columns) + 2):
+        try:
+            select_expr = ", ".join(select_columns) if select_columns else "id"
+            q = supabase.table("vertraege").select(select_expr).eq("betrieb_id", int(betrieb_id))
+            if "erstellt_am" in select_columns:
+                q = q.order("erstellt_am", desc=True)
+            elif "created_at" in select_columns:
+                q = q.order("created_at", desc=True)
+            elif "gueltig_ab" in select_columns:
+                q = q.order("gueltig_ab", desc=True)
+            return q.execute().data or []
+        except Exception as exc:
+            missing_col = _extract_missing_column(exc)
+            if missing_col and missing_col in select_columns:
+                select_columns = [c for c in select_columns if c != missing_col]
+                continue
+            raise
+    return []
 
 
 def show_vertraege():
@@ -583,11 +635,7 @@ def _show_archiv():
         return
 
     try:
-        result = supabase.table("vertraege").select(
-            "id, vertragstyp, vertragsdaten, erstellt_am, gueltig_ab"
-        ).eq("betrieb_id", int(betrieb_id)).order("erstellt_am", desc=True).execute()
-
-        vertraege = result.data or []
+        vertraege = _load_archiv_rows_robust(supabase, int(betrieb_id))
 
         if not vertraege:
             st.info("Noch keine Verträge archiviert.")
@@ -595,24 +643,34 @@ def _show_archiv():
 
         for v in vertraege:
             daten_json = v.get("vertragsdaten") or {}
+            if not isinstance(daten_json, dict):
+                daten_json = {}
             arbeitnehmer = daten_json.get("arbeitnehmer") or {}
             an_name = f"{arbeitnehmer.get('vorname', '')} {arbeitnehmer.get('nachname', '')}".strip()
-            vtyp_name = VERTRAGSTYPEN.get(v.get("vertragstyp"), {}).get("name", v.get("vertragstyp"))
+            vtyp = str(v.get("vertragstyp") or "").strip()
+            vtyp_name = VERTRAGSTYPEN.get(vtyp, {}).get("name")
+            if not vtyp_name:
+                vtyp_name = vtyp.replace("_", " ").title() if vtyp else "Arbeitsvertrag (Bestand)"
+            created_value = str(v.get("erstellt_am") or v.get("created_at") or "")
 
             with st.container(border=True):
                 col1, col2, col3 = st.columns([3, 2, 1])
                 with col1:
                     st.markdown(f"**{vtyp_name}**")
-                    st.caption(f"Mitarbeiter: {an_name or 'Unbekannt'}")
+                    if an_name:
+                        st.caption(f"Mitarbeiter: {an_name}")
+                    else:
+                        ma_id = v.get("mitarbeiter_id")
+                        st.caption(f"Mitarbeiter: ID {ma_id}" if ma_id else "Mitarbeiter: Unbekannt")
                 with col2:
-                    st.caption(f"Erstellt: {v['erstellt_am'][:10]}")
+                    if created_value:
+                        st.caption(f"Erstellt: {created_value[:10]}")
                     if v.get("gueltig_ab"):
                         st.caption(f"Gültig ab: {v['gueltig_ab']}")
                 with col3:
                     # PDF neu generieren
                     if st.button("🔄 PDF", key=f"regen_{v['id']}", use_container_width=True):
                         try:
-                            vtyp = v.get("vertragstyp")
                             if vtyp in VERTRAGSTYPEN:
                                 logo_bytes = _load_logo(supabase, betrieb_id)
                                 pdf = VERTRAGSTYPEN[vtyp]["generator"](
@@ -623,6 +681,8 @@ def _show_archiv():
                                 )
                                 st.session_state[f"pdf_{v['id']}"] = pdf
                                 st.rerun()
+                            else:
+                                st.info("PDF-Regeneration für diesen Legacy-Vertragstyp nicht verfügbar.")
                         except Exception as e:
                             st.error(f"{str(e)[:100]}")
 
