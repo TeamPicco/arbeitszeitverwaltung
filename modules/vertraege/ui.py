@@ -80,6 +80,87 @@ def _build_arbeitnehmer_filename(arbeitnehmer: dict, vertragstyp: str) -> str:
     return f"{titel}_{name_safe or 'Mitarbeiter'}_{datum_str}.pdf"
 
 
+PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
+
+
+def _add_months(d: date, months: int) -> date:
+    """Addiert 'months' Monate kalendergenau (inklusive Monatslängen)."""
+    if not months:
+        return d
+    total_month = (d.month - 1) + int(months)
+    year = d.year + total_month // 12
+    month = total_month % 12 + 1
+    import calendar
+    day = min(d.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def _probezeit_label(months: int) -> str:
+    return "Keine" if months == 0 else f"{months} Monat{'e' if months > 1 else ''}"
+
+
+def _render_probezeit_select(label: str = "Probezeit", default_index: int = 4, key_suffix: str = "") -> int:
+    return st.selectbox(
+        label,
+        PROBEZEIT_OPTIONEN,
+        index=default_index,
+        format_func=_probezeit_label,
+        key=f"probezeit_{key_suffix}" if key_suffix else None,
+    )
+
+
+def _render_auszahlung_block(
+    default_urlaub: int,
+    default_auszahlung_tag: int = 15,
+    *,
+    with_abschlag: bool = True,
+) -> dict:
+    """
+    Rendert Standardblock Urlaub + Auszahlungstag (+ optional Abschlag).
+    Gibt die erfassten Werte als Dict zurück.
+    """
+    col_a, col_b = st.columns(2)
+    with col_a:
+        urlaubstage = st.number_input(
+            "Urlaubstage/Jahr",
+            min_value=20, max_value=30,
+            value=int(default_urlaub),
+        )
+    with col_b:
+        auszahlung_tag = st.number_input(
+            "Auszahlung zum Tag",
+            min_value=1, max_value=28,
+            value=int(default_auszahlung_tag),
+        )
+
+    abschlag = 0
+    abschlag_tag = 3
+    if with_abschlag:
+        abschlag = st.number_input(
+            "Abschlagszahlung netto (€, 0 = keine)",
+            min_value=0, value=0,
+        )
+        if abschlag > 0:
+            abschlag_tag = st.number_input(
+                "Abschlag-Auszahlung zum Werktag",
+                min_value=1, max_value=5, value=3,
+            )
+
+    return {
+        "urlaubstage": int(urlaubstage),
+        "auszahlung_tag": int(auszahlung_tag),
+        "abschlag": int(abschlag),
+        "abschlag_tag": int(abschlag_tag),
+    }
+
+
+def _build_arbeitnehmer_filename(arbeitnehmer: dict, vertragstyp: str) -> str:
+    name_safe = f"{arbeitnehmer.get('nachname', '')}_{arbeitnehmer.get('vorname', '')}".strip("_").replace(" ", "_")
+    datum_str = datetime.now().strftime("%Y%m%d")
+    titel = VERTRAGSTYPEN[vertragstyp]["name"].replace(" ", "_")
+    return f"{titel}_{name_safe or 'Mitarbeiter'}_{datum_str}.pdf"
+
+
 def _get_supabase():
     """Liefert einen gültigen Supabase-Client (Session oder Fallback)."""
     supabase = st.session_state.get("supabase")
