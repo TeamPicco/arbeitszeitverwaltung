@@ -7,21 +7,10 @@ from datetime import datetime, date, timedelta
 import re
 from modules.vertraege.inhalte import VERTRAGSTYPEN
 from utils.database import get_supabase_client
+from utils.date_utils import add_months
 
 
 PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
-
-
-def _add_months(d: date, months: int) -> date:
-    """Addiert 'months' Monate kalendergenau (inklusive Monatslängen)."""
-    if not months:
-        return d
-    total_month = (d.month - 1) + int(months)
-    year = d.year + total_month // 12
-    month = total_month % 12 + 1
-    import calendar
-    day = min(d.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
 
 
 def _probezeit_label(months: int) -> str:
@@ -275,7 +264,7 @@ def _form_vollzeit(supabase, betrieb_id, betrieb, logo_bytes):
         with col2:
             probezeit_monate = _render_probezeit_select(key_suffix="vollzeit")
 
-        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
+        probezeit_ende = add_months(beginn, probezeit_monate) if probezeit_monate else None
         if probezeit_ende:
             st.caption(f"Probezeit endet: {probezeit_ende.strftime('%d.%m.%Y')}")
 
@@ -328,7 +317,7 @@ def _form_teilzeit(supabase, betrieb_id, betrieb, logo_bytes):
             beginn = st.date_input("Vertragsbeginn *", value=date.today())
         with col2:
             probezeit_monate = _render_probezeit_select(key_suffix="teilzeit")
-        probezeit_ende = _add_months(beginn, probezeit_monate) if probezeit_monate else None
+        probezeit_ende = add_months(beginn, probezeit_monate) if probezeit_monate else None
 
     with st.expander("⏰ Arbeitszeit & Vergütung", expanded=True):
         col1, col2 = st.columns(2)

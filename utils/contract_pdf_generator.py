@@ -6,7 +6,6 @@ Layout und Paragraphen orientieren sich eng am Mustervertrag.
 from __future__ import annotations
 
 import base64
-import calendar
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -124,12 +123,7 @@ def _to_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _plus_months(src: date, months: int) -> date:
-    month_idx = src.month - 1 + months
-    year = src.year + month_idx // 12
-    month = month_idx % 12 + 1
-    day = min(src.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
+from utils.date_utils import add_months as _plus_months  # noqa: E402
 
 
 def _default_logo_path() -> str:

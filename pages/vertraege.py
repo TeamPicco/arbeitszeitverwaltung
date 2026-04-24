@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import calendar
 from datetime import date
 
 import streamlit as st
@@ -57,12 +56,7 @@ def _to_date(value: object, fallback: date | None = None) -> date:
     return fallback or date.today()
 
 
-def _plus_months(src: date, months: int) -> date:
-    month_idx = src.month - 1 + months
-    year = src.year + month_idx // 12
-    month = month_idx % 12 + 1
-    day = min(src.day, calendar.monthrange(year, month)[1])
-    return date(year, month, day)
+from utils.date_utils import add_months as _plus_months  # noqa: E402
 
 
 def _fmt_date_long_de(d: date) -> str:

@@ -1272,16 +1272,7 @@ def fuehre_testrechnung_durch() -> str:
 # HILFSFUNKTIONEN FÜR ZEITAUSWERTUNG
 # ─────────────────────────────────────────────────────────────────────────────
 
-def format_stunden(stunden: float) -> str:
-    """Formatiert Dezimalstunden als HH:MM."""
-    if stunden < 0:
-        stunden = 0
-    h = int(stunden)
-    m = int(round((stunden - h) * 60))
-    if m == 60:
-        h += 1
-        m = 0
-    return f"{h:02d}:{m:02d}"
+from utils.calculations import format_stunden as format_stunden  # re-export, keep public API stable
 
 
 def format_euro(betrag: float) -> str:
