@@ -18,7 +18,7 @@ def generiere_aktivierungs_qr(registrierungscode: str, geraet_name: str, app_url
     Args:
         registrierungscode: Der eindeutige Registrierungscode des Mastergeräts
         geraet_name: Name des Geräts (für den QR-Code-Inhalt)
-        app_url: Basis-URL der App (z.B. https://arbeitszeitverwaltung.onrender.com)
+        app_url: Basis-URL der App (z.B. https://app.getcomplio.de)
         
     Returns:
         Optional[bytes]: PNG-Bytes des QR-Codes oder None bei Fehler

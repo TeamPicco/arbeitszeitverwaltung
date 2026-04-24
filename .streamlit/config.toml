@@ -3,10 +3,6 @@ headless = true
 enableCORS = false
 enableXsrfProtection = false
 
-[browser]
-serverAddress = "app.getcomplio.de"
-serverPort = 443
-
 [theme]
 base = "dark"
 primaryColor = "#F97316"
