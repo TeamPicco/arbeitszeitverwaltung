@@ -296,7 +296,7 @@ def send_dienstplan_email(
         logger.warning(f"Keine E-Mail-Adresse für {mitarbeiter_name} hinterlegt.")
         return False
     
-    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
     
     subject = f"📅 Ihr Dienstplan für {monat} {jahr} ist verfügbar"
     
@@ -460,7 +460,7 @@ def send_lohnabrechnung_email(
     if not mitarbeiter_email:
         return False
     
-    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
     
     subject = f"💰 Ihre Lohnabrechnung für {monat} {jahr} ist verfügbar"
     
@@ -517,7 +517,7 @@ def send_aenderungsantrag_admin_email(
         app_url: App-URL
     """
     empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
-    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
     
     subject = f"✋ Änderungsantrag von {mitarbeiter_name} – Genehmigung erforderlich"
     
@@ -594,7 +594,7 @@ def send_chat_benachrichtigung_email(
     if not empfaenger_email:
         return False
     
-    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
     
     # Nachricht kürzen für Vorschau
     vorschau = nachricht_vorschau[:100] + ("..." if len(nachricht_vorschau) > 100 else "")
@@ -783,7 +783,7 @@ def send_dienstplan_veroeffentlichung_alle(
 ) -> dict:
     """Sendet Dienstplan-Veröffentlichungs-Mail an ALLE Mitarbeiter mit Vorbehalt-Hinweis."""
     ergebnis = {'gesendet': 0, 'fehlgeschlagen': 0, 'keine_email': 0}
-    app_link = app_url or os.getenv("APP_URL", "https://arbeitszeitverwaltung.onrender.com")
+    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
     vorbehalt_block = ""
     if hinweis_vorbehalt:
         vorbehalt_block = """
