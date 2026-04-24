@@ -8,6 +8,7 @@ import re
 from modules.vertraege.inhalte import VERTRAGSTYPEN
 from utils.database import get_supabase_client
 from utils.date_utils import add_months
+from utils.session import require_betrieb_id
 
 
 PROBEZEIT_OPTIONEN = [0, 1, 2, 3, 6]
@@ -171,7 +172,7 @@ def show_vertraege():
 def _show_neuer_vertrag():
     """Erstellen eines neuen Vertrags."""
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return
@@ -523,7 +524,7 @@ def _show_betriebsdaten():
     st.caption("Diese Daten werden automatisch in allen Verträgen verwendet.")
 
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return
@@ -603,7 +604,7 @@ def _show_archiv():
     st.markdown("### 📚 Vertragsarchiv")
 
     supabase = _get_supabase()
-    betrieb_id = st.session_state.get("betrieb_id", 1)
+    betrieb_id = require_betrieb_id()
     if supabase is None:
         st.error("Datenbankverbindung konnte nicht hergestellt werden.")
         return

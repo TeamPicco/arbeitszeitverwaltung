@@ -10,6 +10,7 @@ from pages.mitarbeiter_dienstplan import erstelle_dienstplan_pdf
 from utils.branding import BRAND_APP_NAME, BRAND_ICON_IMAGE, BRAND_LOGO_IMAGE
 from utils.database import get_supabase_client
 from utils.lohnberechnung import summarize_employee_month
+from utils.session import require_betrieb_id
 from utils.styles import apply_custom_css
 from utils.work_accounts import compute_work_account_snapshot
 
@@ -285,7 +286,7 @@ def _store_dienstplanwunsch(
     grund: str,
 ) -> tuple[bool, str]:
     supabase = get_supabase_client()
-    betrieb_id = int(mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1)
+    betrieb_id = require_betrieb_id()
     user_id = st.session_state.get("user_id")
     # Primär: dedizierte Wunsch-Tabelle (falls Migration aktiv)
     try:
@@ -345,7 +346,7 @@ def _store_urlaubsantrag(
 
     supabase = get_supabase_client()
     payload = {
-        "betrieb_id": int(mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1),
+        "betrieb_id": require_betrieb_id(),
         "mitarbeiter_id": int(mitarbeiter["id"]),
         "von_datum": von.isoformat(),
         "bis_datum": bis.isoformat(),
@@ -375,7 +376,7 @@ def _store_personal_data_change_request(
 
     supabase = get_supabase_client()
     payload = {
-        "betrieb_id": int(mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1),
+        "betrieb_id": require_betrieb_id(),
         "mitarbeiter_id": int(mitarbeiter["id"]),
         "feld": field_name,
         "alter_wert": str(old_value or ""),

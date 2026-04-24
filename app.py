@@ -112,12 +112,25 @@ def _refresh_after_terminal_event() -> None:
     st.rerun()
 
 
-def _get_terminal_betrieb_id(mitarbeiter: Dict[str, Any]) -> int:
+def _get_terminal_betrieb_id(mitarbeiter: Dict[str, Any]) -> Optional[int]:
     """
     Ermittelt den Betriebskontext für Terminal-Buchungen.
-    Hält die bisherige Fallback-Logik zentral an einer Stelle.
+    Kein Fallback auf eine beliebige betrieb_id – schützt vor Cross-Tenant-Buchungen.
     """
-    return int(mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1)
+    candidates = (
+        mitarbeiter.get("betrieb_id"),
+        st.session_state.get("betrieb_id"),
+    )
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            parsed = int(value)
+        except (ValueError, TypeError):
+            continue
+        if parsed > 0:
+            return parsed
+    return None
 
 
 def _submit_terminal_event(
@@ -127,9 +140,17 @@ def _submit_terminal_event(
     success_message: str,
     error_message: str,
 ) -> None:
+    betrieb_id = _get_terminal_betrieb_id(mitarbeiter)
+    if betrieb_id is None:
+        st.error(
+            "🔒 Terminal konnte keinen Betriebskontext ermitteln. "
+            "Bitte Mitarbeiterdaten oder Admin-Kontakt prüfen."
+        )
+        return
+
     result = register_time_event(
         supabase,
-        betrieb_id=_get_terminal_betrieb_id(mitarbeiter),
+        betrieb_id=betrieb_id,
         mitarbeiter_id=mitarbeiter["id"],
         action=action,
         source="terminal",

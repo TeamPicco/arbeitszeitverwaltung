@@ -19,6 +19,7 @@ from utils.calculations import (
 )
 from utils.lohnberechnung import summarize_employee_month
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
+from utils.session import require_betrieb_id
 
 
 def _resolve_pdf_logo_path() -> str:
@@ -669,12 +670,12 @@ def show_monatsplan(supabase):
         if st.button("Aktualisieren", use_container_width=True):
             st.rerun()
 
-    mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
+    mitarbeiter_liste = _cached_mitarbeiter(require_betrieb_id())
     if not mitarbeiter_liste:
         st.warning("Keine Mitarbeiter gefunden.")
         return
 
-    schichtvorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    schichtvorlagen_rows = _cached_schichtvorlagen(require_betrieb_id())
     vorlagen_dict = {v['id']: v for v in schichtvorlagen_rows} if schichtvorlagen_rows else {}
 
     erster_tag = date(jahr, monat, 1)
@@ -683,7 +684,7 @@ def show_monatsplan(supabase):
     # Lade Dienstpläne
     dienstplaene_rows = _cached_monatsdienste(
         planning_table,
-        st.session_state.betrieb_id,
+        require_betrieb_id(),
         erster_tag.isoformat(),
         letzter_tag.isoformat(),
     )
@@ -708,7 +709,7 @@ def show_monatsplan(supabase):
 
     # Lade genehmigte Urlaube
     urlaub_rows = _cached_genehmigte_urlaube(
-        st.session_state.betrieb_id,
+        require_betrieb_id(),
         erster_tag.isoformat(),
         letzter_tag.isoformat(),
     )
@@ -746,7 +747,7 @@ def show_monatsplan(supabase):
                 n = setze_urlaub_automatisch(
                     supabase,
                     planning_table,
-                    st.session_state.betrieb_id,
+                    require_betrieb_id(),
                     ma['id'],
                     urlaub_map,
                     erster_tag,
@@ -873,7 +874,7 @@ def show_monatsplan(supabase):
         ):
             try:
                 eintrag = {
-                    'betrieb_id': st.session_state.betrieb_id,
+                    'betrieb_id': require_betrieb_id(),
                     'mitarbeiter_id': mitarbeiter_id,
                     'datum': dienst_datum.isoformat(),
                     'schichttyp': schichttyp,
@@ -1176,12 +1177,12 @@ def show_monatsuebersicht_tabelle(supabase):
         if st.button("Aktualisieren", use_container_width=True, key="tabelle_refresh"):
             st.rerun()
 
-    mitarbeiter_liste = _cached_mitarbeiter(st.session_state.betrieb_id)
+    mitarbeiter_liste = _cached_mitarbeiter(require_betrieb_id())
     if not mitarbeiter_liste:
         st.warning("Keine Mitarbeiter gefunden.")
         return
 
-    schichtvorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    schichtvorlagen_rows = _cached_schichtvorlagen(require_betrieb_id())
     vorlagen_dict = {v['id']: v for v in schichtvorlagen_rows} if schichtvorlagen_rows else {}
 
     erster_tag = date(jahr, monat, 1)
@@ -1189,7 +1190,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
     dienstplaene_rows = _cached_monatsdienste(
         planning_table,
-        st.session_state.betrieb_id,
+        require_betrieb_id(),
         erster_tag.isoformat(),
         letzter_tag.isoformat(),
     )
@@ -1204,7 +1205,7 @@ def show_monatsuebersicht_tabelle(supabase):
 
     # Genehmigte Urlaube als Fallback (falls nicht im Dienstplan)
     urlaub_rows = _cached_genehmigte_urlaube(
-        st.session_state.betrieb_id,
+        require_betrieb_id(),
         erster_tag.isoformat(),
         letzter_tag.isoformat(),
     )
@@ -1363,7 +1364,7 @@ def show_monatsuebersicht_tabelle(supabase):
                             _apply_schichtvorlage_one_click(
                                 supabase=supabase,
                                 planning_table=planning_table,
-                                betrieb_id=st.session_state.betrieb_id,
+                                betrieb_id=require_betrieb_id(),
                                 mitarbeiter=ma,
                                 datum_iso=datum_iso,
                                 vorlage=vorlage,
@@ -1558,7 +1559,7 @@ def show_monatsuebersicht_tabelle(supabase):
                     try:
                         if neuer_typ == "arbeit":
                             payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
+                                "betrieb_id": require_betrieb_id(),
                                 "mitarbeiter_id": ma_id,
                                 "datum": datum_iso,
                                 "schichttyp": neuer_typ,
@@ -1569,7 +1570,7 @@ def show_monatsuebersicht_tabelle(supabase):
                             }
                         elif neuer_typ in ("urlaub", "krank"):
                             payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
+                                "betrieb_id": require_betrieb_id(),
                                 "mitarbeiter_id": ma_id,
                                 "datum": datum_iso,
                                 "schichttyp": neuer_typ,
@@ -1580,7 +1581,7 @@ def show_monatsuebersicht_tabelle(supabase):
                             }
                         else:
                             payload = {
-                                "betrieb_id": st.session_state.betrieb_id,
+                                "betrieb_id": require_betrieb_id(),
                                 "mitarbeiter_id": ma_id,
                                 "datum": datum_iso,
                                 "schichttyp": neuer_typ,
@@ -1720,7 +1721,7 @@ def show_schichtvorlagen(supabase):
     st.subheader("Schichtvorlagen")
     st.info("Erstellen Sie wiederverwendbare Schichtvorlagen (z.B. Frühschicht, Spätschicht) für schnellere Dienstplanung.")
 
-    vorlagen_rows = _cached_schichtvorlagen(st.session_state.betrieb_id)
+    vorlagen_rows = _cached_schichtvorlagen(require_betrieb_id())
     vorlagen_rows = sorted(vorlagen_rows, key=lambda v: str(v.get("name") or ""))
 
     with st.expander("Neue Schichtvorlage erstellen", expanded=False):
@@ -1759,7 +1760,7 @@ def show_schichtvorlagen(supabase):
             if st.form_submit_button("Vorlage speichern", use_container_width=True) and name:
                 try:
                     supabase.table('schichtvorlagen').insert({
-                        'betrieb_id': st.session_state.betrieb_id,
+                        'betrieb_id': require_betrieb_id(),
                         'name': name,
                         'beschreibung': beschreibung if beschreibung else None,
                         'start_zeit': start_zeit.strftime('%H:%M:%S'),

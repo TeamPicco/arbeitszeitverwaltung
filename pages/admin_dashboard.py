@@ -17,6 +17,7 @@ from utils.database import (
     update_mitarbeiter,
     upload_file_to_storage_result,
 )
+from utils.session import require_betrieb_id
 from utils.styles import apply_custom_css
 from utils.work_accounts import (
     close_work_account_month,
@@ -576,7 +577,7 @@ def _show_absenzen_tab():
 
                     result = store_absence(
                         supabase,
-                        betrieb_id=mitarbeiter.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                        betrieb_id=require_betrieb_id(),
                         mitarbeiter_id=mitarbeiter["id"],
                         typ=typ,
                         start=start,
@@ -1473,7 +1474,7 @@ def _show_system_tab():
             try:
                 validation = validate_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=require_betrieb_id(),
                     mitarbeiter_id=ma["id"],
                     monat=int(check_monat),
                     jahr=int(check_jahr),
@@ -1526,7 +1527,7 @@ def _show_arbeitszeitkonten_tab():
             try:
                 snapshot = sync_work_account_for_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=require_betrieb_id(),
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1544,7 +1545,7 @@ def _show_arbeitszeitkonten_tab():
             try:
                 close_work_account_month(
                     supabase,
-                    betrieb_id=ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1,
+                    betrieb_id=require_betrieb_id(),
                     mitarbeiter_id=ma["id"],
                     monat=int(monat),
                     jahr=int(jahr),
@@ -1648,7 +1649,7 @@ def _show_arbeitszeitkonten_tab():
                 try:
                     set_work_account_opening_balance(
                         supabase,
-                        betrieb_id=int(init_ma.get("betrieb_id") or st.session_state.get("betrieb_id") or 1),
+                        betrieb_id=require_betrieb_id(),
                         mitarbeiter_id=int(init_ma["id"]),
                         monat=int(init_monat),
                         jahr=int(init_jahr),

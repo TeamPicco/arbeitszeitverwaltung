@@ -15,6 +15,7 @@ import os
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.audit_log import log_aktion, log_zeitkorrektur, log_zeitloeschung
+from utils.session import require_betrieb_id
 from utils.branding import BRAND_COMPANY_NAME, BRAND_LOGO_IMAGE
 from utils.absence_policy import (
     evaluate_paid_absence_credit,
@@ -424,7 +425,7 @@ def _show_manual_outdoor_entry_form(
         )
         selected_ma = ma_options[selected_label]
         selected_ma_id = int(selected_ma.get("id") or 0)
-        betrieb_id = int(st.session_state.get("betrieb_id") or selected_ma.get("betrieb_id") or 1)
+        betrieb_id = require_betrieb_id()
 
         today = date.today()
         default_date = today if (today.year == jahr and today.month == monat) else date(jahr, monat, 1)
@@ -622,7 +623,7 @@ def _show_manual_account_adjustment(
         st.caption("Jede manuelle Anpassung erfordert eine Begründung (Audit/GoBD).")
         supabase = get_supabase_client()
         ma_id = int(aktiver_ma.get("id") or 0)
-        betrieb_id = int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1)
+        betrieb_id = require_betrieb_id()
 
         corr_mode = st.selectbox(
             "Korrekturtyp",
@@ -1179,7 +1180,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     # ── Mitarbeiter-Auswahl (nur Admin) ──────────────────────────────────────
     ma_liste: list[dict] = []
     if admin_modus:
-        ma_liste = _cached_admin_mitarbeiter_za(int(st.session_state.betrieb_id))
+        ma_liste = _cached_admin_mitarbeiter_za(require_betrieb_id())
         ma_optionen = {f"{m['vorname']} {m['nachname']}": m for m in ma_liste}
 
         ausgewaehlter_name = st.selectbox(
@@ -1204,7 +1205,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     policy_map = load_absence_compensation_policy(
         get_supabase_client(),
-        betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+        betrieb_id=require_betrieb_id(),
     )
     include_paid = include_paid_absence_in_reports("mit")
     report_mode = st.radio(
@@ -1570,7 +1571,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
             supabase_konto = get_supabase_client()
             snap = snap_preview or sync_work_account_for_month(
                 supabase_konto,
-                betrieb_id=int(st.session_state.get("betrieb_id") or aktiver_ma.get("betrieb_id") or 1),
+                betrieb_id=require_betrieb_id(),
                 mitarbeiter_id=int(aktiver_ma["id"]),
                 monat=int(monat),
                 jahr=int(jahr),
@@ -1639,7 +1640,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
                                 supabase_k = get_supabase_client()
                                 supabase_k.table('ueberstunden_korrekturen').insert({
                                     'mitarbeiter_id': aktiver_ma['id'],
-                                    'betrieb_id': st.session_state.betrieb_id,
+                                    'betrieb_id': require_betrieb_id(),
                                     'monat': monat,
                                     'jahr': jahr,
                                     'stunden': auszahl_stunden,

@@ -137,3 +137,42 @@ def clear_login_session() -> None:
     ]
     for key in login_keys:
         st.session_state.pop(key, None)
+
+
+def require_betrieb_id() -> int:
+    """
+    Holt die betrieb_id aus der Session und wirft einen sauberen Fehler falls sie fehlt.
+    NIEMALS auf einen Default-Wert zurückfallen - das würde Multi-Tenancy-Isolation brechen.
+
+    Returns:
+        int: Die betrieb_id des eingeloggten Users
+
+    Raises:
+        st.error + st.stop: Bei fehlender oder ungültiger betrieb_id
+    """
+    import streamlit as st
+
+    betrieb_id = st.session_state.get("betrieb_id")
+
+    if betrieb_id is None:
+        st.error(
+            "🔒 Sicherheitshinweis: Deine Sitzung ist nicht vollständig initialisiert. "
+            "Bitte melde dich erneut an."
+        )
+        # Session aufräumen damit kein halbgarer Zustand bleibt
+        for key in ("user_id", "user_role", "betrieb_id", "user_email"):
+            if key in st.session_state:
+                del st.session_state[key]
+        st.stop()
+
+    try:
+        betrieb_id_int = int(betrieb_id)
+        if betrieb_id_int <= 0:
+            raise ValueError("betrieb_id muss positiv sein")
+        return betrieb_id_int
+    except (ValueError, TypeError):
+        st.error(
+            "🔒 Sicherheitshinweis: Ungültige Betriebs-Kennung in der Sitzung. "
+            "Bitte melde dich erneut an."
+        )
+        st.stop()
