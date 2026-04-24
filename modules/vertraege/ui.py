@@ -5,6 +5,20 @@ Formulare zum Erstellen von Arbeitsverträgen.
 import streamlit as st
 from datetime import datetime, date, timedelta
 from modules.vertraege.inhalte import VERTRAGSTYPEN
+from utils.database import get_supabase_client
+
+
+def _get_supabase():
+    """Liefert einen gültigen Supabase-Client (Session oder Fallback)."""
+    supabase = st.session_state.get("supabase")
+    if supabase is not None:
+        return supabase
+    try:
+        supabase = get_supabase_client()
+        st.session_state["supabase"] = supabase
+        return supabase
+    except Exception:
+        return None
 
 
 def show_vertraege():
@@ -34,8 +48,11 @@ def show_vertraege():
 
 def _show_neuer_vertrag():
     """Erstellen eines neuen Vertrags."""
-    supabase = st.session_state.get("supabase")
+    supabase = _get_supabase()
     betrieb_id = st.session_state.get("betrieb_id", 1)
+    if supabase is None:
+        st.error("Datenbankverbindung konnte nicht hergestellt werden.")
+        return
 
     # Schritt 1: Vertragstyp wählen
     st.markdown("### 1. Vertragstyp wählen")
@@ -419,8 +436,11 @@ def _show_betriebsdaten():
     st.markdown("### ⚙️ Betriebsdaten")
     st.caption("Diese Daten werden automatisch in allen Verträgen verwendet.")
 
-    supabase = st.session_state.get("supabase")
+    supabase = _get_supabase()
     betrieb_id = st.session_state.get("betrieb_id", 1)
+    if supabase is None:
+        st.error("Datenbankverbindung konnte nicht hergestellt werden.")
+        return
 
     daten = _load_betriebsdaten(supabase, betrieb_id)
 
@@ -492,30 +512,28 @@ def _show_betriebsdaten():
         try:
             import base64
             import io as _io
-            from PIL import Image
+            from PIL import Image, ImageOps
 
             file_bytes = uploaded.read()
             original_size_kb = len(file_bytes) / 1024
 
             # Bild öffnen und komprimieren
             img = Image.open(_io.BytesIO(file_bytes))
+            img = ImageOps.exif_transpose(img)
 
             # Konvertiere zu RGB falls RGBA oder Palette (für JPEG)
             if img.mode in ("RGBA", "LA", "P"):
-                # Weißer Hintergrund für Transparenz
                 background = Image.new("RGB", img.size, (255, 255, 255))
-                if img.mode == "P":
+                if img.mode in ("P", "LA"):
                     img = img.convert("RGBA")
-                if img.mode in ("RGBA", "LA"):
-                    background.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-                    img = background
-                else:
-                    img = img.convert("RGB")
+                background.paste(img, mask=img.split()[-1])
+                img = background
             elif img.mode != "RGB":
                 img = img.convert("RGB")
 
             # Auf max. 800x400 verkleinern (proportional)
-            img.thumbnail((800, 400), Image.Resampling.LANCZOS)
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
+            img.thumbnail((800, 400), resampling)
 
             # Als JPEG mit guter Qualität speichern
             buf = _io.BytesIO()
@@ -523,12 +541,27 @@ def _show_betriebsdaten():
             compressed_bytes = buf.getvalue()
             compressed_size_kb = len(compressed_bytes) / 1024
 
-            # Upload zu Supabase
-            supabase.table("betrieb_logos").upsert({
-                "betrieb_id": int(betrieb_id),
+            # Upload zu Supabase (erst update, dann fallback insert)
+            payload = {
                 "logo_bytes": base64.b64encode(compressed_bytes).decode("utf-8"),
                 "logo_mime": "image/jpeg",
-            }).execute()
+            }
+            updated_rows = []
+            try:
+                update_res = (
+                    supabase.table("betrieb_logos")
+                    .update(payload)
+                    .eq("betrieb_id", int(betrieb_id))
+                    .execute()
+                )
+                updated_rows = update_res.data or []
+            except Exception:
+                updated_rows = []
+            if not updated_rows:
+                supabase.table("betrieb_logos").insert({
+                    "betrieb_id": int(betrieb_id),
+                    **payload,
+                }).execute()
 
             st.success(
                 f"✅ Logo hochgeladen (von {original_size_kb:.0f} KB auf "
@@ -543,8 +576,11 @@ def _show_archiv():
     """Vertragsarchiv."""
     st.markdown("### 📚 Vertragsarchiv")
 
-    supabase = st.session_state.get("supabase")
+    supabase = _get_supabase()
     betrieb_id = st.session_state.get("betrieb_id", 1)
+    if supabase is None:
+        st.error("Datenbankverbindung konnte nicht hergestellt werden.")
+        return
 
     try:
         result = supabase.table("vertraege").select(
@@ -605,6 +641,8 @@ def _show_archiv():
 
 def _load_betriebsdaten(supabase, betrieb_id):
     """Lädt Betriebsdaten aus Supabase."""
+    if supabase is None:
+        return {}
     try:
         result = supabase.table("betrieb_vertragsdaten").select("*").eq(
             "betrieb_id", int(betrieb_id)
@@ -616,13 +654,43 @@ def _load_betriebsdaten(supabase, betrieb_id):
 
 def _load_logo(supabase, betrieb_id):
     """Lädt das Betriebslogo als Bytes."""
+    if supabase is None:
+        return None
     try:
         import base64
-        result = supabase.table("betrieb_logos").select("logo_bytes").eq(
-            "betrieb_id", int(betrieb_id)
-        ).maybe_single().execute()
-        if result.data and result.data.get("logo_bytes"):
-            return base64.b64decode(result.data["logo_bytes"])
+        rows = []
+        for order_col in ("id", "updated_at", "created_at"):
+            try:
+                result = (
+                    supabase.table("betrieb_logos")
+                    .select("logo_bytes")
+                    .eq("betrieb_id", int(betrieb_id))
+                    .order(order_col, desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                rows = result.data or []
+                if rows:
+                    break
+            except Exception:
+                continue
+        if not rows:
+            fallback = (
+                supabase.table("betrieb_logos")
+                .select("logo_bytes")
+                .eq("betrieb_id", int(betrieb_id))
+                .limit(1)
+                .execute()
+            )
+            rows = fallback.data or []
+        if rows and rows[0].get("logo_bytes"):
+            raw = rows[0]["logo_bytes"]
+            if isinstance(raw, (bytes, bytearray)):
+                return bytes(raw)
+            raw_str = str(raw)
+            if raw_str.startswith("data:") and "," in raw_str:
+                raw_str = raw_str.split(",", 1)[1]
+            return base64.b64decode(raw_str)
     except Exception:
         pass
     return None
