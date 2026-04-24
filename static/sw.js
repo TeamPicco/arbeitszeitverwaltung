@@ -1,5 +1,5 @@
-// Service Worker für Coreo-Flow PWA
-const CACHE_NAME = 'coreo-flow-v2';
+// Service Worker für Complio PWA
+const CACHE_NAME = 'complio-v2';
 const urlsToCache = [
   '/',
   '/static/manifest.json',
@@ -84,7 +84,7 @@ self.addEventListener('push', (event) => {
   };
   
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Coreo-Flow', options)
+    self.registration.showNotification(data.title || 'Complio', options)
   );
 });
 

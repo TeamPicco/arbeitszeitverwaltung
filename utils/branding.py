@@ -12,6 +12,11 @@ COMPANY_NAME = "Complio"
 _ROOT = Path(__file__).resolve().parents[1]
 _ASSETS = _ROOT / "assets"
 
+LOGO_COMPLIO_PNG = _ASSETS / "complio_logo.png"
+LOGO_COMPLIO_DARK_PNG = _ASSETS / "complio_logo_dark.png"
+ICON_COMPLIO_PNG_512 = _ASSETS / "complio_icon_512.png"
+ICON_COMPLIO_PNG_192 = _ASSETS / "complio_icon_192.png"
+# Alte Konstanten als Fallback beibehalten:
 LOGO_PRIMARY = _ASSETS / "coreo_flow_logo.png"
 LOGO_PRIMARY_ALT_JPG = _ASSETS / "coreo_flow_logo.jpg"
 LOGO_PRIMARY_ALT_JPEG = _ASSETS / "coreo_flow_logo.jpeg"
@@ -27,11 +32,13 @@ ICON_COMPLIO = _ASSETS / "complio_favicon.svg"
 
 
 def get_logo_path() -> str:
-    env_logo = (os.getenv("COREO_LOGO_PATH") or "").strip()
+    env_logo = (os.getenv("COMPLIO_LOGO_PATH") or os.getenv("COREO_LOGO_PATH") or "").strip()
     if env_logo:
         return env_logo
     for candidate in (
-        LOGO_PRIMARY,
+        LOGO_COMPLIO_PNG,          # ERSTE Priorität
+        LOGO_COMPLIO_DARK_PNG,
+        LOGO_PRIMARY,              # Fallback
         LOGO_PRIMARY_ALT_JPG,
         LOGO_PRIMARY_ALT_JPEG,
         LOGO_PRIMARY_DASH,
@@ -46,21 +53,14 @@ def get_logo_path() -> str:
 
 
 def get_icon_path() -> str:
-    env_icon = (os.getenv("COREO_ICON_PATH") or "").strip()
+    env_icon = (os.getenv("COMPLIO_ICON_PATH") or os.getenv("COREO_ICON_PATH") or "").strip()
     if env_icon:
         return env_icon
     for candidate in (
-        ICON_COMPLIO,
-        ICON_PRIMARY,
+        ICON_COMPLIO_PNG_192,      # ERSTE Priorität
+        ICON_COMPLIO_PNG_512,
+        ICON_PRIMARY,              # Fallback
         ICON_FALLBACK,
-        LOGO_PRIMARY,
-        LOGO_PRIMARY_ALT_JPG,
-        LOGO_PRIMARY_ALT_JPEG,
-        LOGO_PRIMARY_DASH,
-        LOGO_PRIMARY_GENERIC,
-        LOGO_PRIMARY_GENERIC_JPG,
-        LOGO_FALLBACK,
-        LOGO_FALLBACK_LEGACY,
     ):
         if candidate.exists():
             return str(candidate)

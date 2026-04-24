@@ -10,6 +10,7 @@ import calendar
 import locale
 import io
 import os
+from pathlib import Path
 from utils.database import get_supabase_client
 from utils.planning_tables import resolve_planning_table
 from utils.cache_manager import clear_app_caches
@@ -23,16 +24,20 @@ from utils.session import require_betrieb_id
 
 
 def _resolve_pdf_logo_path() -> str:
-    candidates = [
-        "/workspace/assets/Piccolo Logo.jpeg",
-        "/workspace/assets/Piccolo Logo.jpg",
-        "/workspace/assets/piccolo_logo.jpeg",
-        "/workspace/assets/piccolo_logo.jpg",
-    ]
-    for p in candidates:
-        if os.path.exists(p):
-            return p
-    return BRAND_LOGO_IMAGE
+    """Liefert den besten verfügbaren PDF-Logo-Pfad.
+
+    Priorität: ENV ``COMPLIO_LOGO_PATH`` > Complio-PNG aus Branding >
+    leere Zeichenkette (PDF-Erzeuger zeichnen dann ohne Logo).
+    """
+    from utils.branding import get_logo_path
+
+    env_logo = (os.getenv("COMPLIO_LOGO_PATH") or "").strip()
+    if env_logo and Path(env_logo).exists():
+        return env_logo
+    path = get_logo_path()
+    if path and Path(path).exists():
+        return path
+    return ""
 
 # Deutsche Monatsnamen
 MONATE_DE = [
