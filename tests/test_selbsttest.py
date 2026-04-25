@@ -1,5 +1,5 @@
 """
-Selbsttest für alle Module der CrewBase-App
+Selbsttest für alle Module der Complio-App
 Testet alle kritischen Funktionen ohne Datenbankverbindung
 """
 
@@ -24,7 +24,7 @@ def test(name: str, bedingung: bool, details: str = ""):
 
 
 print("=" * 60)
-print("CREWBASE SELBSTTEST")
+print("COMPLIO SELBSTTEST")
 print("=" * 60)
 
 

@@ -1,5 +1,5 @@
 """
-Daten-Hygiene-Modul für CrewBase
+Daten-Hygiene-Modul für Complio
 DSGVO-konforme Verwaltung von Aufbewahrungsfristen und Anonymisierung.
 
 Gesetzliche Grundlagen:

@@ -1,5 +1,5 @@
 """
-Audit-Log für CrewBase
+Audit-Log für Complio
 Revisionssichere Protokollierung aller Admin-Aktionen.
 
 Die audit_log-Tabelle ist unveränderlich (nur INSERT-Rechte).

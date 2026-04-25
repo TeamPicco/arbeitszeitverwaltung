@@ -811,7 +811,7 @@ def show_mitarbeiter_dashboard() -> None:
         st.error("Mitarbeiterprofil konnte nicht geladen werden. Bitte Admin informieren.")
         return
 
-    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
+    st.markdown("<div class='complio-topbar'>", unsafe_allow_html=True)
     top_l, top_r = st.columns([1.2, 5], vertical_alignment="center")
     with top_l:
         with st.container(key="header_logo"):

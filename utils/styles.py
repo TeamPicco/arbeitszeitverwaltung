@@ -48,7 +48,7 @@ def apply_custom_css() -> None:
             padding-bottom: 1.2rem !important;
         }}
 
-        .coreo-topbar {{
+        .complio-topbar {{
             position: sticky;
             top: 0;
             z-index: 40;
@@ -74,7 +74,7 @@ def apply_custom_css() -> None:
             line-height: 0 !important;
         }}
 
-        .coreo-card {{
+        .complio-card {{
             background: {COLORS["surface"]};
             border: 1px solid {COLORS["border"]};
             border-radius: 12px;
@@ -255,7 +255,7 @@ def apply_custom_css() -> None:
             margin-bottom: 0.35rem !important;
         }}
 
-        .coreo-form-group {{
+        .complio-form-group {{
             background: {COLORS['surface']};
             border: 1px solid {COLORS["border"]};
             border-radius: 10px;

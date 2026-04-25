@@ -26,7 +26,7 @@ def test(name, fn):
 print("\n=== IMPORT-TEST ===")
 
 try:
-    sys.path.insert(0, '/home/ubuntu/arbeitszeitverwaltung')
+    sys.path.insert(0, '/workspace')
     import utils.lohnkern as lk
     print("  ✅ utils/lohnkern.py importiert")
     PASS.append("Import lohnkern")

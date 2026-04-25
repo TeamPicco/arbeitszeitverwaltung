@@ -998,21 +998,11 @@ def _erstelle_pdf(
         return raw[:5] if ":" in raw else raw
 
     def resolve_logo_path() -> str:
-        root = Path(__file__).resolve().parents[1]
-        candidates = [
-            root / "assets" / "Piccolo Logo.jpeg",
-            root / "assets" / "Piccolo Logo.jpg",
-            root / "assets" / "piccolo_logo.jpeg",
-            root / "assets" / "piccolo_logo.jpg",
-        ]
-        if BRAND_LOGO_IMAGE:
-            candidates.append(Path(BRAND_LOGO_IMAGE))
-        for candidate in candidates:
-            try:
-                if candidate and candidate.exists():
-                    return str(candidate)
-            except Exception:
-                continue
+        try:
+            if BRAND_LOGO_IMAGE and Path(BRAND_LOGO_IMAGE).exists():
+                return str(BRAND_LOGO_IMAGE)
+        except Exception:
+            pass
         return ""
 
     raw_map = {int(r.get("id")): r for r in (zeiterfassungen or []) if r.get("id") is not None}
@@ -1277,7 +1267,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
 
     # ── Kennzahlen-Kacheln ────────────────────────────────────────────────────
     with st.container():
-        st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='complio-card'>", unsafe_allow_html=True)
         k1, k2, k3, k4 = st.columns(4)
         with k1:
             st.metric("Soll-Stunden", f"{soll_stunden:.2f} h")
@@ -1496,7 +1486,7 @@ def show_zeitauswertung(mitarbeiter: dict, admin_modus: bool = False,
     ft_zuschlag = monat_ergebnis["feiertagszuschlag"]
 
     with st.container():
-        st.markdown("<div class='coreo-card'>", unsafe_allow_html=True)
+        st.markdown("<div class='complio-card'>", unsafe_allow_html=True)
         lohn_cols = st.columns(3)
         with lohn_cols[0]:
             st.metric(

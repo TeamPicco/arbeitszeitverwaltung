@@ -1,10 +1,10 @@
 // Service Worker für Complio PWA
-const CACHE_NAME = 'complio-v2';
+const CACHE_NAME = 'complio-v3';
 const urlsToCache = [
   '/',
   '/static/manifest.json',
-  '/static/icons/icon-192x192.png',
-  '/static/icons/icon-512x512.png'
+  '/static/complio_icon_192.png',
+  '/static/complio_icon_512.png'
 ];
 
 // Installation
@@ -64,8 +64,8 @@ self.addEventListener('push', (event) => {
   
   const options = {
     body: data.body || 'Neue Benachrichtigung',
-    icon: '/static/icons/icon-192x192.png',
-    badge: '/static/icons/icon-96x96.png',
+    icon: '/static/complio_icon_192.png',
+    badge: '/static/complio_icon_96.png',
     vibrate: [200, 100, 200],
     data: {
       dateOfArrival: Date.now(),
