@@ -30,7 +30,7 @@ def generiere_aktivierungs_qr(registrierungscode: str, geraet_name: str, app_url
             qr_inhalt = f"{app_url.rstrip('/')}/?activate={registrierungscode}"
         else:
             # Fallback: Nur der Code
-            qr_inhalt = f"CREWBASE-ACTIVATE:{registrierungscode}"
+            qr_inhalt = f"COMPLIO-ACTIVATE:{registrierungscode}"
         
         # QR-Code konfigurieren
         qr = qrcode.QRCode(

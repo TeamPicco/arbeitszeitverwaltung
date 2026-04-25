@@ -70,9 +70,12 @@ def create_aenderungsanfrage(mitarbeiter_id: int, feld: str, alter_wert: str, ne
             )
             # E-Mail an Admin senden
             try:
-                from utils.email_service import send_stammdaten_aenderung_email
-                # Hole Admin-E-Mail-Adresse
-                admin_email = 'piccolo_leipzig@yahoo.de'  # Fallback: direkte Admin-E-Mail
+                from utils.email_service import (
+                    send_stammdaten_aenderung_email,
+                    DEFAULT_ADMIN_EMAIL,
+                )
+                # Hole Admin-E-Mail-Adresse (zentraler Default aus email_service)
+                admin_email = DEFAULT_ADMIN_EMAIL
                 # Versuche Admin-E-Mail aus Datenbank zu laden
                 try:
                     admin_result = supabase.table('users').select('email').eq('rolle', 'admin').limit(1).execute()

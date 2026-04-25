@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """
-Generiert PWA-Icons aus dem Piccolo-Logo
+Generiert PWA-Icons aus dem Complio-Logo.
+Falls kein Complio-Logo vorhanden ist, wird das Branding-Default verwendet.
 """
 
 from PIL import Image
 import os
 
-# Pfade
-logo_path = "assets/crewbase_logo_optimized.png"
+# Pfade: Complio-Logo bevorzugt, alte Quellen als Fallback
+logo_candidates = [
+    "assets/complio_logo.png",
+    "assets/complio_logo_dark.png",
+    "assets/crewbase_logo_optimized.png",
+]
+logo_path = next((p for p in logo_candidates if os.path.exists(p)), logo_candidates[0])
 icons_dir = "assets/icons"
 
 # Erstelle icons-Verzeichnis falls nicht vorhanden

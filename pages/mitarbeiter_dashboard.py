@@ -143,16 +143,18 @@ def _load_current_mitarbeiter(user_id: int | None, betrieb_id: int | None) -> di
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _load_personal_documents(mitarbeiter_id: int, betrieb_id: int | None) -> list[dict]:
+    if betrieb_id is None:
+        # Multi-Tenant-Schutz: ohne Betrieb keinen Lesezugriff zulassen.
+        return []
     supabase = get_supabase_client()
     q = (
         supabase.table("mitarbeiter_dokumente")
         .select("id,name,typ,status,gueltig_bis,file_path,file_url,created_at")
         .eq("mitarbeiter_id", int(mitarbeiter_id))
+        .eq("betrieb_id", int(betrieb_id))
         .order("created_at", desc=True)
         .limit(200)
     )
-    if betrieb_id is not None:
-        q = q.eq("betrieb_id", int(betrieb_id))
     try:
         return q.execute().data or []
     except Exception:
@@ -161,16 +163,17 @@ def _load_personal_documents(mitarbeiter_id: int, betrieb_id: int | None) -> lis
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _load_my_urlaubsantraege(mitarbeiter_id: int, betrieb_id: int | None) -> list[dict]:
+    if betrieb_id is None:
+        return []
     supabase = get_supabase_client()
     q = (
         supabase.table("urlaubsantraege")
         .select("id,von_datum,bis_datum,anzahl_tage,status,bemerkung_mitarbeiter,bemerkung_admin,beantragt_am")
         .eq("mitarbeiter_id", int(mitarbeiter_id))
+        .eq("betrieb_id", int(betrieb_id))
         .order("beantragt_am", desc=True)
         .limit(300)
     )
-    if betrieb_id is not None:
-        q = q.eq("betrieb_id", int(betrieb_id))
     try:
         return q.execute().data or []
     except Exception:
@@ -179,6 +182,8 @@ def _load_my_urlaubsantraege(mitarbeiter_id: int, betrieb_id: int | None) -> lis
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _load_my_absences(mitarbeiter_id: int, jahr: int, betrieb_id: int | None) -> list[dict]:
+    if betrieb_id is None:
+        return []
     supabase = get_supabase_client()
     start = date(int(jahr), 1, 1).isoformat()
     end = date(int(jahr), 12, 31).isoformat()
@@ -186,12 +191,11 @@ def _load_my_absences(mitarbeiter_id: int, jahr: int, betrieb_id: int | None) ->
         supabase.table("abwesenheiten")
         .select("id,typ,start_datum,ende_datum,status,stunden_gutschrift,grund,created_at")
         .eq("mitarbeiter_id", int(mitarbeiter_id))
+        .eq("betrieb_id", int(betrieb_id))
         .lte("start_datum", end)
         .gte("ende_datum", start)
         .order("start_datum")
     )
-    if betrieb_id is not None:
-        q = q.eq("betrieb_id", int(betrieb_id))
     try:
         return q.execute().data or []
     except Exception:
@@ -200,6 +204,8 @@ def _load_my_absences(mitarbeiter_id: int, jahr: int, betrieb_id: int | None) ->
 
 @st.cache_data(ttl=600, show_spinner=False)
 def _load_my_dienstplaene_month(mitarbeiter_id: int, jahr: int, monat: int, betrieb_id: int | None) -> list[dict]:
+    if betrieb_id is None:
+        return []
     supabase = get_supabase_client()
     first = date(int(jahr), int(monat), 1)
     last = date(int(jahr), int(monat), 1) + timedelta(days=32)
@@ -209,7 +215,6 @@ def _load_my_dienstplaene_month(mitarbeiter_id: int, jahr: int, monat: int, betr
         select_variants = [
             "id,datum,schichttyp,start_zeit,ende_zeit,betrieb_id,status",
             "id,datum,schichttyp,start_zeit,ende_zeit,betrieb_id",
-            "id,datum,schichttyp,start_zeit,ende_zeit",
         ]
         for cols in select_variants:
             try:
@@ -217,13 +222,12 @@ def _load_my_dienstplaene_month(mitarbeiter_id: int, jahr: int, monat: int, betr
                     supabase.table(table_name)
                     .select(cols)
                     .eq("mitarbeiter_id", int(mitarbeiter_id))
+                    .eq("betrieb_id", int(betrieb_id))
                     .gte("datum", first.isoformat())
                     .lte("datum", last.isoformat())
                     .order("datum")
                     .order("start_zeit")
                 )
-                if betrieb_id is not None:
-                    q = q.eq("betrieb_id", int(betrieb_id))
                 return q.execute().data or []
             except Exception:
                 continue
@@ -335,6 +339,8 @@ def _store_urlaubsantrag(
 ) -> tuple[bool, str]:
     if bis < von:
         return False, "Enddatum muss >= Startdatum sein."
+    if von < date.today():
+        return False, "Urlaub kann nicht rückwirkend beantragt werden."
     days = 0.0
     cur = von
     while cur <= bis:
@@ -359,6 +365,20 @@ def _store_urlaubsantrag(
         return True, "ok"
     except Exception as exc:
         return False, str(exc)
+
+
+def _invalidate_employee_caches() -> None:
+    """Räumt die mitarbeiterspezifischen st.cache_data-Caches nach Mutationen ab."""
+    for fn in (
+        _load_my_urlaubsantraege,
+        _load_my_absences,
+        _load_my_dienstplaene_month,
+        _load_personal_documents,
+    ):
+        try:
+            fn.clear()
+        except Exception:
+            pass
 
 
 def _store_personal_data_change_request(
@@ -500,7 +520,9 @@ def _render_requests_tab(mitarbeiter: dict) -> None:
                         notif_type="info",
                         link="/admin_dashboard",
                     )
+                    _invalidate_employee_caches()
                     st.success("Dienstplanwunsch wurde an den Admin übertragen.")
+                    st.rerun()
                 else:
                     st.error(f"Senden fehlgeschlagen: {msg}")
 
@@ -523,7 +545,9 @@ def _render_requests_tab(mitarbeiter: dict) -> None:
                         notif_type="warning",
                         link="/admin_dashboard",
                     )
+                    _invalidate_employee_caches()
                     st.success("Urlaubsantrag wurde an den Admin gesendet.")
+                    st.rerun()
                 else:
                     st.error(f"Senden fehlgeschlagen: {msg}")
 
@@ -718,17 +742,30 @@ def _render_data_changes_tab(mitarbeiter: dict) -> None:
                 notif_type="warning",
                 link="/admin_dashboard",
             )
+            _invalidate_employee_caches()
             st.success("Änderungsantrag wurde an den Admin gesendet.")
+            st.rerun()
         else:
             st.error(f"Antrag fehlgeschlagen: {msg}")
 
 
 def _render_documents_tab(mitarbeiter: dict) -> None:
     st.markdown("### Persönliche Unterlagen")
+
+    # Stammdaten als reine Lese-Anzeige (Adresse nur wenn vorhanden)
     p1, p2, p3 = st.columns(3)
-    p1.text_input("Name", value=f"{mitarbeiter.get('vorname','')} {mitarbeiter.get('nachname','')}".strip(), disabled=True)
-    p2.text_input("Adresse", value=f"{mitarbeiter.get('strasse','')} | {mitarbeiter.get('plz','')} {mitarbeiter.get('ort','')}".strip(), disabled=True)
+    p1.text_input(
+        "Name",
+        value=f"{mitarbeiter.get('vorname','')} {mitarbeiter.get('nachname','')}".strip(),
+        disabled=True,
+    )
+    strasse = str(mitarbeiter.get("strasse") or "").strip()
+    plz_ort = f"{mitarbeiter.get('plz','')} {mitarbeiter.get('ort','')}".strip()
+    adresse = ", ".join(part for part in (strasse, plz_ort) if part) or "-"
+    p2.text_input("Adresse", value=adresse, disabled=True)
     p3.text_input("Eintritt", value=str(mitarbeiter.get("eintrittsdatum") or ""), disabled=True)
+    st.caption("Stammdaten ändern? → Tab **„Daten ändern beantragen“**.")
+
     docs = _load_personal_documents(int(mitarbeiter["id"]), mitarbeiter.get("betrieb_id"))
     if not docs:
         st.info("Keine Dokumente vorhanden.")
@@ -748,10 +785,6 @@ def _render_documents_tab(mitarbeiter: dict) -> None:
             c5.link_button("PDF öffnen", url, use_container_width=True)
         else:
             c5.caption("Kein Link")
-
-    st.markdown("---")
-    st.markdown("#### Persönliche Daten – Änderungsantrag")
-    _render_data_changes_tab(mitarbeiter)
 
 
 def _render_zeitkonto_tab(mitarbeiter: dict) -> None:
@@ -809,9 +842,17 @@ def show_mitarbeiter_dashboard() -> None:
     mitarbeiter = _load_current_mitarbeiter(user_id, betrieb_id)
     if not mitarbeiter:
         st.error("Mitarbeiterprofil konnte nicht geladen werden. Bitte Admin informieren.")
+        action_a, action_b = st.columns(2)
+        with action_a:
+            if st.button("Erneut versuchen", use_container_width=True, key="md_profile_retry"):
+                st.rerun()
+        with action_b:
+            if st.button("Abmelden", type="primary", use_container_width=True, key="md_profile_logout"):
+                st.session_state.clear()
+                st.rerun()
         return
 
-    st.markdown("<div class='coreo-topbar'>", unsafe_allow_html=True)
+    st.markdown("<div class='complio-topbar'>", unsafe_allow_html=True)
     top_l, top_r = st.columns([1.2, 5], vertical_alignment="center")
     with top_l:
         with st.container(key="header_logo"):

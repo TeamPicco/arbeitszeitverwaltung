@@ -1,5 +1,5 @@
 """
-Rechtssicherer Vertragsgenerator (fpdf2) für Steakhouse Piccolo.
+Rechtssicherer Vertragsgenerator (fpdf2) für Complio.
 Layout und Paragraphen orientieren sich eng am Mustervertrag.
 """
 
@@ -17,11 +17,11 @@ from utils.branding import BRAND_LOGO_IMAGE
 @dataclass
 class ContractData:
     contract_title: str = "Änderungsvertrag"
-    prior_contract_date_text: str = "15. Oktober 2025"
-    employer_name: str = "Steakhouse Piccolo"
-    employer_represented_by: str = "Silvana Lasinski"
-    employer_street: str = "Gustav-Adolf-Straße 17"
-    employer_city_line: str = "04105 Leipzig"
+    prior_contract_date_text: str = ""
+    employer_name: str = ""
+    employer_represented_by: str = ""
+    employer_street: str = ""
+    employer_city_line: str = ""
     employee_name: str = ""
     employee_birth_date: date = field(default_factory=date.today)
     employee_street: str = ""
@@ -42,8 +42,8 @@ class ContractData:
     annual_vacation_days: float = 28.0
     account_settlement_deadline_text: str = "31. März des Folgejahres"
     additional_agreements: str = ""
-    employer_signatory: str = "Silvana Lasinski"
-    signing_city: str = "Leipzig"
+    employer_signatory: str = ""
+    signing_city: str = ""
     signing_date: date = field(default_factory=date.today)
     logo_path: str = ""
 
@@ -127,17 +127,7 @@ from utils.date_utils import add_months as _plus_months  # noqa: E402
 
 
 def _default_logo_path() -> str:
-    # Priorität: expliziter Name aus User-Anforderung, dann Branding-Fallback.
-    root = Path(__file__).resolve().parents[1]
-    candidates = [
-        root / "assets" / "Piccolo Logo.jpeg",
-        root / "assets" / "Piccolo Logo.jpg",
-        root / "assets" / "piccolo_logo.jpeg",
-        root / "assets" / "piccolo_logo.jpg",
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
+    """Liefert das Vertrags-Logo aus dem zentralen Branding."""
     return BRAND_LOGO_IMAGE or ""
 
 
@@ -229,7 +219,7 @@ def _para(pdf: FPDF, text: str, *, lh: float = 5.6) -> None:
 
 def _add_header(pdf: FPDF, payload: dict[str, Any]) -> None:
     logo_path = _safe(payload.get("logo_path"))
-    company = _safe(payload.get("employer_name")) or "Steakhouse Piccolo"
+    company = _safe(payload.get("employer_name")) or "Arbeitgeber"
     street = _safe(payload.get("employer_street")) or "Gustav-Adolf-Straße 17"
     city = _safe(payload.get("employer_city_line")) or "04105 Leipzig"
 
@@ -266,7 +256,7 @@ def generate_contract_pdf(data: ContractData | dict[str, Any]) -> bytes:
     title = _safe(payload.get("contract_title")) or "Änderungsvertrag"
     prior_contract_date_text = _safe(payload.get("prior_contract_date_text")) or "15. Oktober 2025"
 
-    employer_name = _safe(payload.get("employer_name")) or "Steakhouse Piccolo"
+    employer_name = _safe(payload.get("employer_name")) or "Arbeitgeber"
     employer_represented = _safe(payload.get("employer_represented_by")) or "Silvana Lasinski"
     employer_street = _safe(payload.get("employer_street")) or "Gustav-Adolf-Straße 17"
     employer_city = _safe(payload.get("employer_city_line")) or "04105 Leipzig"

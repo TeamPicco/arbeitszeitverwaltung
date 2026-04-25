@@ -1,8 +1,8 @@
-# CrewBase - Feature-Dokumentation
+# Complio - Feature-Dokumentation
 
 ## Übersicht
 
-CrewBase ist eine professionelle, mandantenfähige Arbeitszeitverwaltung für Restaurants und Betriebe mit mehreren Standorten oder Außendienst-Mitarbeitern.
+Complio ist eine professionelle, mandantenfähige Arbeitszeitverwaltung für Restaurants und Betriebe mit mehreren Standorten oder Außendienst-Mitarbeitern.
 
 ## Hauptfeatures
 
@@ -24,17 +24,17 @@ CrewBase ist eine professionelle, mandantenfähige Arbeitszeitverwaltung für Re
 
 ### 2. Progressive Web App (PWA)
 
-**Beschreibung:** CrewBase kann auf Smartphones und Tablets wie eine native App installiert werden.
+**Beschreibung:** Complio kann auf Smartphones und Tablets wie eine native App installiert werden.
 
 **Features:**
 - Installierbar auf Homescreen (iOS & Android)
 - Offline-Funktionalität
-- App-Icon (nur CrewBase-Symbol)
+- App-Icon (nur Complio-Symbol)
 - Vollbild-Modus ohne Browser-Leiste
 - Service Worker für schnellere Ladezeiten
 
 **Installation:**
-1. Öffne CrewBase im Browser
+1. Öffne Complio im Browser
 2. Tippe auf "Zum Homescreen hinzufügen" (iOS) oder "App installieren" (Android)
 3. App erscheint auf dem Homescreen
 
@@ -254,7 +254,7 @@ CrewBase ist eine professionelle, mandantenfähige Arbeitszeitverwaltung für Re
 ### Deployment
 
 **Hosting:** Render.com  
-**URL:** https://arbeitszeitverwaltung.onrender.com
+**URL:** https://app.getcomplio.de
 
 ### Umgebungsvariablen
 
@@ -282,4 +282,4 @@ Erforderlich in `.env` oder Render.com:
 
 ## Support
 
-Bei Fragen oder Problemen: piccolo_leipzig@yahoo.de
+Bei Fragen oder Problemen: admin@getcomplio.de

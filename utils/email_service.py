@@ -1,5 +1,5 @@
 """
-E-Mail-Benachrichtigungssystem für CrewBase
+E-Mail-Benachrichtigungssystem für Complio
 Sendet E-Mails für Urlaubsanträge, Dienstpläne, Stammdatenänderungen etc.
 
 Konfiguration über Umgebungsvariablen:
@@ -23,13 +23,17 @@ logger = logging.getLogger(__name__)
 
 
 def _brand_text(text: str) -> str:
-    """Ersetzt alte Brand-Strings durch das zentrale Branding."""
+    """
+    Legacy-Helper. Ersetzt alte Brandstrings ("CrewBase", "Steakhouse Piccolo")
+    durch das aktuelle Branding. Wird beibehalten, falls aus DB/Vorlagen
+    noch Texte mit alten Brandnamen kommen.
+    """
     if not text:
         return text
     return text.replace("CrewBase", BRAND_APP_NAME).replace("Steakhouse Piccolo", BRAND_APP_NAME)
 
 # Standard-Admin-E-Mail (kann in DB oder .env überschrieben werden)
-DEFAULT_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "piccolo_leipzig@yahoo.de")
+DEFAULT_ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@getcomplio.de")
 
 
 def ist_email_konfiguriert() -> bool:
@@ -179,8 +183,8 @@ def send_urlaubsantrag_email(
         f"Zeitraum: {von_datum} bis {bis_datum}\n"
         f"Anzahl Tage: {tage}\n"
         f"{f'Bemerkung: {grund}' if grund else ''}\n\n"
-        f"Bitte prüfen und genehmigen Sie den Antrag in CrewBase.\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase"
+        f"Bitte prüfen und genehmigen Sie den Antrag in Complio.\n\n"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     
     inhalt = f"""
@@ -196,7 +200,7 @@ def send_urlaubsantrag_email(
             </tr>
             {f'<tr style="background-color: #f8f9fa;"><td style="padding: 10px; border: 1px solid #dee2e6; font-weight: bold;">Bemerkung</td><td style="padding: 10px; border: 1px solid #dee2e6;">{grund}</td></tr>' if grund else ''}
         </table>
-        <p>Bitte melden Sie sich in <strong>CrewBase</strong> an, um den Antrag zu genehmigen oder abzulehnen.</p>
+        <p>Bitte melden Sie sich in <strong>Complio</strong> an, um den Antrag zu genehmigen oder abzulehnen.</p>
     """
     
     html_body = _erstelle_html_template(f"Neuer Urlaubsantrag: {mitarbeiter_name}", inhalt)
@@ -303,7 +307,7 @@ def send_dienstplan_email(
     body = (
         f"Hallo {mitarbeiter_name},\n\n"
         f"Ihr Dienstplan für {monat} {jahr} wurde veröffentlicht und ist jetzt verfügbar.\n\n"
-        f"Bitte melden Sie sich in CrewBase an, um Ihren Dienstplan einzusehen:\n"
+        f"Bitte melden Sie sich in Complio an, um Ihren Dienstplan einzusehen:\n"
         f"{app_link}\n\n"
         f"Mit freundlichen Grüßen\nIhr Team"
     )
@@ -394,7 +398,7 @@ def send_stammdaten_aenderung_email(
     if benoetigt_genehmigung:
         subject = f"✋ Änderungsanfrage von {mitarbeiter_name}: {feld}"
         titel = f"Änderungsanfrage: {feld}"
-        hinweis = "<p><strong>Diese Änderung benötigt Ihre Genehmigung.</strong> Bitte melden Sie sich in CrewBase an.</p>"
+        hinweis = "<p><strong>Diese Änderung benötigt Ihre Genehmigung.</strong> Bitte melden Sie sich in Complio an.</p>"
     else:
         subject = f"ℹ️ Stammdaten geändert: {mitarbeiter_name}"
         titel = f"Stammdatenänderung: {mitarbeiter_name}"
@@ -407,7 +411,7 @@ def send_stammdaten_aenderung_email(
         f"Alt: {alter_wert}\n"
         f"Neu: {neuer_wert}\n\n"
         f"{'Diese Änderung benötigt Ihre Genehmigung.' if benoetigt_genehmigung else 'Diese Änderung wurde automatisch übernommen.'}\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     
     inhalt = f"""
@@ -468,7 +472,7 @@ def send_lohnabrechnung_email(
         f"Hallo {mitarbeiter_name},\n\n"
         f"Ihre Lohnabrechnung für {monat} {jahr} wurde erstellt.\n"
         f"Gesamtbetrag (Brutto): {gesamtbetrag:.2f} €\n\n"
-        f"Die vollständige Abrechnung finden Sie in CrewBase unter 'Meine Dokumente'.\n\n"
+        f"Die vollständige Abrechnung finden Sie in Complio unter 'Meine Dokumente'.\n\n"
         f"Mit freundlichen Grüßen\nIhr Team"
     )
     
@@ -480,7 +484,7 @@ def send_lohnabrechnung_email(
                 💰 Gesamtbetrag (Brutto): {gesamtbetrag:,.2f} €
             </p>
         </div>
-        <p>Die vollständige Abrechnung finden Sie in CrewBase unter <strong>Meine Dokumente → Lohnabrechnungen</strong>.</p>
+        <p>Die vollständige Abrechnung finden Sie in Complio unter <strong>Meine Dokumente → Lohnabrechnungen</strong>.</p>
         <div style="text-align: center; margin: 25px 0;">
             <a href="{app_link}" 
                style="background-color: #1e3a5f; color: white; padding: 12px 24px; 
@@ -538,8 +542,8 @@ def send_aenderungsantrag_admin_email(
         f"{mitarbeiter_name} hat folgende Stammdaten-Änderungen beantragt:\n\n"
         f"{felder_text}\n"
         f"{f'Begründung: {begruendung}' if begruendung else ''}\n\n"
-        f"Bitte genehmigen oder ablehnen Sie den Antrag in CrewBase:\n{app_link}\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase"
+        f"Bitte genehmigen oder ablehnen Sie den Antrag in Complio:\n{app_link}\n\n"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     
     inhalt = f"""
@@ -606,7 +610,7 @@ def send_chat_benachrichtigung_email(
         f"{absender_name} hat eine neue Nachricht in der Plauderecke geschrieben:\n\n"
         f"\"{vorschau}\"\n\n"
         f"Jetzt antworten: {app_link}\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     
     inhalt = f"""
@@ -670,8 +674,8 @@ def send_datenhygiene_warnung_email(
         f"DSGVO-Hinweis:\n\n"
         f"Folgende Mitarbeiter-Datensätze haben die gesetzliche Aufbewahrungsfrist (10 Jahre, § 147 AO) überschritten:\n\n"
         f"{zeilen_text}\n"
-        f"Bitte prüfen Sie diese Datensätze und veranlassen Sie die Anonymisierung in CrewBase.\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase"
+        f"Bitte prüfen Sie diese Datensätze und veranlassen Sie die Anonymisierung in Complio.\n\n"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     
     inhalt = f"""
@@ -689,7 +693,7 @@ def send_datenhygiene_warnung_email(
             </tr>
             {zeilen_html}
         </table>
-        <p>Bitte melden Sie sich in CrewBase an und veranlassen Sie die Anonymisierung unter 
+        <p>Bitte melden Sie sich in Complio an und veranlassen Sie die Anonymisierung unter 
            <strong>Einstellungen → Datenschutz → Daten-Hygiene</strong>.</p>
     """
     
@@ -720,7 +724,7 @@ def send_zeitkorrektur_email(
     """Sendet Transparenz-Mail an Mitarbeiter bei Admin-Zeitkorrektur."""
     if not mitarbeiter_email:
         return False
-    subject = f"✏️ Zeitkorrektur für {datum} – CrewBase"
+    subject = f"✏️ Zeitkorrektur für {datum} – Complio"
     body = (
         f"Hallo {mitarbeiter_name},\n\n"
         f"Ihr Administrator hat eine Zeitkorrektur für den {datum} vorgenommen.\n\n"
@@ -729,7 +733,7 @@ def send_zeitkorrektur_email(
         f"Neue Pausenzeit:    {pause_min} Minuten\n\n"
         f"Begründung: {korrektur_grund}\n\n"
         f"Diese Korrektur wurde von {admin_name} vorgenommen und im Audit-Log gespeichert.\n\n"
-        f"Mit freundlichen Grüßen\nCrewBase – Steakhouse Piccolo"
+        f"Mit freundlichen Grüßen\nComplio"
     )
     inhalt = f"""
         <p>Hallo <strong>{mitarbeiter_name}</strong>,</p>
@@ -803,10 +807,10 @@ def send_dienstplan_veroeffentlichung_alle(
         subject = f"📅 Dienstplan {monat} {jahr} wurde veröffentlicht"
         body = (
             f"Hallo {name},\n\nIhr Dienstplan für {monat} {jahr} wurde veröffentlicht.\n"
-            f"Bitte melden Sie sich in CrewBase an: {app_link}\n\n"
+            f"Bitte melden Sie sich in Complio an: {app_link}\n\n"
             f"Hinweis: Dieser Dienstplan steht unter Vorbehalt. Die Endzeiten richten sich nach dem\n"
             f"wirtschaftlichen Betriebsende. Kurzfristige Anpassungen bleiben vorbehalten.\n\n"
-            f"Mit freundlichen Grüßen\nCrewBase – Steakhouse Piccolo"
+            f"Mit freundlichen Grüßen\nComplio"
         )
         inhalt = f"""
             <p>Hallo <strong>{name}</strong>,</p>
@@ -842,7 +846,7 @@ def send_dsgvo_stammdaten_antrag_admin(
     body = (
         f"Neuer Stammdaten-Änderungsantrag:\n\nMitarbeiter: {mitarbeiter_name}\n"
         f"Antragstyp: {antrag_typ}\n{f'Details: {antrag_details}' if antrag_details else ''}\n\n"
-        f"Bitte prüfen und genehmigen Sie diesen Antrag in CrewBase.\n\nMit freundlichen Grüßen\nCrewBase"
+        f"Bitte prüfen und genehmigen Sie diesen Antrag in Complio.\n\nMit freundlichen Grüßen\nComplio"
     )
     details_block = f'<p><strong>Details:</strong> {antrag_details}</p>' if antrag_details else ''
     inhalt = f"""
@@ -858,7 +862,7 @@ def send_dsgvo_stammdaten_antrag_admin(
                 <td style="padding: 10px; border: 1px solid #dee2e6;">{antrag_typ}</td></tr>
         </table>
         {details_block}
-        <p>Bitte melden Sie sich in CrewBase an und bearbeiten Sie den Antrag unter
+        <p>Bitte melden Sie sich in Complio an und bearbeiten Sie den Antrag unter
            <strong>Mitarbeiterverwaltung → Stammdaten-Anträge</strong>.</p>
     """
     html_body = _erstelle_html_template("Neuer Stammdaten-Antrag", inhalt, farbe="#2c5282")
@@ -875,11 +879,11 @@ def send_dsgvo_loeschfrist_warnung(
     """Sendet Warnung an Admin bei fälligen DSGVO-Löschfristen."""
     empfaenger = admin_email or DEFAULT_ADMIN_EMAIL
     anzahl = len(mitarbeiter_liste)
-    subject = f"⚠️ DSGVO: {anzahl} Löschfrist(en) fällig – CrewBase"
+    subject = f"⚠️ DSGVO: {anzahl} Löschfrist(en) fällig – Complio"
     body = (
         f"DSGVO-Warnung: {anzahl} Mitarbeiter haben eine fällige Löschfrist.\n\n"
         + "\n".join([f"- {m['name']} | Austritt: {m.get('austrittsdatum','?')} | Frist: {m.get('loeschfrist','?')}" for m in mitarbeiter_liste])
-        + "\n\nBitte prüfen und anonymisieren Sie die betroffenen Datensätze in CrewBase."
+        + "\n\nBitte prüfen und anonymisieren Sie die betroffenen Datensätze in Complio."
     )
     zeilen_liste = []
     for i, m in enumerate(mitarbeiter_liste):
@@ -905,7 +909,7 @@ def send_dsgvo_loeschfrist_warnung(
             </tr>
             {zeilen}
         </table>
-        <p>Bitte melden Sie sich in CrewBase an und anonymisieren Sie die betroffenen Datensätze unter
+        <p>Bitte melden Sie sich in Complio an und anonymisieren Sie die betroffenen Datensätze unter
            <strong>Mitarbeiterverwaltung → DSGVO-Verwaltung</strong>.</p>
     """
     html_body = _erstelle_html_template("DSGVO-Löschfristen fällig", inhalt, farbe="#dc2626")
