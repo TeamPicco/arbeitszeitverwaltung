@@ -53,6 +53,7 @@ ADMIN_NAV_OPTIONS = (
     "Zeitauswertung",
     "Verträge",
     "Premium",
+    "Sicherheit",
 )
 ADMIN_NAV_ALIASES = {
     "Vertraege": "Verträge",
@@ -1777,6 +1778,13 @@ def _show_premium_tab():
         show_rechtsstand_admin(supabase)
 
 
+def _show_sicherheit_tab():
+    """Sicherheits-Tools des Admins (Passwort-Reset, etc.)."""
+    from modules.admin.password_reset import show_password_reset
+
+    show_password_reset()
+
+
 def show_admin_dashboard():
     st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
@@ -1819,6 +1827,7 @@ def show_admin_dashboard():
             "Zeitauswertung": _show_zeitauswertung_tab,
             "Verträge": _show_vertrag_generator_tab,
             "Premium": _show_premium_tab,
+            "Sicherheit": _show_sicherheit_tab,
         }
         handler = section_handlers.get(selected)
         if handler is None:
