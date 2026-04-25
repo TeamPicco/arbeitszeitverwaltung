@@ -2,8 +2,8 @@
 
 ## Übersicht
 
-CrewBase sendet automatisch E-Mails für:
-- **Urlaubsanträge** → an piccolo_leipzig@yahoo.de
+Complio sendet automatisch E-Mails für:
+- **Urlaubsanträge** → an admin@getcomplio.de
 - **Dienstplan-Fertigstellung** → an jeweiligen Mitarbeiter
 - **Urlaubsgenehmigungen** → an jeweiligen Mitarbeiter
 
@@ -75,7 +75,7 @@ Nach dem Hinzufügen der Umgebungsvariablen:
 ### Test 1: Urlaubsantrag
 1. Als Mitarbeiter einloggen
 2. Urlaubsantrag stellen
-3. Prüfen Sie piccolo_leipzig@yahoo.de auf E-Mail
+3. Prüfen Sie admin@getcomplio.de auf E-Mail
 
 ### Test 2: Urlaubsgenehmigung
 1. Als Admin einloggen

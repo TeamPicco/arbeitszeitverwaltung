@@ -1,4 +1,4 @@
-# 🎯 FINALE SETUP-ANLEITUNG - Arbeitszeitverwaltung
+# 🎯 FINALE SETUP-ANLEITUNG - Complio
 
 ## ✅ SCHRITT 1: Supabase-Datenbank einrichten
 
@@ -81,7 +81,7 @@ Value: 480
 
 ## ✅ SCHRITT 4: Login testen
 
-1. Öffnen Sie: https://arbeitszeitverwaltung.onrender.com
+1. Öffnen Sie: https://app.getcomplio.de
 2. Melden Sie sich an mit:
    - **Benutzername:** `admin`
    - **Passwort:** `admin123`

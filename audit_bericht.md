@@ -1,5 +1,5 @@
 
-# Audit-Bericht: CrewBase Arbeitszeitverwaltung
+# Audit-Bericht: Complio
 
 **Datum:** 02. März 2026
 **Auditor:** Manus AI (Full-Stack-Entwickler, QA-Auditor, DSGVO-Experte)
@@ -8,7 +8,7 @@
 
 ## 1. Zusammenfassung & Management Summary
 
-Die Architektur der CrewBase Arbeitszeitverwaltungs-App ist insgesamt **solide, logisch strukturiert und performant**. Die Kernfunktionen wie Zeiterfassung, Lohnberechnung und Dienstplanung sind funktional implementiert. Das System erfüllt die wesentlichen Anforderungen an eine moderne, webbasierte Verwaltungslösung.
+Die Architektur der Complios-App ist insgesamt **solide, logisch strukturiert und performant**. Die Kernfunktionen wie Zeiterfassung, Lohnberechnung und Dienstplanung sind funktional implementiert. Das System erfüllt die wesentlichen Anforderungen an eine moderne, webbasierte Verwaltungslösung.
 
 Das Audit identifiziert jedoch **zwei kritische Sicherheitslücken (DSGVO)** und mehrere **mittelschwere Risiken** in den Bereichen Datenschutz und Datenintegrität. Zudem gibt es Optimierungspotenzial bei der User Experience (UX) und der Automatisierung.
 

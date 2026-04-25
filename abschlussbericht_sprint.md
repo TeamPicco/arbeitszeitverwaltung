@@ -1,4 +1,4 @@
-# CrewBase – Finalisierungs-Sprint Abschlussbericht
+# Complio – Finalisierungs-Sprint Abschlussbericht
 **Datum:** 02. März 2026  
 **Version:** 2.0 (Post-Sprint)  
 **Status:** ✅ Vollständig implementiert und deployed
@@ -223,11 +223,11 @@ Folgende Schritte müssen einmalig manuell durchgeführt werden:
 
 ## 6. Deployment
 
-- **URL:** [https://arbeitszeitverwaltung.onrender.com](https://arbeitszeitverwaltung.onrender.com)
-- **Kiosk-URL:** `https://arbeitszeitverwaltung.onrender.com/?kiosk=1&geraet=DF336234`
+- **URL:** [https://app.getcomplio.de](https://app.getcomplio.de)
+- **Kiosk-URL:** `https://app.getcomplio.de/?kiosk=1&geraet=DF336234`
 - **GitHub:** [TeamPicco/arbeitszeitverwaltung](https://github.com/TeamPicco/arbeitszeitverwaltung)
 - **Letzter Commit:** `48c5792` – feat: Finalisierungs-Sprint
 
 ---
 
-*Erstellt von CrewBase Entwicklungsteam – 02. März 2026*
+*Erstellt von Complio Entwicklungsteam – 02. März 2026*

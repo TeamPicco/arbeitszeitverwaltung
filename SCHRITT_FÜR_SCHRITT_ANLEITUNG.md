@@ -1,5 +1,5 @@
 # 🎯 SCHRITT-FÜR-SCHRITT-ANLEITUNG
-## Arbeitszeitverwaltung - Finale Einrichtung
+## Complio - Finale Einrichtung
 
 **WICHTIG:** Folgen Sie dieser Anleitung Schritt für Schritt. Überspringen Sie NICHTS!
 
@@ -189,7 +189,7 @@ KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ey... (sehr lang)
 
 ## ✅ TEIL 3: LOGIN TESTEN (1 Minute)
 
-1. **Öffnen Sie in einem neuen Tab:** https://arbeitszeitverwaltung.onrender.com
+1. **Öffnen Sie in einem neuen Tab:** https://app.getcomplio.de
 
 2. **Warten Sie bis die Login-Seite erscheint**  
    (Kann 30-60 Sekunden dauern beim ersten Aufruf)
