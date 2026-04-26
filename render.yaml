@@ -37,9 +37,9 @@ services:
   # ── Cron Job: täglicher Outreach-Runner ──────────────────
   - type: cron
     name: complio-outreach
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: python
     schedule: "0 8 * * *"        # täglich 08:00 Uhr UTC (= 09:00/10:00 Uhr DE)
+    buildCommand: pip install -r requirements.txt
     startCommand: python scripts/outreach_runner.py
     plan: starter
     envVars:
@@ -67,9 +67,9 @@ services:
   # ── Cron Job: monatliche DSGVO-Löschroutine ──────────────
   - type: cron
     name: complio-dsgvo-loeschung
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    runtime: python
     schedule: "0 3 1 * *"        # jeden 1. des Monats, 03:00 Uhr UTC
+    buildCommand: pip install -r requirements.txt
     startCommand: python scripts/dsgvo_loeschung.py
     plan: starter
     envVars:
