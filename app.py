@@ -387,7 +387,23 @@ else:
         if st.button("Abmelden", key="logout_fixed_btn", use_container_width=True):
             st.session_state.clear()
             st.rerun()
+    # Willkommens-Dialog nach Erstregistrierung
+    if st.session_state.get("_neu_registriert"):
+        bnr = st.session_state.get("_betriebsnummer", "")
+        pwd = st.session_state.get("_admin_passwort", "")
+        st.success(
+            f"🎉 **Willkommen bei Complio!** Dein Betrieb wurde erfolgreich angelegt.\n\n"
+            f"**Betriebsnummer:** `{bnr}`  \n"
+            f"**Passwort:** `{pwd}`  \n\n"
+            f"Deine Zugangsdaten wurden per E-Mail verschickt. "
+            f"Du kannst das Passwort jederzeit im Admin-Bereich ändern."
+        )
+        st.session_state.pop("_neu_registriert", None)
+        st.session_state.pop("_admin_passwort", None)
+
     if st.session_state.get("is_admin"):
+        from modules.onboarding.onboarding_ui import show_testphase_banner
+        show_testphase_banner(st.session_state.get("betrieb_id"))
         from pages import admin_dashboard
         admin_dashboard.show_admin_dashboard()
     else:

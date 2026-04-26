@@ -2,136 +2,128 @@ import streamlit as st
 from modules.onboarding.onboarding_db import (
     erstelle_betrieb_und_admin,
     generiere_passwort,
-    pruefe_testphase
+    pruefe_testphase,
 )
 
 
 def show_testphase_banner(betrieb_id: int) -> None:
-    """
-    Zeigt einen Banner wenn der Betrieb noch in der Testphase ist.
-    Wird oben im Admin-Dashboard eingeblendet.
-    """
     info = pruefe_testphase(betrieb_id)
     tage = info.get("tage_verbleibend", 0)
     plan = info.get("plan", "starter")
 
-    if plan == "starter" and tage > 0:
-        if tage <= 7:
-            st.warning(
-                f"⚠️ Deine kostenlose Testphase endet in **{tage} Tagen**. "
-                f"Jetzt upgraden um alle Funktionen zu behalten."
-            )
-        else:
-            st.info(
-                f"🎉 Du bist im kostenlosen Testzeitraum – "
-                f"noch **{tage} Tage** verbleibend."
-            )
-    elif plan == "starter" and tage == 0:
+    if plan != "starter":
+        return
+
+    if tage > 7:
+        st.info(
+            f"🎉 Kostenlose Testphase läuft — noch **{tage} Tage** verbleibend. "
+            f"[Jetzt upgraden →](mailto:hallo@getcomplio.de)"
+        )
+    elif tage > 0:
+        st.warning(
+            f"⚠️ Testphase endet in **{tage} Tagen**. "
+            f"Jetzt upgraden, damit nichts verloren geht. "
+            f"[Kontakt aufnehmen →](mailto:hallo@getcomplio.de)"
+        )
+    else:
         st.error(
             "🔒 Dein Testzeitraum ist abgelaufen. "
-            "Bitte buche einen Plan um weiter arbeiten zu können."
+            "Bitte schreib uns: **hallo@getcomplio.de**"
         )
 
 
 def show_registrierung() -> None:
-    """
-    Registrierungsformular für neue Betriebe.
-    Wird als eigener Tab im Login-Bereich angezeigt.
-    """
-    st.markdown("## 🏢 Neuen Betrieb registrieren")
-    st.markdown(
-        "Erstelle jetzt deinen kostenlosen Testzugang. "
-        "**30 Tage kostenlos** – keine Kreditkarte erforderlich."
-    )
-    st.markdown("---")
+    st.markdown("""
+    <div style="margin-bottom:8px">
+        <div style="font-size:18px;font-weight:700;color:#fff;margin-bottom:4px">
+            Jetzt kostenlos starten
+        </div>
+        <div style="font-size:12px;color:#555">
+            30 Tage gratis · Keine Kreditkarte · Jederzeit kündbar
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    with st.form("registrierung_form", clear_on_submit=False):
+        betrieb_name = st.text_input(
+            "Name deines Betriebs *",
+            placeholder="z.B. Restaurant Muster"
+        )
+        admin_email = st.text_input(
+            "Deine E-Mail-Adresse *",
+            placeholder="chef@meinrestaurant.de",
+            help="Wir schicken dir deine Zugangsdaten per Mail."
+        )
+        admin_username = st.text_input(
+            "Benutzername *",
+            placeholder="z.B. chef oder dein Vorname"
+        )
+        admin_passwort = st.text_input(
+            "Passwort *",
+            value=generiere_passwort(),
+            help="Automatisch generiert — du kannst es jederzeit ändern."
+        )
+        agb = st.checkbox(
+            "Ich akzeptiere die Nutzungsbedingungen und Datenschutzerklärung (DSGVO Art. 13)"
+        )
 
-        with st.form("registrierung_form"):
-            st.markdown("### Betriebsdaten")
-            betrieb_name = st.text_input(
-                "Name des Betriebs *",
-                placeholder="z.B. Restaurant Muster GmbH"
+        submitted = st.form_submit_button(
+            "🚀 Jetzt kostenlos starten",
+            type="primary",
+            use_container_width=True
+        )
+
+    if submitted:
+        fehler = []
+        if not betrieb_name.strip():
+            fehler.append("Bitte den Namen des Betriebs eingeben.")
+        if not admin_email.strip() or "@" not in admin_email:
+            fehler.append("Bitte eine gültige E-Mail-Adresse eingeben.")
+        if not admin_username.strip():
+            fehler.append("Bitte einen Benutzernamen eingeben.")
+        if len(admin_passwort) < 8:
+            fehler.append("Passwort muss mindestens 8 Zeichen lang sein.")
+        if not agb:
+            fehler.append("Bitte die Nutzungsbedingungen akzeptieren.")
+
+        if fehler:
+            for f in fehler:
+                st.error(f)
+            return
+
+        with st.spinner("Betrieb wird angelegt..."):
+            result = erstelle_betrieb_und_admin(
+                betrieb_name=betrieb_name.strip(),
+                admin_username=admin_username.strip(),
+                admin_passwort=admin_passwort,
+                admin_email=admin_email.strip(),
             )
 
-            st.markdown("### Admin-Zugangsdaten")
-            st.caption(
-                "Diese Zugangsdaten nutzt du zum Einloggen. "
-                "Merke sie dir gut."
-            )
-            admin_username = st.text_input(
-                "Benutzername *",
-                placeholder="z.B. admin oder dein Name"
-            )
+        if result.get("ok"):
+            # Auto-Login nach Registrierung
+            from utils.database import set_betrieb_session, init_supabase_client
+            try:
+                supabase = init_supabase_client()
+                set_betrieb_session(supabase, result["betrieb_id"], user_id=result["user_id"])
+            except Exception:
+                pass
 
-            passwort_vorschlag = generiere_passwort()
-            admin_passwort = st.text_input(
-                "Passwort *",
-                value=passwort_vorschlag,
-                help="Automatisch generiert – du kannst es ändern."
+            st.session_state.update({
+                "logged_in": True,
+                "is_admin": True,
+                "role": "admin",
+                "user_id": result["user_id"],
+                "betrieb_id": result["betrieb_id"],
+                "betrieb_name": betrieb_name.strip(),
+                "mitarbeiter_id": None,
+                "_neu_registriert": True,
+                "_betriebsnummer": result["betriebsnummer"],
+                "_admin_passwort": admin_passwort,
+            })
+            st.rerun()
+        else:
+            st.error(
+                f"Registrierung fehlgeschlagen: "
+                f"{result.get('error', 'Unbekannter Fehler')}. "
+                f"Bitte kontaktiere hallo@getcomplio.de"
             )
-            admin_passwort2 = st.text_input(
-                "Passwort wiederholen *",
-                type="password"
-            )
-
-            st.markdown("---")
-            agb = st.checkbox(
-                "Ich akzeptiere die [Nutzungsbedingungen](https://app.getcomplio.de/agb) "
-                "und [Datenschutzerklärung](https://app.getcomplio.de/datenschutz) (DSGVO Art. 13)"
-            )
-
-            submitted = st.form_submit_button(
-                "🚀 Jetzt kostenlos starten",
-                type="primary",
-                use_container_width=True
-            )
-
-        if submitted:
-            # Validierung
-            fehler = []
-            if not betrieb_name.strip():
-                fehler.append("Bitte den Namen des Betriebs eingeben.")
-            if not admin_username.strip():
-                fehler.append("Bitte einen Benutzernamen eingeben.")
-            if len(admin_passwort) < 8:
-                fehler.append("Passwort muss mindestens 8 Zeichen haben.")
-            if admin_passwort != admin_passwort2:
-                fehler.append("Passwörter stimmen nicht überein.")
-            if not agb:
-                fehler.append("Bitte Nutzungsbedingungen akzeptieren.")
-
-            if fehler:
-                for f in fehler:
-                    st.error(f)
-            else:
-                with st.spinner("Betrieb wird angelegt..."):
-                    result = erstelle_betrieb_und_admin(
-                        betrieb_name=betrieb_name.strip(),
-                        admin_username=admin_username.strip(),
-                        admin_passwort=admin_passwort,
-                    )
-
-                if result.get("ok"):
-                    st.success("✅ Betrieb erfolgreich angelegt!")
-                    st.markdown("---")
-                    st.markdown("### 🔑 Deine Zugangsdaten")
-                    st.info(
-                        f"**Betriebsnummer:** `{result.get('betriebsnummer')}`\n\n"
-                        f"**Benutzername:** `{admin_username}`\n\n"
-                        f"**Passwort:** `{admin_passwort}`"
-                    )
-                    st.warning(
-                        "⚠️ Bitte notiere dir diese Zugangsdaten jetzt. "
-                        "Das Passwort wird nicht erneut angezeigt."
-                    )
-                    st.markdown(
-                        "👉 Gehe zum **Login-Tab** und melde dich "
-                        "mit deiner Betriebsnummer an."
-                    )
-                else:
-                    st.error(
-                        f"Fehler beim Anlegen: "
-                        f"{result.get('error', 'Unbekannter Fehler')}"
-                    )
