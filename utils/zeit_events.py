@@ -538,6 +538,7 @@ def register_time_event(
                 break_minutes=break_minutes,
                 source=source,
             )
+            legacy["betrieb_id"] = betrieb_id
             write_client.table("zeiterfassung").upsert(
                 legacy,
                 on_conflict="mitarbeiter_id,datum,start_zeit",

@@ -253,9 +253,11 @@ def berechne_azk_kumuliert(mitarbeiter_id: int, bis_monat: int, bis_jahr: int) -
                 aktuell = date(aktuell.year, aktuell.month + 1, 1)
 
         # Manuelle Korrekturen einrechnen
+        import calendar
+        letzter_tag = calendar.monthrange(bis_jahr, bis_monat)[1]
         korr_resp = supabase.table('azk_korrekturen').select('stunden_delta, art').eq(
             'mitarbeiter_id', mitarbeiter_id
-        ).lte('datum', date(bis_jahr, bis_monat, 28).isoformat()).execute()
+        ).lte('datum', date(bis_jahr, bis_monat, letzter_tag).isoformat()).execute()
 
         for k in (korr_resp.data or []):
             # stunden_delta ist bereits vorzeichenbehaftet (negativ = Ausbuchung)
@@ -373,7 +375,7 @@ def buche_azk_korrektur(
         eintrag = {
             'mitarbeiter_id': mitarbeiter_id,
             'datum': (datum or date.today()).isoformat(),
-            'stunden': stunden,
+            'stunden_delta': stunden if typ == 'gutschrift' else -stunden,
             'typ': typ,
             'grund': grund,
             'erstellt_von': erstellt_von or 'admin',

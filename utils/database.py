@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -118,7 +118,7 @@ def update_last_login(user_id: str) -> None:
         supabase = get_supabase_client()
         (
             supabase.table("users")
-            .update({"last_login": datetime.utcnow().isoformat()})
+            .update({"last_login": datetime.now(timezone.utc).isoformat()})
             .eq("id", user_id)
             .execute()
         )

@@ -209,7 +209,21 @@ def erstelle_zeitraum_auswertung(mitarbeiter_id, start_datum, end_datum, supabas
     )
     ma_data = ma_res.data or {}
     soll_monat = float(ma_data.get("monatliche_soll_stunden") or ma_data.get("soll_stunden_monat") or 160.0)
-    soll_tag = soll_monat / 30.0
+
+    # Arbeitstage im Zeitraum (ohne Mo/Di Ruhetage)
+    arbeitstage_im_zeitraum = sum(
+        1 for n in range((end_datum - start_datum).days + 1)
+        if (start_datum + timedelta(days=n)).weekday() not in (0, 1)
+    )
+    # Arbeitstage im vollen Monat für Verhältnisberechnung
+    from calendar import monthrange
+    monat_start = start_datum.replace(day=1)
+    monat_ende = start_datum.replace(day=monthrange(start_datum.year, start_datum.month)[1])
+    arbeitstage_monat = sum(
+        1 for n in range((monat_ende - monat_start).days + 1)
+        if (monat_start + timedelta(days=n)).weekday() not in (0, 1)
+    )
+    soll_tag = (soll_monat / arbeitstage_monat) if arbeitstage_monat > 0 else 0.0
 
     ist_res = (
         supabase.table("zeiterfassung")
