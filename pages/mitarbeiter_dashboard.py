@@ -250,7 +250,10 @@ def _notify_admin_simple(
 ) -> None:
     supabase = get_supabase_client()
     try:
-        admin_users = supabase.table("users").select("id").eq("role", "admin").eq("is_active", True).execute().data or []
+        q = supabase.table("users").select("id").eq("role", "admin").eq("is_active", True)
+        if betrieb_id is not None:
+            q = q.eq("betrieb_id", int(betrieb_id))
+        admin_users = q.execute().data or []
     except Exception:
         admin_users = []
     for admin in admin_users:
@@ -553,6 +556,11 @@ def _render_requests_tab(mitarbeiter: dict) -> None:
 
     rows = _load_my_urlaubsantraege(int(mitarbeiter["id"]), mitarbeiter.get("betrieb_id"))
     if rows:
+        _STATUS_LABEL = {
+            "beantragt": "⏳ Beantragt",
+            "genehmigt": "✅ Genehmigt",
+            "abgelehnt": "❌ Abgelehnt",
+        }
         st.markdown("#### Meine Urlaubsanträge")
         st.dataframe(
             [
@@ -560,10 +568,10 @@ def _render_requests_tab(mitarbeiter: dict) -> None:
                     "Von": r.get("von_datum"),
                     "Bis": r.get("bis_datum"),
                     "Tage": _to_float(r.get("anzahl_tage"), 0.0),
-                    "Status": r.get("status"),
-                    "Bemerkung MA": r.get("bemerkung_mitarbeiter"),
-                    "Bemerkung Admin": r.get("bemerkung_admin"),
-                    "Beantragt am": r.get("beantragt_am"),
+                    "Status": _STATUS_LABEL.get(str(r.get("status") or ""), str(r.get("status") or "")),
+                    "Bemerkung": r.get("bemerkung_mitarbeiter") or "",
+                    "Admin-Antwort": r.get("bemerkung_admin") or "",
+                    "Beantragt am": str(r.get("beantragt_am") or "")[:10],
                 }
                 for r in rows
             ],
@@ -866,23 +874,23 @@ def show_mitarbeiter_dashboard() -> None:
 
     tabs = st.tabs(
         [
+            "Arbeitszeitkonto",
             "Anträge & Wünsche",
             "Urlaubsjahresübersicht",
             "Monatsdienstpläne",
             "Persönliche Unterlagen",
             "Daten ändern beantragen",
-            "Arbeitszeitkonto",
         ]
     )
     with tabs[0]:
-        _render_requests_tab(mitarbeiter)
-    with tabs[1]:
-        _render_urlaubsuebersicht_tab(mitarbeiter)
-    with tabs[2]:
-        _render_dienstplan_tab(mitarbeiter)
-    with tabs[3]:
-        _render_documents_tab(mitarbeiter)
-    with tabs[4]:
-        _render_data_changes_tab(mitarbeiter)
-    with tabs[5]:
         _render_zeitkonto_tab(mitarbeiter)
+    with tabs[1]:
+        _render_requests_tab(mitarbeiter)
+    with tabs[2]:
+        _render_urlaubsuebersicht_tab(mitarbeiter)
+    with tabs[3]:
+        _render_dienstplan_tab(mitarbeiter)
+    with tabs[4]:
+        _render_documents_tab(mitarbeiter)
+    with tabs[5]:
+        _render_data_changes_tab(mitarbeiter)

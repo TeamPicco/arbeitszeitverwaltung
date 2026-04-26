@@ -218,15 +218,16 @@ def berechne_azk_monat(mitarbeiter_id: int, monat: int, jahr: int) -> Dict[str, 
 def berechne_azk_kumuliert(mitarbeiter_id: int, bis_monat: int, bis_jahr: int) -> float:
     """
     Berechnet den kumulierten AZK-Saldo vom Eintrittsdatum bis zum angegebenen Monat.
+    Lädt alle Zeiterfassungsdaten in einer einzigen DB-Abfrage und aggregiert in-memory.
     Startsaldo aus mitarbeiter.azk_startsaldo wird eingerechnet.
-    Manuelle Korrekturen aus azk_korrekturen werden eingerechnet.
     """
+    import calendar
+
     try:
         supabase = get_supabase_client()
 
-        # Startsaldo und Eintrittsdatum laden
         ma_resp = supabase.table('mitarbeiter').select(
-            'eintrittsdatum, azk_startsaldo'
+            'eintrittsdatum, azk_startsaldo, monatliche_soll_stunden'
         ).eq('id', mitarbeiter_id).single().execute()
 
         if not ma_resp.data:
@@ -234,35 +235,49 @@ def berechne_azk_kumuliert(mitarbeiter_id: int, bis_monat: int, bis_jahr: int) -
 
         ma = ma_resp.data
         startsaldo = float(ma.get('azk_startsaldo') or 0)
+        soll_monat = float(ma.get('monatliche_soll_stunden') or 0)
         eintritt_str = ma.get('eintrittsdatum') or '2020-01-01'
         eintritt = date.fromisoformat(eintritt_str)
 
-        # Alle Monate vom Eintritt bis zum Zielmonat durchrechnen
+        von_iso = date(eintritt.year, eintritt.month, 1).isoformat()
+        bis_next = date(bis_jahr + 1, 1, 1) if bis_monat == 12 else date(bis_jahr, bis_monat + 1, 1)
+
+        # Alle Einträge in einer einzigen Abfrage laden
+        ze_resp = supabase.table('zeiterfassung').select(
+            'datum, arbeitsstunden, stunden, quelle'
+        ).eq('mitarbeiter_id', mitarbeiter_id).gte('datum', von_iso).lt(
+            'datum', bis_next.isoformat()
+        ).execute()
+
+        # Ist-Stunden pro Monat in-memory aggregieren
+        monat_ist: Dict[tuple, float] = {}
+        for row in (ze_resp.data or []):
+            if (row.get('quelle') or '') == 'historischer_saldo':
+                continue
+            d_str = row.get('datum') or ''
+            if len(d_str) < 7:
+                continue
+            ym = (int(d_str[:4]), int(d_str[5:7]))
+            monat_ist[ym] = monat_ist.get(ym, 0.0) + float(row.get('arbeitsstunden') or row.get('stunden') or 0)
+
+        # Saldo kumulieren – keine weiteren DB-Calls mehr
         saldo = startsaldo
         aktuell = date(eintritt.year, eintritt.month, 1)
         ziel = date(bis_jahr, bis_monat, 1)
-
         while aktuell <= ziel:
-            monat_ergebnis = berechne_azk_monat(mitarbeiter_id, aktuell.month, aktuell.year)
-            if monat_ergebnis['ok']:
-                saldo += monat_ergebnis['azk_saldo_monat']
-            # Nächster Monat
-            if aktuell.month == 12:
-                aktuell = date(aktuell.year + 1, 1, 1)
-            else:
-                aktuell = date(aktuell.year, aktuell.month + 1, 1)
+            ist_h = monat_ist.get((aktuell.year, aktuell.month), 0.0)
+            saldo = round(saldo + ist_h - soll_monat, 4)
+            next_month = aktuell.month % 12 + 1
+            next_year = aktuell.year + (1 if aktuell.month == 12 else 0)
+            aktuell = date(next_year, next_month, 1)
 
-        # Manuelle Korrekturen einrechnen
-        import calendar
+        # Manuelle Korrekturen
         letzter_tag = calendar.monthrange(bis_jahr, bis_monat)[1]
-        korr_resp = supabase.table('azk_korrekturen').select('stunden_delta, art').eq(
+        korr_resp = supabase.table('azk_korrekturen').select('stunden_delta').eq(
             'mitarbeiter_id', mitarbeiter_id
         ).lte('datum', date(bis_jahr, bis_monat, letzter_tag).isoformat()).execute()
-
         for k in (korr_resp.data or []):
-            # stunden_delta ist bereits vorzeichenbehaftet (negativ = Ausbuchung)
-            h = float(k.get('stunden_delta') or 0)
-            saldo += h
+            saldo += float(k.get('stunden_delta') or 0)
 
         return round(saldo, 2)
 

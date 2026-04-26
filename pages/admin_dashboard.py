@@ -85,37 +85,27 @@ def _load_admin_mitarbeiter():
 @st.cache_data(ttl=600, show_spinner=False)
 def _cached_admin_mitarbeiter(betrieb_id):
     supabase = get_supabase_client()
-    try:
-        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS).order("nachname")
-        if betrieb_id is not None:
-            query = query.eq("betrieb_id", betrieb_id)
-        rows = query.execute().data or []
-    except Exception:
-        # Rückfall für ältere Schemas ohne monatliche_brutto_verguetung.
-        query = supabase.table("mitarbeiter").select(ADMIN_MITARBEITER_COLUMNS_FALLBACK).order("nachname")
-        if betrieb_id is not None:
-            query = query.eq("betrieb_id", betrieb_id)
-        rows = query.execute().data or []
-        for row in rows:
-            row["monatliche_brutto_verguetung"] = float(row.get("monatliche_brutto_verguetung") or 0.0)
-
-    # Optionales Personalakten-Feld: Stundenlohn (rein dokumentarisch, keine Berechnungswirkung)
     stundenlohn_col = _resolve_stundenlohn_personal_column()
-    if stundenlohn_col:
+    extra = f", {stundenlohn_col}" if stundenlohn_col else ""
+
+    def _run_query(columns: str):
+        q = supabase.table("mitarbeiter").select(columns).order("nachname")
+        if betrieb_id is not None:
+            q = q.eq("betrieb_id", betrieb_id)
+        return q.execute().data or []
+
+    try:
+        rows = _run_query(ADMIN_MITARBEITER_COLUMNS + extra)
+    except Exception:
         try:
-            rate_query = supabase.table("mitarbeiter").select(f"id,{stundenlohn_col}")
-            if betrieb_id is not None:
-                rate_query = rate_query.eq("betrieb_id", betrieb_id)
-            rate_rows = rate_query.execute().data or []
-            rate_by_id = {int(r["id"]): _to_float(r.get(stundenlohn_col), 0.0) for r in rate_rows if r.get("id") is not None}
+            rows = _run_query(ADMIN_MITARBEITER_COLUMNS_FALLBACK + extra)
         except Exception:
-            rate_by_id = {}
-    else:
-        rate_by_id = {}
+            rows = _run_query(ADMIN_MITARBEITER_COLUMNS_FALLBACK)
+        for row in rows:
+            row.setdefault("monatliche_brutto_verguetung", 0.0)
 
     for row in rows:
-        row_id = int(row.get("id") or 0)
-        row["akten_stundenlohn"] = _to_float(rate_by_id.get(row_id), 0.0)
+        row["akten_stundenlohn"] = _to_float(row.get(stundenlohn_col), 0.0) if stundenlohn_col else 0.0
 
     return rows
 
@@ -443,9 +433,14 @@ def _show_zeitauswertung_tab():
         st.info("Keine Mitarbeiter für die Auswertung gefunden.")
         return
 
-    # Mitarbeiterauswahl erfolgt innerhalb von show_zeitauswertung (admin_modus=True).
-    # So vermeiden wir doppelte Selectboxen mit widersprüchlichem Verhalten.
-    zeitauswertung.show_zeitauswertung(alle_ma[0], admin_modus=True)
+    namen = [f"{m.get('nachname', '')} {m.get('vorname', '')}".strip() or f"ID {m.get('id')}" for m in alle_ma]
+    idx = st.selectbox(
+        "Mitarbeiter auswählen",
+        range(len(namen)),
+        format_func=lambda i: namen[i],
+        key="zeitauswertung_ma_idx",
+    )
+    zeitauswertung.show_zeitauswertung(alle_ma[idx], admin_modus=True)
 
 
 def _show_absenzen_tab():
@@ -1786,7 +1781,6 @@ def _show_sicherheit_tab():
 
 
 def show_admin_dashboard():
-    st.set_page_config(page_title=f"{BRAND_APP_NAME} – Admin", page_icon=BRAND_LOGO_IMAGE, layout="wide")
     apply_custom_css()
     if st.session_state.get("admin_nav") is None:
         st.session_state["admin_nav"] = "Dienstplanung"
