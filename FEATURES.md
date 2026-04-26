@@ -18,7 +18,7 @@ Complio ist eine professionelle, mandantenfähige Arbeitszeitverwaltung für Res
 
 **Verwendung:**
 - Piccolo-Betriebsnummer: `20262204`
-- Admin-Login: `admin` / `RangeRover2026`
+- Admin-Login: Betriebsnummer + zufällig generiertes Einmal-Passwort (wird beim Onboarding vergeben)
 
 ---
 

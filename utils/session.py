@@ -3,7 +3,7 @@ Session-Management für Streamlit
 """
 
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
 
 
@@ -44,7 +44,7 @@ def check_session_timeout() -> bool:
     timeout_delta = timedelta(minutes=timeout_minutes)
     
     # Prüfe, ob Timeout überschritten
-    if datetime.now() - st.session_state.login_time > timeout_delta:
+    if datetime.now(timezone.utc) - st.session_state.login_time > timeout_delta:
         return True
     
     return False

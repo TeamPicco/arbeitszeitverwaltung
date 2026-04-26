@@ -196,7 +196,7 @@ KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ey... (sehr lang)
 
 3. **Geben Sie ein:**
    - **Benutzername:** `admin`
-   - **Passwort:** `admin123`
+   - **Passwort:** Das beim Setup generierte Einmal-Passwort (siehe Onboarding-E-Mail)
 
 4. **Klicken Sie auf "Anmelden"**
 

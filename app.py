@@ -223,9 +223,26 @@ def _render_login_fragment() -> None:
     ])
 
     with tab_stempel:
-        pin = st.text_input("PIN eingeben", type="password", max_chars=4, key="terminal_pin_entry")
-        if len(pin) == 4:
-            ma = _find_mitarbeiter_by_pin(pin)
+        import time as _time
+        _PIN_FAIL_KEY = "pin_fail_count"
+        _PIN_LOCK_KEY = "pin_locked_until"
+        locked_until = st.session_state.get(_PIN_LOCK_KEY, 0)
+        if _time.time() < locked_until:
+            remaining = int(locked_until - _time.time())
+            st.warning(f"Zu viele Fehlversuche. Bitte {remaining}s warten.")
+        else:
+            pin = st.text_input("PIN eingeben", type="password", max_chars=6, key="terminal_pin_entry")
+            ma = None
+            if len(pin) >= 4:
+                ma = _find_mitarbeiter_by_pin(pin)
+                if ma:
+                    st.session_state[_PIN_FAIL_KEY] = 0
+                else:
+                    fails = st.session_state.get(_PIN_FAIL_KEY, 0) + 1
+                    st.session_state[_PIN_FAIL_KEY] = fails
+                    if fails >= 5:
+                        st.session_state[_PIN_LOCK_KEY] = _time.time() + 60
+                        st.session_state[_PIN_FAIL_KEY] = 0
             if ma:
                 st.info(f"Hallo {ma['vorname']}! Schicht: {now_berlin().strftime('%d.%m.%Y')}")
                 state = _get_event_state_cached(

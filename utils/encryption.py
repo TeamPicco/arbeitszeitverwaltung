@@ -36,32 +36,31 @@ ENCRYPTED_MARKER = b"CREWBASE_AES256_V1:"
 
 def _get_encryption_key() -> bytes:
     """
-    Liest den AES-256-Schlüssel aus der Umgebungsvariable oder leitet ihn ab.
-    
+    Liest den AES-256-Schlüssel aus der Umgebungsvariable DOCUMENT_ENCRYPTION_KEY.
+    Bricht den Start ab wenn der Key fehlt — kein unsicherer Fallback.
+
     Returns:
         bytes: 32-Byte-Schlüssel für AES-256
     """
     key_env = os.getenv("DOCUMENT_ENCRYPTION_KEY")
-    
-    if key_env:
-        try:
-            key = base64.b64decode(key_env)
-            if len(key) == 32:
-                return key
-            # Wenn nicht 32 Byte, hash auf 32 Byte
-            return hashlib.sha256(key).digest()
-        except Exception:
-            logger.warning("DOCUMENT_ENCRYPTION_KEY konnte nicht dekodiert werden. Verwende Fallback.")
-    
-    # Fallback: Schlüssel aus Supabase-URL ableiten (deterministisch, aber schwächer)
-    supabase_url = os.getenv("SUPABASE_URL", "crewbase_default_key")
-    fallback_key = hashlib.sha256(f"crewbase_doc_enc_{supabase_url}".encode()).digest()
-    
-    logger.warning(
-        "DOCUMENT_ENCRYPTION_KEY nicht gesetzt! Verwende abgeleiteten Fallback-Schlüssel. "
-        "Für Produktion: Setzen Sie DOCUMENT_ENCRYPTION_KEY als 32-Byte Base64-String."
-    )
-    return fallback_key
+
+    if not key_env:
+        raise RuntimeError(
+            "DOCUMENT_ENCRYPTION_KEY ist nicht gesetzt. "
+            "Bitte einen 32-Byte Base64-kodierten Schlüssel als Secret-Umgebungsvariable hinterlegen. "
+            "Schlüssel generieren: python -c \"import os,base64; print(base64.b64encode(os.urandom(32)).decode())\""
+        )
+
+    try:
+        key = base64.b64decode(key_env)
+        if len(key) == 32:
+            return key
+        return hashlib.sha256(key).digest()
+    except Exception as exc:
+        raise RuntimeError(
+            f"DOCUMENT_ENCRYPTION_KEY konnte nicht dekodiert werden: {exc}. "
+            "Bitte einen gültigen Base64-kodierten 32-Byte-Schlüssel setzen."
+        ) from exc
 
 
 def encrypt_document(data: bytes) -> bytes:

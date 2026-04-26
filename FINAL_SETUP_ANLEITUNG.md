@@ -84,7 +84,7 @@ Value: 480
 1. Öffnen Sie: https://app.getcomplio.de
 2. Melden Sie sich an mit:
    - **Benutzername:** `admin`
-   - **Passwort:** `admin123`
+   - **Passwort:** Das beim Setup generierte Einmal-Passwort (siehe Onboarding-E-Mail)
 
 ---
 

@@ -100,13 +100,11 @@ streamlit run app.py
 
 Die Anwendung ist nun unter `http://localhost:8501` erreichbar.
 
-## 🔐 Standard-Anmeldedaten
+## 🔐 Erstanmeldung
 
-**Administrator:**
-- Benutzername: `admin`
-- Passwort: `admin123`
+Nach dem Setup erhält der Administrator ein zufällig generiertes Einmal-Passwort per E-Mail (siehe `SUPABASE_SETUP.md`).
 
-⚠️ **WICHTIG:** Ändern Sie das Admin-Passwort sofort nach dem ersten Login!
+⚠️ **WICHTIG:** Das Passwort beim ersten Login sofort ändern.
 
 ## 📦 Deployment auf Streamlit Cloud
 

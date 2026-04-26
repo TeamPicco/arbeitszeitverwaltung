@@ -144,7 +144,7 @@ EXISTS (
 Das SQL-Schema erstellt automatisch einen Admin-Benutzer mit folgenden Anmeldedaten:
 
 - **Benutzername:** `admin`
-- **Passwort:** `admin123`
+- **Passwort:** Das beim Setup generierte Einmal-Passwort (siehe Onboarding-E-Mail)
 
 ⚠️ **SICHERHEITSWARNUNG:** Dieses Passwort MUSS sofort nach dem ersten Login geändert werden!
 
