@@ -75,9 +75,9 @@ def scrape_google_places(
     gespeichert = 0
     gesamt = 0
 
-    # Koordinaten der Stadt über Geocoding ermitteln
+    # Koordinaten der Stadt über Text Search ermitteln
     geo_r = httpx.get(
-        f"{base_url}s/json",
+        f"{base_url}/textsearch/json",
         params={"query": stadt + " Zentrum", "key": api_key},
         timeout=10,
     )
