@@ -70,12 +70,7 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     schedule: "0 3 1 * *"        # jeden 1. des Monats, 03:00 Uhr UTC
-    startCommand: python -c "
-from utils.database import get_service_role_client;
-sb = get_service_role_client();
-result = sb.rpc('pseudonymisiere_ausgeschiedene_mitarbeiter').execute();
-print('DSGVO-Löschung:', result.data)
-"
+    startCommand: python scripts/dsgvo_loeschung.py
     plan: starter
     envVars:
       - key: SUPABASE_URL
