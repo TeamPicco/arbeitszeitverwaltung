@@ -55,6 +55,7 @@ ADMIN_NAV_OPTIONS = (
     "Premium",
     "Datenschutz",
     "Sicherheit",
+    "Leads",
 )
 ADMIN_NAV_ALIASES = {
     "Vertraege": "Verträge",
@@ -1793,6 +1794,12 @@ def _show_sicherheit_tab():
     show_password_reset()
 
 
+def _show_leads_tab():
+    """Outreach-Leads und Akquise-Dashboard."""
+    from modules.leads.leads_ui import show_leads_dashboard
+    show_leads_dashboard()
+
+
 def show_admin_dashboard():
     apply_custom_css()
     if st.session_state.get("admin_nav") is None:
@@ -1836,6 +1843,7 @@ def show_admin_dashboard():
             "Premium": _show_premium_tab,
             "Datenschutz": _show_datenschutz_tab,
             "Sicherheit": _show_sicherheit_tab,
+            "Leads": _show_leads_tab,
         }
         handler = section_handlers.get(selected)
         if handler is None:
