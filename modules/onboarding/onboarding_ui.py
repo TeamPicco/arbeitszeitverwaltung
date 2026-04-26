@@ -78,7 +78,8 @@ def show_registrierung() -> None:
 
             st.markdown("---")
             agb = st.checkbox(
-                "Ich akzeptiere die Nutzungsbedingungen und Datenschutzerklärung"
+                "Ich akzeptiere die [Nutzungsbedingungen](https://app.getcomplio.de/agb) "
+                "und [Datenschutzerklärung](https://app.getcomplio.de/datenschutz) (DSGVO Art. 13)"
             )
 
             submitted = st.form_submit_button(

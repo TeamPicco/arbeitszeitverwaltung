@@ -118,6 +118,16 @@ def erstelle_betrieb_und_admin(
             ).date().isoformat(),
         }).execute()
 
+        # DSE-Einwilligung protokollieren (Art. 7 DSGVO)
+        try:
+            supabase.table("dse_einwilligungen").insert({
+                "betrieb_id": betrieb_id,
+                "admin_username": admin_username,
+                "dse_version": "1.0",
+            }).execute()
+        except Exception:
+            pass  # Protokollierungsfehler darf Registrierung nicht blockieren
+
         return {
             "ok": True,
             "betrieb_id": betrieb_id,

@@ -53,6 +53,7 @@ ADMIN_NAV_OPTIONS = (
     "Zeitauswertung",
     "Verträge",
     "Premium",
+    "Datenschutz",
     "Sicherheit",
 )
 ADMIN_NAV_ALIASES = {
@@ -1773,6 +1774,18 @@ def _show_premium_tab():
         show_rechtsstand_admin(supabase)
 
 
+def _show_datenschutz_tab():
+    """DSGVO-Compliance: AVV-Register + Löschprotokoll."""
+    from modules.datenschutz.avv_ui import show_avv_register
+    from modules.datenschutz.loeschung_ui import show_loeschprotokoll
+
+    tab1, tab2 = st.tabs(["AVV-Register", "Löschroutine"])
+    with tab1:
+        show_avv_register()
+    with tab2:
+        show_loeschprotokoll()
+
+
 def _show_sicherheit_tab():
     """Sicherheits-Tools des Admins (Passwort-Reset, etc.)."""
     from modules.admin.password_reset import show_password_reset
@@ -1821,6 +1834,7 @@ def show_admin_dashboard():
             "Zeitauswertung": _show_zeitauswertung_tab,
             "Verträge": _show_vertrag_generator_tab,
             "Premium": _show_premium_tab,
+            "Datenschutz": _show_datenschutz_tab,
             "Sicherheit": _show_sicherheit_tab,
         }
         handler = section_handlers.get(selected)
