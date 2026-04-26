@@ -1,4 +1,14 @@
 services:
+  # ── Landingpage (Static Site) ─────────────────────────────
+  - type: web
+    name: complio-landing
+    runtime: static
+    staticPublishPath: ./landing
+    pullRequestPreviewsEnabled: false
+    domains:
+      - getcomplio.de
+      - www.getcomplio.de
+
   # ── Bestehender Web-Service ───────────────────────────────
   - type: web
     name: complio-app
