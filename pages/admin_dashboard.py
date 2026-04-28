@@ -1817,6 +1817,9 @@ def show_admin_dashboard():
     apply_custom_css()
     apply_admin_nav_css()
 
+    # Versions-Check: sichtbar bis Sidebar bestätigt funktioniert
+    st.sidebar.markdown("**v2.0 – Sidebar aktiv ✓**")
+
     if st.session_state.get("admin_nav") is None:
         st.session_state["admin_nav"] = "Dienstplanung"
 
