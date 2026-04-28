@@ -71,7 +71,7 @@ def main() -> None:
         return
     ma = employees[0]
     ma_id = ma["id"]
-    print("Mitarbeiter:", ma)
+    print("Mitarbeiter gefunden.")
 
     rows = (
         sb.table("zeiterfassung")
