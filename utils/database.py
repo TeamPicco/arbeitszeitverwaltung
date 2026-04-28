@@ -66,8 +66,10 @@ def set_betrieb_session(supabase_client, betrieb_id: int, user_id: Optional[int]
     for cfg in configs:
         try:
             supabase_client.rpc("set_config", cfg).execute()
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(
+                f"RLS-Session-Setup fehlgeschlagen für {cfg.get('setting_name')}: {exc}"
+            ) from exc
 
 
 def verify_credentials_with_betrieb(

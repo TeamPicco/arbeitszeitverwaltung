@@ -38,7 +38,8 @@ def apply_custom_css() -> None:
         }}
 
         [data-testid="stSidebar"],
-        [data-testid="stSidebarNav"] {{
+        [data-testid="stSidebarNav"],
+        [data-testid="stSidebarCollapsedControl"] {{
             display: none !important;
         }}
 
@@ -53,9 +54,10 @@ def apply_custom_css() -> None:
             top: 0;
             z-index: 40;
             background: {COLORS["surface"]};
-            border-bottom: none;
+            border-bottom: 1px solid {COLORS["border"]};
             padding: 0.15rem 0 0.15rem 0;
-            margin-bottom: 0.55rem;
+            margin-bottom: 0.75rem;
+            box-shadow: 0 1px 8px rgba(0,0,0,0.4);
         }}
 
         .st-key-header_logo {{
@@ -117,8 +119,34 @@ def apply_custom_css() -> None:
             color: {COLORS['text_primary']} !important;
         }}
 
-        /* Card-Surfaces */
-        div[data-testid="stMetric"],
+        /* Metric-Cards: Orange Akzent-Linie links + Wert in Orange */
+        div[data-testid="stMetric"] {{
+            background: {COLORS["surface"]} !important;
+            border: 1px solid {COLORS["border"]} !important;
+            border-left: 3px solid {COLORS["primary"]} !important;
+            border-radius: 10px !important;
+            box-shadow: none !important;
+            color: {COLORS['text_primary']} !important;
+            padding: 0.75rem 1rem !important;
+            transition: box-shadow 0.15s ease !important;
+        }}
+        div[data-testid="stMetric"]:hover {{
+            box-shadow: 0 0 0 1px {COLORS["border"]} !important;
+        }}
+        div[data-testid="stMetricValue"] > div {{
+            color: {COLORS["primary"]} !important;
+            font-size: 1.6rem !important;
+            font-weight: 700 !important;
+        }}
+        div[data-testid="stMetricLabel"] > div {{
+            color: #888888 !important;
+            font-size: 11px !important;
+            letter-spacing: 0.4px !important;
+            text-transform: uppercase !important;
+            font-weight: 600 !important;
+        }}
+
+        /* Form, Expander, DataFrame, Tabs */
         div[data-testid="stForm"],
         div[data-testid="stExpander"],
         div[data-testid="stDataFrame"],
@@ -130,21 +158,57 @@ def apply_custom_css() -> None:
             color: {COLORS['text_primary']} !important;
         }}
 
-        /* Buttons */
-        .stButton > button,
+        /* Buttons – Primär (orange, wichtige Aktionen) */
+        .stButton > button[kind="primary"],
+        .stButton > button[kind="primaryFormSubmit"],
         .stDownloadButton > button {{
-            min-height: 42px !important;
+            min-height: 40px !important;
             border-radius: 8px !important;
             border: 1px solid {COLORS["primary"]} !important;
             background: {COLORS["primary"]} !important;
-            color: {COLORS['text_primary']} !important;
+            color: #ffffff !important;
             font-weight: 600 !important;
-            padding: 0.5rem 1rem !important;
+            padding: 0.45rem 1rem !important;
+            font-size: 13px !important;
+            letter-spacing: 0.1px !important;
         }}
-        .stButton > button:hover,
+        .stButton > button[kind="primary"]:hover,
+        .stButton > button[kind="primaryFormSubmit"]:hover,
         .stDownloadButton > button:hover {{
             background: {COLORS['primary_light']} !important;
-            color: {COLORS['text_primary']} !important;
+            border-color: {COLORS['primary_light']} !important;
+        }}
+
+        /* Buttons – Sekundär (ghost, Nav-Inaktiv, Hilfsaktionen) */
+        .stButton > button[kind="secondary"],
+        .stButton > button[kind="secondaryFormSubmit"] {{
+            min-height: 40px !important;
+            border-radius: 8px !important;
+            border: 1px solid #2a2a2a !important;
+            background: transparent !important;
+            color: #888888 !important;
+            font-weight: 500 !important;
+            padding: 0.45rem 1rem !important;
+            font-size: 13px !important;
+        }}
+        .stButton > button[kind="secondary"]:hover,
+        .stButton > button[kind="secondaryFormSubmit"]:hover {{
+            background: #1a1a1a !important;
+            border-color: #3a3a3a !important;
+            color: #cccccc !important;
+        }}
+
+        /* Fallback: Buttons ohne kind-Attribut (ältere Streamlit-Versionen) */
+        .stButton > button:not([kind]),
+        .stButton > button[kind=""] {{
+            min-height: 40px !important;
+            border-radius: 8px !important;
+            border: 1px solid {COLORS["primary"]} !important;
+            background: {COLORS["primary"]} !important;
+            color: #ffffff !important;
+            font-weight: 600 !important;
+            padding: 0.45rem 1rem !important;
+            font-size: 13px !important;
         }}
 
         /* Inputs: Label + Text strikt kontrastreich */
@@ -255,12 +319,176 @@ def apply_custom_css() -> None:
             margin-bottom: 0.35rem !important;
         }}
 
+        /* ── Topbar-Navigation ──
+           Streamlit rendert st.container(key="topbar_nav") als .st-key-topbar_nav
+           Alle Buttons darin erhalten kompaktes Styling ohne Zeilenumbruch. */
+        .st-key-topbar_nav .stButton > button {{
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+            min-height: 34px !important;
+            font-size: 12.5px !important;
+            padding: 0.3rem 0.55rem !important;
+            letter-spacing: -0.1px !important;
+        }}
+        /* Aktiver Nav-Button: Unterstrichen in Orange */
+        .st-key-topbar_nav .stButton > button[kind="primary"] {{
+            background: transparent !important;
+            border: none !important;
+            border-bottom: 2px solid {COLORS["primary"]} !important;
+            border-radius: 0 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }}
+        /* Inaktiver Nav-Button: Ghost */
+        .st-key-topbar_nav .stButton > button[kind="secondary"] {{
+            background: transparent !important;
+            border: none !important;
+            color: #666666 !important;
+            font-weight: 500 !important;
+        }}
+        .st-key-topbar_nav .stButton > button[kind="secondary"]:hover {{
+            background: rgba(255,255,255,0.04) !important;
+            border: none !important;
+            color: #bbbbbb !important;
+            border-radius: 6px !important;
+        }}
+
         .complio-form-group {{
             background: {COLORS['surface']};
             border: 1px solid {COLORS["border"]};
             border-radius: 10px;
             padding: 0.85rem 0.95rem 0.65rem 0.95rem;
             margin: 0.5rem 0 0.9rem 0;
+        }}
+
+        /* Trennlinien st.divider() / st.markdown("---") */
+        hr {{
+            border: none !important;
+            border-top: 1px solid {COLORS["border"]} !important;
+            margin: 1.25rem 0 !important;
+            opacity: 1 !important;
+        }}
+
+        /* Abschnittsüberschriften: dezente Trennlinie */
+        h2, h3 {{
+            font-size: 1.05rem !important;
+            font-weight: 700 !important;
+            letter-spacing: -0.2px !important;
+            color: #ffffff !important;
+            padding-bottom: 0.4rem !important;
+            border-bottom: 1px solid {COLORS["border"]} !important;
+            margin-bottom: 0.85rem !important;
+        }}
+        h1 {{
+            font-size: 1.4rem !important;
+            font-weight: 800 !important;
+            letter-spacing: -0.5px !important;
+        }}
+
+        /* Caption-Text */
+        [data-testid="stCaptionContainer"] p {{
+            color: #555555 !important;
+            font-size: 11.5px !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def apply_admin_nav_css() -> None:
+    """
+    Aktiviert und stylt die linke Sidebar-Navigation für den Admin-Bereich.
+    Höhere CSS-Spezifität als der globale display:none in apply_custom_css().
+    """
+    st.markdown(
+        f"""
+        <style>
+        /* Höhere Spezifität (html body = 0,0,0,2) schlägt globales [attr] (0,0,1,0) */
+        html body [data-testid="stSidebar"],
+        html body section[data-testid="stSidebar"] {{
+            display: flex !important;
+            width: 230px !important;
+            min-width: 230px !important;
+            max-width: 230px !important;
+            flex-direction: column !important;
+            background: #0d0d0d !important;
+            border-right: 1px solid {COLORS["border"]} !important;
+        }}
+        html body [data-testid="stSidebar"] > div,
+        html body [data-testid="stSidebarContent"] {{
+            background: #0d0d0d !important;
+            width: 100% !important;
+        }}
+        [data-testid="stSidebarContent"] {{
+            padding: 1.25rem 0.85rem !important;
+            overflow-x: hidden !important;
+        }}
+
+        /* Logo in Sidebar */
+        [data-testid="stSidebar"] [data-testid="stImage"] img {{
+            width: 150px !important;
+            height: auto !important;
+        }}
+
+        /* Nav-Buttons: links ausgerichtet, kein Rahmen */
+        [data-testid="stSidebar"] .stButton > button {{
+            background: transparent !important;
+            border: none !important;
+            border-radius: 7px !important;
+            color: #6b6b6b !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            text-align: left !important;
+            justify-content: flex-start !important;
+            padding: 0.48rem 0.7rem !important;
+            width: 100% !important;
+            min-height: 36px !important;
+            white-space: nowrap !important;
+            margin-bottom: 2px !important;
+            transition: background 0.1s, color 0.1s !important;
+        }}
+        [data-testid="stSidebar"] .stButton > button:hover {{
+            background: rgba(255,255,255,0.05) !important;
+            color: #c0c0c0 !important;
+            border: none !important;
+        }}
+
+        /* Aktiver Eintrag: gedämpftes Orange + linke Linie */
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+            background: rgba(249,115,22,0.10) !important;
+            color: {COLORS["primary"]} !important;
+            font-weight: 600 !important;
+            border-left: 3px solid {COLORS["primary"]} !important;
+            border-radius: 0 7px 7px 0 !important;
+            padding-left: 0.6rem !important;
+        }}
+        [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {{
+            background: rgba(249,115,22,0.16) !important;
+            color: {COLORS["primary"]} !important;
+            border-left: 3px solid {COLORS["primary"]} !important;
+            border-radius: 0 7px 7px 0 !important;
+        }}
+
+        /* Trennlinie + Caption in Sidebar */
+        [data-testid="stSidebar"] hr {{
+            border-top: 1px solid {COLORS["border"]} !important;
+            margin: 0.75rem 0 !important;
+        }}
+        [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {{
+            color: #3a3a3a !important;
+            font-size: 11px !important;
+        }}
+
+        /* Sidebar-Toggle-Button im Admin-Bereich einblenden */
+        html body [data-testid="stSidebarCollapsedControl"] {{
+            display: flex !important;
+        }}
+
+        /* Hauptbereich: kein übermäßiger Oben-Abstand */
+        .block-container {{
+            padding-top: 0.6rem !important;
         }}
         </style>
         """,

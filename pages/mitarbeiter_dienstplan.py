@@ -188,7 +188,7 @@ def erstelle_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jahr: int, mo
             logo = Image(logo_path, width=3*cm, height=2.5*cm)
             hd = [[logo, Paragraph(f"<b>{BRAND_COMPANY_NAME}</b><br/>Dienstplan",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
-        except:
+        except Exception:
             hd = [[Paragraph(f"<b>{BRAND_COMPANY_NAME}</b>",
                    ParagraphStyle('h', fontSize=14, alignment=TA_LEFT))]]
     else:
@@ -282,8 +282,23 @@ def erstelle_dienstplan_pdf(mitarbeiter: dict, dienstplaene: list, jahr: int, mo
     return buffer.getvalue()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _cached_mitarbeiter_dienste(planning_table: str, mitarbeiter_id: int, start_iso: str, end_iso: str) -> list:
+    supabase = get_supabase_client()
+    resp = supabase.table(planning_table).select(
+        '*, schichtvorlagen(name, farbe)'
+    ).eq('mitarbeiter_id', mitarbeiter_id).gte(
+        'datum', start_iso
+    ).lte('datum', end_iso).order('datum').execute()
+    return resp.data or []
+
+
 def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     """Zeigt den Dienstplan für den eingeloggten Mitarbeiter – clean & minimalistisch."""
+
+    if not st.session_state.get("betrieb_id"):
+        st.error("Session nicht vollständig. Bitte neu anmelden.")
+        return
 
     st.markdown(DIENSTPLAN_CSS, unsafe_allow_html=True)
     st.subheader("Mein Dienstplan")
@@ -304,20 +319,19 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
     with col3:
         if st.button("Aktualisieren", use_container_width=True, key="mitarbeiter_dienstplan_refresh",
                      help="Aktualisieren"):
+            _cached_mitarbeiter_dienste.clear()
             st.rerun()
 
     erster_tag = date(jahr, monat, 1)
     letzter_tag = date(jahr, monat, calendar.monthrange(jahr, monat)[1])
 
-    dienstplaene_resp = supabase.table(planning_table).select(
-        '*, schichtvorlagen(name, farbe)'
-    ).eq('mitarbeiter_id', mitarbeiter['id']).gte(
-        'datum', erster_tag.isoformat()
-    ).lte('datum', letzter_tag.isoformat()).order('datum').execute()
+    dienste = _cached_mitarbeiter_dienste(
+        planning_table, mitarbeiter['id'],
+        erster_tag.isoformat(), letzter_tag.isoformat()
+    )
 
     st.markdown("---")
 
-    dienste = dienstplaene_resp.data or []
     counts = summarize_dienstplan_month(year=jahr, month=monat, entries=dienste)
 
     col_a, col_b, col_c, col_d = st.columns(4)
@@ -331,20 +345,28 @@ def show_mitarbeiter_dienstplan(mitarbeiter: dict):
         st.caption("Tage ohne Eintrag (inkl. Ruhetage) werden in der Statistik als Frei gezählt.")
         return
 
-    # PDF-Download
-    try:
-        pdf_bytes = erstelle_dienstplan_pdf(mitarbeiter, dienste, jahr, monat)
-        dateiname = f"Dienstplan_{mitarbeiter.get('nachname', 'Mitarbeiter')}_{MONATE_DE[monat]}_{jahr}.pdf"
-        st.download_button(
-            label="Dienstplan als PDF herunterladen",
-            data=pdf_bytes,
-            file_name=dateiname,
-            mime="application/pdf",
-            use_container_width=True,
-            key="pdf_download_btn"
-        )
-    except Exception as e:
-        st.warning(f"PDF-Erstellung nicht verfügbar: {str(e)}")
+    # PDF-Download (nur bei Klick generieren, nicht bei jedem Render)
+    _pdf_key = f"ma_dp_pdf_{mitarbeiter['id']}_{jahr}_{monat}"
+    _pdf_sig = f"{len(dienste)}"
+    _pdf_sig_key = _pdf_key + "_sig"
+    col_pdf1, col_pdf2 = st.columns(2)
+    with col_pdf1:
+        if st.button("PDF generieren", key="ma_dp_pdf_gen", use_container_width=True):
+            try:
+                st.session_state[_pdf_key] = erstelle_dienstplan_pdf(mitarbeiter, dienste, jahr, monat)
+                st.session_state[_pdf_sig_key] = _pdf_sig
+            except Exception as e:
+                st.warning(f"PDF-Erstellung nicht verfügbar: {str(e)}")
+    with col_pdf2:
+        if st.session_state.get(_pdf_key) and st.session_state.get(_pdf_sig_key) == _pdf_sig:
+            st.download_button(
+                label="PDF herunterladen",
+                data=st.session_state[_pdf_key],
+                file_name=f"Dienstplan_{mitarbeiter.get('nachname', 'Mitarbeiter')}_{MONATE_DE[monat]}_{jahr}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+                key="ma_dp_pdf_dl",
+            )
 
     st.markdown("---")
 

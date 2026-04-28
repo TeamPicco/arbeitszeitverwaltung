@@ -18,7 +18,7 @@ from utils.database import (
     upload_file_to_storage_result,
 )
 from utils.session import require_betrieb_id
-from utils.styles import apply_custom_css
+from utils.styles import apply_custom_css, apply_admin_nav_css
 from utils.work_accounts import (
     close_work_account_month,
     set_work_account_opening_balance,
@@ -49,7 +49,7 @@ ADMIN_NAV_OPTIONS = (
     "Dienstplanung",
     "Personalakte",
     "Abwesenheiten",
-    "Arbeitszeitkonten",
+    "Zeitkonten",
     "Zeitauswertung",
     "Verträge",
     "Premium",
@@ -57,9 +57,22 @@ ADMIN_NAV_OPTIONS = (
     "Sicherheit",
     "Leads",
 )
+ADMIN_NAV_ICONS = {
+    "Dienstplanung": "📅",
+    "Personalakte": "👤",
+    "Abwesenheiten": "🏥",
+    "Zeitkonten": "⏱",
+    "Zeitauswertung": "📊",
+    "Verträge": "📝",
+    "Premium": "⭐",
+    "Datenschutz": "🛡️",
+    "Sicherheit": "🔒",
+    "Leads": "📣",
+}
 ADMIN_NAV_ALIASES = {
     "Vertraege": "Verträge",
     "Mitarbeiter": "Personalakte",
+    "Arbeitszeitkonten": "Zeitkonten",
 }
 
 
@@ -1802,42 +1815,49 @@ def _show_leads_tab():
 
 def show_admin_dashboard():
     apply_custom_css()
+    apply_admin_nav_css()
+
     if st.session_state.get("admin_nav") is None:
         st.session_state["admin_nav"] = "Dienstplanung"
 
-    st.markdown("<div class='complio-topbar'>", unsafe_allow_html=True)
-    top_logo, top_nav = st.columns([1.2, 5], vertical_alignment="center")
-    with top_logo:
-        with st.container(key="header_logo"):
-            st.image(BRAND_LOGO_IMAGE, width=230)
-    with top_nav:
-        current_nav = _normalize_admin_nav(st.session_state.get("admin_nav", "Dienstplanung"))
-        nav_cols = st.columns(len(ADMIN_NAV_OPTIONS))
-        selected = current_nav
-        for col, opt in zip(nav_cols, ADMIN_NAV_OPTIONS):
-            with col:
-                is_active = selected == opt
-                if st.button(
-                    opt,
-                    key=f"nav_{opt}",
-                    use_container_width=True,
-                    type="primary" if is_active else "secondary"
-                ):
-                    selected = opt
-        st.session_state["admin_nav"] = _normalize_admin_nav(selected)
-    st.markdown("</div>", unsafe_allow_html=True)
+    # ── Linke Sidebar-Navigation ──
+    current_nav = _normalize_admin_nav(st.session_state.get("admin_nav", "Dienstplanung"))
+    selected = current_nav
 
-    st.markdown("<div class='complio-card'>", unsafe_allow_html=True)
+    with st.sidebar:
+        with st.container(key="header_logo"):
+            st.image(BRAND_LOGO_IMAGE, width=160)
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        for opt in ADMIN_NAV_OPTIONS:
+            icon = ADMIN_NAV_ICONS.get(opt, "")
+            label = f"{icon}  {opt}" if icon else opt
+            is_active = selected == opt
+            if st.button(
+                label,
+                key=f"nav_{opt}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                selected = opt
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        betrieb_name = st.session_state.get("betrieb_name", "")
+        if betrieb_name:
+            st.caption(f"🏢 {betrieb_name}")
+
+    st.session_state["admin_nav"] = _normalize_admin_nav(selected)
+
+    # ── Hauptinhalt ──
     selected = _normalize_admin_nav(st.session_state.get("admin_nav"))
     if selected == "Dienstplanung":
         from pages import admin_dienstplan
-
         admin_dienstplan.show_dienstplanung()
     else:
         section_handlers = {
             "Personalakte": _show_mitarbeiter_stammdaten_tab,
             "Abwesenheiten": _show_absenzen_tab,
-            "Arbeitszeitkonten": _show_arbeitszeitkonten_tab,
+            "Zeitkonten": _show_arbeitszeitkonten_tab,
             "Zeitauswertung": _show_zeitauswertung_tab,
             "Verträge": _show_vertrag_generator_tab,
             "Premium": _show_premium_tab,
@@ -1853,7 +1873,6 @@ def show_admin_dashboard():
             admin_dienstplan.show_dienstplanung()
         else:
             handler()
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 if __name__ == "__main__":

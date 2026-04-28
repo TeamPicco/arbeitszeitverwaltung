@@ -20,7 +20,7 @@ st.set_page_config(
     page_title=BRAND_APP_NAME,
     page_icon=BRAND_LOGO_IMAGE,
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="auto",
 )
 @st.cache_resource(show_spinner=False)
 def _get_supabase_client():

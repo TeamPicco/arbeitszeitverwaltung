@@ -601,6 +601,8 @@ def zeige_kiosk(betrieb_id: int, geraet_name: str = "Kiosk"):
         "kiosk_rueckkehr_zeit": None,
         "kiosk_fehler": None,
         "offline_puffer": [],
+        "kiosk_pin_fehlversuche": 0,
+        "kiosk_lockout_bis": 0,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -710,17 +712,42 @@ def _pin_ziffer_hinzufuegen(betrieb_id: int, ziffer: str):
         st.rerun()
 
 
+_MAX_PIN_VERSUCHE = 5
+_LOCKOUT_SEKUNDEN = 60
+
+
 def _pin_pruefen(betrieb_id: int):
-    """PIN gegen Datenbank prüfen und ggf. zur Aktion-Phase wechseln."""
+    """PIN gegen Datenbank prüfen mit Brute-Force-Schutz."""
+    import time as _time
+
+    # Lockout prüfen
+    lockout_bis = st.session_state.get("kiosk_lockout_bis", 0)
+    if _time.time() < lockout_bis:
+        verbleibend = int(lockout_bis - _time.time())
+        st.session_state["kiosk_fehler"] = f"Zu viele Fehlversuche. Bitte {verbleibend} Sekunden warten."
+        st.session_state["kiosk_pin"] = ""
+        return
+
     pin = st.session_state["kiosk_pin"]
     mitarbeiter = mitarbeiter_per_pin(betrieb_id, pin)
+
     if mitarbeiter:
+        st.session_state["kiosk_pin_fehlversuche"] = 0
+        st.session_state["kiosk_lockout_bis"] = 0
         st.session_state["kiosk_mitarbeiter"] = mitarbeiter
         st.session_state["kiosk_phase"] = "aktion"
         st.session_state["kiosk_pin"] = ""
     else:
-        st.session_state["kiosk_fehler"] = "Unbekannter PIN. Bitte erneut versuchen."
+        versuche = st.session_state.get("kiosk_pin_fehlversuche", 0) + 1
+        st.session_state["kiosk_pin_fehlversuche"] = versuche
         st.session_state["kiosk_pin"] = ""
+        if versuche >= _MAX_PIN_VERSUCHE:
+            st.session_state["kiosk_lockout_bis"] = _time.time() + _LOCKOUT_SEKUNDEN
+            st.session_state["kiosk_pin_fehlversuche"] = 0
+            st.session_state["kiosk_fehler"] = f"Zu viele Fehlversuche. Gerät für {_LOCKOUT_SEKUNDEN} Sekunden gesperrt."
+        else:
+            verbleibend = _MAX_PIN_VERSUCHE - versuche
+            st.session_state["kiosk_fehler"] = f"Unbekannter PIN. Noch {verbleibend} Versuch(e)."
 
 
 def _zeige_aktion(betrieb_id: int, geraet_name: str):

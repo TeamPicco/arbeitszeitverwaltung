@@ -59,10 +59,10 @@ SCHICHTTYPEN = {
 
 try:
     locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
-except:
+except (ValueError, OSError):
     try:
         locale.setlocale(locale.LC_TIME, 'de_DE')
-    except:
+    except (ValueError, OSError):
         pass
 
 
@@ -636,6 +636,13 @@ def setze_urlaub_automatisch(
 def show_dienstplanung():
     """Zeigt die Dienstplanung für Administratoren an"""
 
+    if not st.session_state.get("betrieb_id"):
+        st.error("Kein Betrieb im Session-State gesetzt. Bitte neu anmelden.")
+        return
+    if st.session_state.get("role") not in ("admin", "superadmin"):
+        st.error("Keine Berechtigung für die Dienstplanung.")
+        return
+
     st.markdown('<div class="section-header">Dienstplanung</div>', unsafe_allow_html=True)
 
     supabase = get_supabase_client()
@@ -963,14 +970,14 @@ def show_monatsplan(supabase):
         urlaub_rows=urlaube_for_summary,
     )
 
+    # Vorberechneter Lookup: mitarbeiter_id → alle Dienste (verhindert O(n²))
+    _ma_dienste_index: dict[int, list] = {}
+    for (ma_id, _datum), eintraege in dienste_map.items():
+        _ma_dienste_index.setdefault(ma_id, []).extend(eintraege)
+
     # ── MITARBEITER-ÜBERSICHT ─────────────────────────────────
     for mitarbeiter in mitarbeiter_liste:
-        # Detaildaten für die Tagesanzeige/PDF
-        ma_dienste_flat = []
-        for key, eintraege in dienste_map.items():
-            if key[0] == mitarbeiter['id']:
-                ma_dienste_flat.extend(eintraege)
-        ma_dienste = ma_dienste_flat
+        ma_dienste = _ma_dienste_index.get(mitarbeiter['id'], [])
         summary_row = summary_by_ma.get(int(mitarbeiter["id"]), {})
         geplant = int(summary_row.get("geplant", 0))
         urlaub = int(summary_row.get("urlaub", 0))
@@ -996,21 +1003,31 @@ def show_monatsplan(supabase):
                     f"Nutze 'Genehmigte Urlaube automatisch eintragen' oben."
                 )
 
-            # PDF-Download für einzelnen Mitarbeiter
-            ma_dienste_sorted = _collect_employee_dienste(dienste_map, mitarbeiter['id'])
-            try:
-                pdf_bytes = erstelle_einzelner_dienstplan_pdf(mitarbeiter, ma_dienste_sorted, jahr, monat)
-                dateiname = f"Dienstplan_{mitarbeiter['nachname']}_{MONATE_DE[monat]}_{jahr}.pdf"
-                st.download_button(
-                    label="Dienstplan als PDF herunterladen",
-                    data=pdf_bytes,
-                    file_name=dateiname,
-                    mime="application/pdf",
-                    use_container_width=True,
-                    key=f"pdf_dl_{mitarbeiter['id']}"
-                )
-            except Exception as e:
-                st.warning(f"PDF nicht verfügbar: {str(e)}")
+            # PDF-Download für einzelnen Mitarbeiter (nur bei Klick generieren)
+            _pdf_cache_key = f"pdf_cache_{mitarbeiter['id']}_{jahr}_{monat}"
+            _pdf_sig_key = f"pdf_sig_{mitarbeiter['id']}_{jahr}_{monat}"
+            _pdf_sig = f"{len(dienste_map)}"
+            col_pdf_btn, col_pdf_dl = st.columns(2)
+            with col_pdf_btn:
+                if st.button("PDF generieren", key=f"pdf_gen_{mitarbeiter['id']}", use_container_width=True):
+                    try:
+                        ma_dienste_sorted = _collect_employee_dienste(dienste_map, mitarbeiter['id'])
+                        st.session_state[_pdf_cache_key] = erstelle_einzelner_dienstplan_pdf(
+                            mitarbeiter, ma_dienste_sorted, jahr, monat
+                        )
+                        st.session_state[_pdf_sig_key] = _pdf_sig
+                    except Exception as e:
+                        st.warning(f"PDF nicht verfügbar: {str(e)}")
+            with col_pdf_dl:
+                if st.session_state.get(_pdf_cache_key) and st.session_state.get(_pdf_sig_key) == _pdf_sig:
+                    st.download_button(
+                        label="PDF herunterladen",
+                        data=st.session_state[_pdf_cache_key],
+                        file_name=f"Dienstplan_{mitarbeiter['nachname']}_{MONATE_DE[monat]}_{jahr}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True,
+                        key=f"pdf_dl_{mitarbeiter['id']}",
+                    )
 
             if ma_dienste:
                 for dienst in sorted(ma_dienste, key=lambda x: (x['datum'], x.get('start_zeit', '00:00'))):
@@ -1123,36 +1140,44 @@ def show_monatsplan(supabase):
                                 with sb2:
                                     abbrechen = st.form_submit_button("Abbrechen", use_container_width=True)
                                 if speichern:
-                                    try:
-                                        update_data = {
-                                            'datum': neues_datum.isoformat(),
-                                            'schichttyp': neuer_typ,
-                                            'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
-                                            'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
-                                        }
-                                        old_data = {
-                                            "datum": dienst.get("datum"),
-                                            "schichttyp": dienst.get("schichttyp"),
-                                            "start_zeit": dienst.get("start_zeit"),
-                                            "ende_zeit": dienst.get("ende_zeit"),
-                                            "pause_minuten": dienst.get("pause_minuten"),
-                                            "urlaub_stunden": dienst.get("urlaub_stunden"),
-                                        }
-                                        supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
-                                        _audit_dienstplan_change(
-                                            action="dienstplan_korrektur",
-                                            dienst_id=int(dienst["id"]),
-                                            mitarbeiter_id=int(mitarbeiter["id"]),
-                                            alter_wert=old_data,
-                                            neuer_wert=update_data,
-                                            begruendung="Dienstplan-Korrektur",
-                                        )
-                                        _refresh_after_write()
-                                        st.session_state[edit_key] = False
-                                        st.success("Dienst aktualisiert.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Fehler beim Speichern: {str(e)}")
+                                    import re as _re
+                                    _zeit_re = _re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+                                    _zeit_fehler = neuer_typ == 'arbeit' and (
+                                        not _zeit_re.match(neue_start) or not _zeit_re.match(neue_ende)
+                                    )
+                                    if _zeit_fehler:
+                                        st.error("Ungültiges Zeitformat. Bitte HH:MM eingeben (z.B. 08:00).")
+                                    else:
+                                        try:
+                                            update_data = {
+                                                'datum': neues_datum.isoformat(),
+                                                'schichttyp': neuer_typ,
+                                                'start_zeit': neue_start + ':00' if len(neue_start) == 5 else neue_start,
+                                                'ende_zeit': neue_ende + ':00' if len(neue_ende) == 5 else neue_ende,
+                                            }
+                                            old_data = {
+                                                "datum": dienst.get("datum"),
+                                                "schichttyp": dienst.get("schichttyp"),
+                                                "start_zeit": dienst.get("start_zeit"),
+                                                "ende_zeit": dienst.get("ende_zeit"),
+                                                "pause_minuten": dienst.get("pause_minuten"),
+                                                "urlaub_stunden": dienst.get("urlaub_stunden"),
+                                            }
+                                            supabase.table(planning_table).update(update_data).eq('id', dienst['id']).execute()
+                                            _audit_dienstplan_change(
+                                                action="dienstplan_korrektur",
+                                                dienst_id=int(dienst["id"]),
+                                                mitarbeiter_id=int(mitarbeiter["id"]),
+                                                alter_wert=old_data,
+                                                neuer_wert=update_data,
+                                                begruendung="Dienstplan-Korrektur",
+                                            )
+                                            _refresh_after_write()
+                                            st.session_state[edit_key] = False
+                                            st.success("Dienst aktualisiert.")
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Fehler beim Speichern: {str(e)}")
                                 if abbrechen:
                                     st.session_state[edit_key] = False
                                     st.rerun()

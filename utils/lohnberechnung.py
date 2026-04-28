@@ -55,27 +55,27 @@ class DienstplanSummary:
 # FEIERTAGSKALENDER SACHSEN
 # ─────────────────────────────────────────────────────────────────────────────
 
+_feiertage_cache: Dict[int, Dict[date, str]] = {}
+
+
 def get_feiertage_sachsen(jahr: int) -> Dict[date, str]:
     """
     Gibt alle gesetzlichen Feiertage in Sachsen für ein Jahr zurück.
-
-    Sachsen-spezifische Feiertage (zusätzlich zu bundesweiten):
-    - Buß- und Bettag (Mittwoch vor dem 23. November)
-
-    Returns:
-        Dict[date, str]: {datum: name}
+    Ergebnis wird im Modulscope gecacht – verhindert wiederholte API-Calls
+    bei Splitting-Berechnungen mit vielen Segmenten.
     """
-    feiertage = {}
+    if jahr in _feiertage_cache:
+        return _feiertage_cache[jahr]
 
-    # Bundesweite Feiertage via holidays-Bibliothek
+    feiertage: Dict[date, str] = {}
     try:
         de_holidays = holidays.Germany(years=jahr, subdiv="SN")
         for d, name in de_holidays.items():
             feiertage[d] = name
     except Exception:
-        # Fallback: manuelle Berechnung der wichtigsten Feiertage
         feiertage.update(_feiertage_manuell(jahr))
 
+    _feiertage_cache[jahr] = feiertage
     return feiertage
 
 
@@ -651,8 +651,7 @@ def berechne_eintrag(
                     "Kappung aktiv: "
                     f"gestempelt {str(start_zeit)[:5]} → berechnet ab Dienstplan-Start {plan_start_dt.strftime('%H:%M')}"
                 )
-        except Exception:
-            # Falls eine Legacy-Instanz inkonsistente Zeitwerte enthält, nicht hard-failen.
+        except (ValueError, OverflowError):
             start_zeit_fuer_berechnung = start_zeit
 
     # Für UI/Reports transparent machen, welche Startzeit tatsächlich berechnet wurde.
@@ -690,7 +689,7 @@ def berechne_eintrag(
                     ],
                     "fehler": "Schicht ueber 10h erkannt - Admin-Pruefung erforderlich",
                 }
-    except Exception:
+    except (ValueError, OverflowError, AttributeError):
         pass
 
     # Netto-Stunden berechnen
