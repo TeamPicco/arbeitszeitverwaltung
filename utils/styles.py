@@ -37,9 +37,9 @@ def apply_custom_css() -> None:
             color: {COLORS['text_primary']} !important;
         }}
 
-        [data-testid="stSidebar"],
-        [data-testid="stSidebarNav"],
-        [data-testid="stSidebarCollapsedControl"] {{
+        /* Sidebar-Sichtbarkeit wird seitenspezifisch gesteuert,
+           nicht global – Admin-Bereich zeigt sie, Login/Mitarbeiter nicht. */
+        [data-testid="stSidebarNav"] {{
             display: none !important;
         }}
 
@@ -405,19 +405,17 @@ def apply_admin_nav_css() -> None:
     st.markdown(
         f"""
         <style>
-        /* Höhere Spezifität (html body = 0,0,0,2) schlägt globales [attr] (0,0,1,0) */
-        html body [data-testid="stSidebar"],
-        html body section[data-testid="stSidebar"] {{
-            display: flex !important;
+        /* Sidebar-Styling für Admin-Bereich */
+        [data-testid="stSidebar"],
+        section[data-testid="stSidebar"] {{
             width: 230px !important;
             min-width: 230px !important;
             max-width: 230px !important;
-            flex-direction: column !important;
             background: #0d0d0d !important;
             border-right: 1px solid {COLORS["border"]} !important;
         }}
-        html body [data-testid="stSidebar"] > div,
-        html body [data-testid="stSidebarContent"] {{
+        [data-testid="stSidebar"] > div,
+        [data-testid="stSidebarContent"] {{
             background: #0d0d0d !important;
             width: 100% !important;
         }}
@@ -481,8 +479,8 @@ def apply_admin_nav_css() -> None:
             font-size: 11px !important;
         }}
 
-        /* Sidebar-Toggle-Button im Admin-Bereich einblenden */
-        html body [data-testid="stSidebarCollapsedControl"] {{
+        /* Sidebar-Toggle-Button sichtbar */
+        [data-testid="stSidebarCollapsedControl"] {{
             display: flex !important;
         }}
 

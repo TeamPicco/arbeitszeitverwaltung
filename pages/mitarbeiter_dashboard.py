@@ -837,6 +837,10 @@ def _render_zeitkonto_tab(mitarbeiter: dict) -> None:
 
 def show_mitarbeiter_dashboard() -> None:
     apply_custom_css()
+    st.markdown(
+        "<style>section[data-testid='stSidebar'],[data-testid='stSidebarCollapsedControl']{display:none!important}</style>",
+        unsafe_allow_html=True,
+    )
 
     if not st.session_state.get("logged_in"):
         st.error("Bitte zuerst einloggen.")
