@@ -19,7 +19,9 @@ class MitarbeiterCreate(BaseModel):
     email: Optional[str] = None
     telefon: Optional[str] = None
     position: Optional[str] = None
-    stundenlohn: Optional[float] = None
+    bereich: Optional[str] = None
+    beschaeftigungsart: Optional[str] = None
+    monatliche_brutto_verguetung: Optional[float] = None
     monatliche_soll_stunden: Optional[float] = None
     jahres_urlaubstage: Optional[int] = None
     eintrittsdatum: Optional[str] = None
@@ -32,7 +34,9 @@ class MitarbeiterUpdate(BaseModel):
     email: Optional[str] = None
     telefon: Optional[str] = None
     position: Optional[str] = None
-    stundenlohn: Optional[float] = None
+    bereich: Optional[str] = None
+    beschaeftigungsart: Optional[str] = None
+    monatliche_brutto_verguetung: Optional[float] = None
     monatliche_soll_stunden: Optional[float] = None
     jahres_urlaubstage: Optional[int] = None
     eintrittsdatum: Optional[str] = None
@@ -49,9 +53,10 @@ def _get_supabase():
 
 
 _SELECT_COLS = (
-    "id,vorname,nachname,email,telefon,position,stundenlohn,"
-    "monatliche_soll_stunden,jahres_urlaubstage,eintrittsdatum,austrittsdatum,"
-    "aktiv,created_at"
+    "id,vorname,nachname,email,telefon,position,bereich,"
+    "monatliche_brutto_verguetung,monatliche_soll_stunden,"
+    "jahres_urlaubstage,eintrittsdatum,austrittsdatum,"
+    "aktiv,beschaeftigungsart,created_at"
 )
 
 

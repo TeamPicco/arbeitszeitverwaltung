@@ -12,8 +12,10 @@ type Mitarbeiter = {
   vorname: string
   nachname: string
   position?: string
+  bereich?: string
+  beschaeftigungsart?: string
   email?: string
-  stundenlohn?: number
+  monatliche_brutto_verguetung?: number
   monatliche_soll_stunden?: number
   aktiv: boolean
 }
@@ -158,6 +160,11 @@ export function AdminMitarbeiter() {
                         <Clock size={13} /> {ma.monatliche_soll_stunden} h/Monat
                       </span>
                     )}
+                    {ma.beschaeftigungsart && (
+                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--surface2)', color: 'var(--text-muted)', border: '1px solid var(--border)' }}>
+                        {ma.beschaeftigungsart}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -199,8 +206,9 @@ function MitarbeiterForm({
     vorname: initial?.vorname ?? '',
     nachname: initial?.nachname ?? '',
     position: initial?.position ?? '',
+    bereich: initial?.bereich ?? '',
     email: initial?.email ?? '',
-    stundenlohn: String(initial?.stundenlohn ?? ''),
+    monatliche_brutto_verguetung: String(initial?.monatliche_brutto_verguetung ?? ''),
     monatliche_soll_stunden: String(initial?.monatliche_soll_stunden ?? ''),
   })
   const [loading, setLoading] = useState(false)
@@ -213,7 +221,9 @@ function MitarbeiterForm({
     setLoading(true)
     await onSave({
       ...form,
-      stundenlohn: form.stundenlohn ? Number(form.stundenlohn) : undefined,
+      monatliche_brutto_verguetung: form.monatliche_brutto_verguetung
+        ? Number(form.monatliche_brutto_verguetung)
+        : undefined,
       monatliche_soll_stunden: form.monatliche_soll_stunden
         ? Number(form.monatliche_soll_stunden)
         : undefined,
@@ -231,8 +241,9 @@ function MitarbeiterForm({
           <Input label="Vorname" value={form.vorname} onChange={f('vorname')} required autoFocus={!initial} />
           <Input label="Nachname" value={form.nachname} onChange={f('nachname')} required />
           <Input label="Position / Rolle" value={form.position} onChange={f('position')} placeholder="z.B. Kellner, Koch …" />
+          <Input label="Bereich" value={form.bereich} onChange={f('bereich')} placeholder="z.B. Küche, Service …" />
           <Input label="E-Mail" type="email" value={form.email} onChange={f('email')} />
-          <Input label="Stundenlohn (€)" type="number" step="0.01" min="0" value={form.stundenlohn} onChange={f('stundenlohn')} placeholder="0.00" />
+          <Input label="Monatsbrutto (€)" type="number" step="0.01" min="0" value={form.monatliche_brutto_verguetung} onChange={f('monatliche_brutto_verguetung')} placeholder="0.00" />
           <Input label="Soll-Stunden / Monat" type="number" step="0.5" min="0" value={form.monatliche_soll_stunden} onChange={f('monatliche_soll_stunden')} placeholder="160" />
         </div>
         <div className="flex gap-2 justify-end">
