@@ -63,10 +63,10 @@ export function AdminMitarbeiter() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Mitarbeiter</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          <h1 className="text-4xl font-bold tracking-tight">Mitarbeiter</h1>
+          <p className="text-base mt-1.5" style={{ color: 'var(--text-muted)' }}>
             {(mitarbeiter ?? []).length} aktive Mitarbeiter
           </p>
         </div>
@@ -124,16 +124,16 @@ export function AdminMitarbeiter() {
           filtered.map((ma, idx) => (
             <div
               key={ma.id}
-              className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#141414]"
+              className="flex items-center justify-between px-6 py-5 transition-colors hover:bg-[#141414]"
               style={{
                 borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                background: idx % 2 === 0 ? 'var(--surface)' : '#0d0d0d',
               }}
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-5">
                 {/* Avatar */}
                 <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                  className="w-12 h-12 rounded-2xl flex items-center justify-center text-base font-bold shrink-0"
                   style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
                 >
                   {ma.vorname[0]}{ma.nachname[0]}
@@ -141,21 +141,21 @@ export function AdminMitarbeiter() {
 
                 {/* Info */}
                 <div>
-                  <p className="font-semibold">{ma.vorname} {ma.nachname}</p>
-                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                  <p className="font-semibold text-[16px]">{ma.vorname} {ma.nachname}</p>
+                  <div className="flex items-center gap-4 mt-1 flex-wrap">
                     {ma.position && (
-                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        <Briefcase size={11} /> {ma.position}
+                      <span className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+                        <Briefcase size={13} /> {ma.position}
                       </span>
                     )}
                     {ma.email && (
-                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        <Mail size={11} /> {ma.email}
+                      <span className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+                        <Mail size={13} /> {ma.email}
                       </span>
                     )}
                     {ma.monatliche_soll_stunden && (
-                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        <Clock size={11} /> {ma.monatliche_soll_stunden} h/Monat
+                      <span className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--text-muted)' }}>
+                        <Clock size={13} /> {ma.monatliche_soll_stunden} h/Monat
                       </span>
                     )}
                   </div>

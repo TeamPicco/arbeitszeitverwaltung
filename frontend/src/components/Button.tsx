@@ -11,7 +11,7 @@ const styles = {
   primary:
     'bg-[#F97316] hover:bg-[#ea6a0a] text-white font-semibold',
   secondary:
-    'bg-[#1a1a1a] hover:bg-[#222] text-[#e8e8e8] border border-[#1f1f1f]',
+    'bg-[#1a1a1a] hover:bg-[#242424] text-[#e8e8e8] border border-[#2a2a2a]',
   danger:
     'bg-transparent hover:bg-red-900/20 text-red-400 border border-red-900/50',
   ghost:
@@ -30,9 +30,9 @@ export function Button({
     <button
       {...rest}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${styles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-[15px] font-medium transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${styles[variant]} ${className}`}
     >
-      {loading && <Spinner size={14} />}
+      {loading && <Spinner size={15} />}
       {children}
     </button>
   )

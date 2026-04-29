@@ -7,14 +7,14 @@ interface CardProps {
   padding?: string
 }
 
-export function Card({ children, className = '', accent, padding = 'p-6' }: CardProps) {
+export function Card({ children, className = '', accent, padding = 'p-7' }: CardProps) {
   return (
     <div
-      className={`rounded-xl ${padding} ${className}`}
+      className={`rounded-2xl ${padding} ${className}`}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        ...(accent ? { borderLeft: '3px solid var(--accent)' } : {}),
+        ...(accent ? { borderLeft: '4px solid var(--accent)' } : {}),
       }}
     >
       {children}
@@ -35,29 +35,29 @@ export function MetricCard({
 }) {
   return (
     <div
-      className="rounded-xl p-5"
+      className="rounded-2xl p-6"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderLeft: '3px solid var(--accent)',
+        borderLeft: '4px solid var(--accent)',
       }}
     >
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between mb-3">
         <p
-          className="text-xs font-semibold uppercase tracking-widest"
+          className="text-xs font-bold uppercase tracking-widest"
           style={{ color: 'var(--text-muted)' }}
         >
           {label}
         </p>
         {icon && (
-          <span style={{ color: 'var(--accent)', opacity: 0.6 }}>{icon}</span>
+          <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{icon}</span>
         )}
       </div>
-      <p className="text-3xl font-bold mt-2" style={{ color: 'var(--accent)' }}>
+      <p className="text-4xl font-bold mt-1" style={{ color: 'var(--accent)' }}>
         {value}
       </p>
       {sub && (
-        <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-sm mt-2" style={{ color: 'var(--text-muted)' }}>
           {sub}
         </p>
       )}
@@ -67,9 +67,9 @@ export function MetricCard({
 
 export function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-4 pb-3"
+    <div className="flex items-center justify-between mb-5 pb-4"
       style={{ borderBottom: '1px solid var(--border)' }}>
-      <h2 className="text-base font-semibold">{title}</h2>
+      <h2 className="text-lg font-semibold">{title}</h2>
       {action}
     </div>
   )

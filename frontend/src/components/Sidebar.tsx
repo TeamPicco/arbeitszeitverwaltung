@@ -22,31 +22,31 @@ interface NavItem {
 }
 
 const ADMIN_NAV: NavItem[] = [
-  { to: '/admin',               icon: <LayoutDashboard size={18} />, label: 'Übersicht' },
-  { to: '/admin/mitarbeiter',   icon: <Users size={18} />,           label: 'Mitarbeiter' },
-  { to: '/admin/dienstplan',    icon: <CalendarRange size={18} />,   label: 'Dienstplan' },
-  { to: '/admin/zeiten',        icon: <Clock size={18} />,           label: 'Zeiterfassung' },
-  { to: '/admin/urlaub',        icon: <CalendarDays size={18} />,    label: 'Urlaub' },
-  { to: '/admin/lohn',          icon: <DollarSign size={18} />,      label: 'Lohn' },
-  { to: '/admin/dokumente',     icon: <FileText size={18} />,        label: 'Dokumente' },
-  { to: '/admin/kiosk',         icon: <Timer size={18} />,           label: 'Kiosk' },
+  { to: '/admin',               icon: <LayoutDashboard size={20} />, label: 'Übersicht' },
+  { to: '/admin/mitarbeiter',   icon: <Users size={20} />,           label: 'Mitarbeiter' },
+  { to: '/admin/dienstplan',    icon: <CalendarRange size={20} />,   label: 'Dienstplan' },
+  { to: '/admin/zeiten',        icon: <Clock size={20} />,           label: 'Zeiterfassung' },
+  { to: '/admin/urlaub',        icon: <CalendarDays size={20} />,    label: 'Urlaub' },
+  { to: '/admin/lohn',          icon: <DollarSign size={20} />,      label: 'Lohn' },
+  { to: '/admin/dokumente',     icon: <FileText size={20} />,        label: 'Dokumente' },
+  { to: '/admin/kiosk',         icon: <Timer size={20} />,           label: 'Kiosk' },
 ]
 
 const ADMIN_BOTTOM_NAV: NavItem[] = [
-  { to: '/admin/einstellungen', icon: <Settings size={18} />,        label: 'Einstellungen' },
+  { to: '/admin/einstellungen', icon: <Settings size={20} />,        label: 'Einstellungen' },
 ]
 
 const MITARBEITER_NAV: NavItem[] = [
-  { to: '/dashboard',         icon: <LayoutDashboard size={18} />, label: 'Übersicht' },
-  { to: '/dashboard/zeiten',  icon: <Clock size={18} />,           label: 'Meine Zeiten' },
-  { to: '/dashboard/urlaub',  icon: <CalendarDays size={18} />,    label: 'Urlaub' },
+  { to: '/dashboard',         icon: <LayoutDashboard size={20} />, label: 'Übersicht' },
+  { to: '/dashboard/zeiten',  icon: <Clock size={20} />,           label: 'Meine Zeiten' },
+  { to: '/dashboard/urlaub',  icon: <CalendarDays size={20} />,    label: 'Urlaub' },
 ]
 
 const navClass = (isActive: boolean) =>
-  `flex items-center gap-3 px-3 py-2.5 mx-2 rounded-lg text-sm font-medium transition-all ${
+  `flex items-center gap-3.5 px-4 py-3 mx-2 rounded-xl text-[15px] font-medium transition-all ${
     isActive
       ? 'bg-orange-500/10 text-[#F97316] border border-orange-500/20'
-      : 'text-[#888] hover:text-[#ebebeb] hover:bg-[#1a1a1a] border border-transparent'
+      : 'text-[#999] hover:text-[#f0f0f0] hover:bg-[#1a1a1a] border border-transparent'
   }`
 
 function NavGroup({ items }: { items: NavItem[] }) {
@@ -76,34 +76,34 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
       className="flex flex-col shrink-0 h-screen sticky top-0"
       style={{
         width: 'var(--sidebar-w)',
-        background: '#0c0c0c',
+        background: '#0a0a0a',
         borderRight: '1px solid var(--border)',
       }}
     >
       {/* Logo */}
-      <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-2.5">
+      <div className="px-6 py-6" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-3">
           <div
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold"
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-base"
             style={{ background: 'var(--accent)' }}
           >
             C
           </div>
           <div>
-            <p className="font-bold text-base leading-none">
+            <p className="font-bold text-lg leading-none">
               comp<span style={{ color: 'var(--accent)' }}>lio</span>
             </p>
-            <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>HR-Software</p>
+            <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--text-muted)' }}>HR-Software</p>
           </div>
         </div>
       </div>
 
       {/* Betrieb */}
       {betriebName && (
-        <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="flex items-center gap-2">
-            <Building2 size={13} style={{ color: 'var(--text-muted)' }} />
-            <p className="text-xs truncate font-medium" style={{ color: 'var(--text-muted)' }}>
+        <div className="px-5 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div className="flex items-center gap-2.5">
+            <Building2 size={15} style={{ color: 'var(--accent)', opacity: 0.7 }} />
+            <p className="text-sm truncate font-semibold" style={{ color: 'var(--text-muted)' }}>
               {betriebName}
             </p>
           </div>
@@ -111,11 +111,11 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
       )}
 
       {/* Nav */}
-      <nav className="flex-1 py-3 overflow-y-auto flex flex-col gap-0.5">
+      <nav className="flex-1 py-4 overflow-y-auto flex flex-col gap-1">
         {isAdmin ? (
           <>
-            <p className="text-[10px] font-semibold uppercase tracking-widest px-5 py-2 mt-1"
-              style={{ color: 'var(--text-muted)' }}>
+            <p className="text-[11px] font-bold uppercase tracking-widest px-6 pb-2 pt-1"
+              style={{ color: '#555' }}>
               Verwaltung
             </p>
             <NavGroup items={ADMIN_NAV} />
@@ -134,10 +134,10 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
         )}
         <button
           onClick={() => { logout(); navigate('/login') }}
-          className="flex items-center gap-3 text-sm w-full px-3 py-2.5 mx-2 rounded-lg hover:bg-[#1a1a1a] transition-all cursor-pointer border border-transparent"
+          className="flex items-center gap-3.5 text-[15px] w-full px-4 py-3 mx-2 rounded-xl hover:bg-[#1a1a1a] transition-all cursor-pointer border border-transparent"
           style={{ color: 'var(--text-muted)', width: 'calc(100% - 16px)' }}
         >
-          <LogOut size={18} />
+          <LogOut size={20} />
           <span>Abmelden</span>
         </button>
       </div>
