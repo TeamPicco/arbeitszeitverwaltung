@@ -63,10 +63,10 @@ export function AdminMitarbeiter() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-10">
         <div>
-          <h1 className="text-4xl font-bold tracking-tight">Mitarbeiter</h1>
-          <p className="text-base mt-1.5" style={{ color: 'var(--text-muted)' }}>
+          <h1 className="font-extrabold tracking-tight" style={{ fontSize: '2.8rem', lineHeight: 1.15 }}>Mitarbeiter</h1>
+          <p className="text-base mt-2" style={{ color: 'var(--text-muted)' }}>
             {(mitarbeiter ?? []).length} aktive Mitarbeiter
           </p>
         </div>
