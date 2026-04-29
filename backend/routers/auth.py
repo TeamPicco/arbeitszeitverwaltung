@@ -65,7 +65,13 @@ def _load_mitarbeiter_id(supabase, betrieb_id: int, user_id: int) -> Optional[in
 
 @router.post("/login", response_model=LoginResponse)
 def login(body: LoginRequest):
-    supabase = _get_supabase()
+    try:
+        supabase = _get_supabase()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DB-Verbindungsfehler: {exc}",
+        )
 
     # 1. Betrieb prüfen
     betrieb_res = (
