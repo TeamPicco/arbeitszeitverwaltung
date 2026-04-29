@@ -37,3 +37,23 @@ for router, prefix, tag in [
 @app.get("/health")
 def health():
     return {"status": "ok", "version": "2.0.0"}
+
+
+@app.get("/debug/env")
+def debug_env():
+    import os, socket
+    url = os.getenv("SUPABASE_URL", "NICHT_GESETZT")
+    key_set = bool(os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY"))
+    host = url.replace("https://", "").replace("http://", "").split("/")[0]
+    try:
+        ip = socket.gethostbyname(host)
+        dns = f"OK → {ip}"
+    except Exception as e:
+        dns = f"FEHLER: {e}"
+    return {
+        "supabase_url": url,
+        "supabase_url_len": len(url),
+        "service_key_set": key_set,
+        "dns_check": dns,
+        "host": host,
+    }
