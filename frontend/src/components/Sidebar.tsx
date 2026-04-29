@@ -2,51 +2,38 @@ import { type ReactNode } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import {
-  LayoutDashboard,
-  Users,
-  Clock,
-  CalendarDays,
-  FileText,
-  DollarSign,
-  Settings,
-  LogOut,
-  Timer,
-  CalendarRange,
-  Building2,
+  LayoutDashboard, Users, Clock, CalendarDays, FileText,
+  DollarSign, Settings, LogOut, Timer, CalendarRange, Building2,
 } from 'lucide-react'
 
-interface NavItem {
-  to: string
-  icon: ReactNode
-  label: string
-}
+interface NavItem { to: string; icon: ReactNode; label: string }
 
 const ADMIN_NAV: NavItem[] = [
-  { to: '/admin',               icon: <LayoutDashboard size={20} />, label: 'Übersicht' },
-  { to: '/admin/mitarbeiter',   icon: <Users size={20} />,           label: 'Mitarbeiter' },
-  { to: '/admin/dienstplan',    icon: <CalendarRange size={20} />,   label: 'Dienstplan' },
-  { to: '/admin/zeiten',        icon: <Clock size={20} />,           label: 'Zeiterfassung' },
-  { to: '/admin/urlaub',        icon: <CalendarDays size={20} />,    label: 'Urlaub' },
-  { to: '/admin/lohn',          icon: <DollarSign size={20} />,      label: 'Lohn' },
-  { to: '/admin/dokumente',     icon: <FileText size={20} />,        label: 'Dokumente' },
-  { to: '/admin/kiosk',         icon: <Timer size={20} />,           label: 'Kiosk' },
+  { to: '/admin',               icon: <LayoutDashboard size={22} />, label: 'Übersicht' },
+  { to: '/admin/mitarbeiter',   icon: <Users size={22} />,           label: 'Mitarbeiter' },
+  { to: '/admin/dienstplan',    icon: <CalendarRange size={22} />,   label: 'Dienstplan' },
+  { to: '/admin/zeiten',        icon: <Clock size={22} />,           label: 'Zeiterfassung' },
+  { to: '/admin/urlaub',        icon: <CalendarDays size={22} />,    label: 'Urlaub' },
+  { to: '/admin/lohn',          icon: <DollarSign size={22} />,      label: 'Lohn' },
+  { to: '/admin/dokumente',     icon: <FileText size={22} />,        label: 'Dokumente' },
+  { to: '/admin/kiosk',         icon: <Timer size={22} />,           label: 'Kiosk' },
 ]
 
 const ADMIN_BOTTOM_NAV: NavItem[] = [
-  { to: '/admin/einstellungen', icon: <Settings size={20} />,        label: 'Einstellungen' },
+  { to: '/admin/einstellungen', icon: <Settings size={22} />, label: 'Einstellungen' },
 ]
 
 const MITARBEITER_NAV: NavItem[] = [
-  { to: '/dashboard',         icon: <LayoutDashboard size={20} />, label: 'Übersicht' },
-  { to: '/dashboard/zeiten',  icon: <Clock size={20} />,           label: 'Meine Zeiten' },
-  { to: '/dashboard/urlaub',  icon: <CalendarDays size={20} />,    label: 'Urlaub' },
+  { to: '/dashboard',         icon: <LayoutDashboard size={22} />, label: 'Übersicht' },
+  { to: '/dashboard/zeiten',  icon: <Clock size={22} />,           label: 'Meine Zeiten' },
+  { to: '/dashboard/urlaub',  icon: <CalendarDays size={22} />,    label: 'Urlaub' },
 ]
 
 const navClass = (isActive: boolean) =>
-  `flex items-center gap-3.5 px-4 py-3 mx-2 rounded-xl text-[15px] font-medium transition-all ${
+  `flex items-center gap-4 px-5 py-3.5 mx-3 rounded-xl font-medium transition-all text-base ${
     isActive
       ? 'bg-orange-500/10 text-[#F97316] border border-orange-500/20'
-      : 'text-[#999] hover:text-[#f0f0f0] hover:bg-[#1a1a1a] border border-transparent'
+      : 'text-[#999] hover:text-[#f2f2f2] hover:bg-white/5 border border-transparent'
   }`
 
 function NavGroup({ items }: { items: NavItem[] }) {
@@ -74,36 +61,30 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
   return (
     <aside
       className="flex flex-col shrink-0 h-screen sticky top-0"
-      style={{
-        width: 'var(--sidebar-w)',
-        background: '#0a0a0a',
-        borderRight: '1px solid var(--border)',
-      }}
+      style={{ width: 'var(--sidebar-w)', background: '#0a0a0a', borderRight: '1px solid var(--border)' }}
     >
       {/* Logo */}
-      <div className="px-6 py-6" style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-3">
-          <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-base"
-            style={{ background: 'var(--accent)' }}
-          >
+      <div className="px-6 py-7" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-lg"
+            style={{ background: 'var(--accent)' }}>
             C
           </div>
           <div>
-            <p className="font-bold text-lg leading-none">
+            <p className="font-bold text-xl leading-none">
               comp<span style={{ color: 'var(--accent)' }}>lio</span>
             </p>
-            <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--text-muted)' }}>HR-Software</p>
+            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>HR-Software</p>
           </div>
         </div>
       </div>
 
       {/* Betrieb */}
       {betriebName && (
-        <div className="px-5 py-3.5" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="px-6 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex items-center gap-2.5">
-            <Building2 size={15} style={{ color: 'var(--accent)', opacity: 0.7 }} />
-            <p className="text-sm truncate font-semibold" style={{ color: 'var(--text-muted)' }}>
+            <Building2 size={16} style={{ color: 'var(--accent)', opacity: 0.8 }} />
+            <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-muted)' }}>
               {betriebName}
             </p>
           </div>
@@ -111,10 +92,10 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
       )}
 
       {/* Nav */}
-      <nav className="flex-1 py-4 overflow-y-auto flex flex-col gap-1">
+      <nav className="flex-1 py-5 overflow-y-auto flex flex-col gap-1">
         {isAdmin ? (
           <>
-            <p className="text-[11px] font-bold uppercase tracking-widest px-6 pb-2 pt-1"
+            <p className="text-xs font-bold uppercase tracking-widest px-7 pb-3"
               style={{ color: '#555' }}>
               Verwaltung
             </p>
@@ -126,18 +107,14 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
       </nav>
 
       {/* Bottom */}
-      <div className="py-3" style={{ borderTop: '1px solid var(--border)' }}>
-        {isAdmin && (
-          <div className="mb-1">
-            <NavGroup items={ADMIN_BOTTOM_NAV} />
-          </div>
-        )}
+      <div className="py-4" style={{ borderTop: '1px solid var(--border)' }}>
+        {isAdmin && <div className="mb-1"><NavGroup items={ADMIN_BOTTOM_NAV} /></div>}
         <button
           onClick={() => { logout(); navigate('/login') }}
-          className="flex items-center gap-3.5 text-[15px] w-full px-4 py-3 mx-2 rounded-xl hover:bg-[#1a1a1a] transition-all cursor-pointer border border-transparent"
-          style={{ color: 'var(--text-muted)', width: 'calc(100% - 16px)' }}
+          className="flex items-center gap-4 text-base font-medium mx-3 px-5 py-3.5 rounded-xl hover:bg-white/5 transition-all cursor-pointer border border-transparent"
+          style={{ color: 'var(--text-muted)', width: 'calc(100% - 24px)' }}
         >
-          <LogOut size={20} />
+          <LogOut size={22} />
           <span>Abmelden</span>
         </button>
       </div>

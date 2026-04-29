@@ -1,13 +1,13 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 @import "tailwindcss";
 
 :root {
-  --bg: #080808;
-  --surface: #111111;
-  --surface2: #181818;
-  --border: #252525;
-  --text: #f0f0f0;
+  --bg: #060606;
+  --surface: #101010;
+  --surface2: #161616;
+  --border: #222;
+  --text: #f2f2f2;
   --text-muted: #888;
   --accent: #F97316;
   --accent-hover: #ea6a0a;
@@ -19,22 +19,20 @@
   --warning: #f59e0b;
   --info: #3b82f6;
   --info-dim: rgba(59, 130, 246, 0.14);
-  --sidebar-w: 280px;
-  --radius: 12px;
+  --sidebar-w: 300px;
+  --radius: 14px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 16px; }
+html { font-size: 17px; }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'DM Sans', system-ui, sans-serif;
-  font-size: 1rem;
+  font-family: 'Inter', system-ui, sans-serif;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 #root { min-height: 100svh; display: flex; flex-direction: column; }
@@ -42,7 +40,6 @@ body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 10px; }
-::-webkit-scrollbar-thumb:hover { background: #383838; }
 
 select {
   appearance: none;

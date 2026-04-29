@@ -34,8 +34,8 @@ export function AdminUrlaub() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Urlaubsanträge</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+          <h1 className="font-extrabold tracking-tight" style={{ fontSize: '2.8rem', lineHeight: 1.15 }}>Urlaubsanträge</h1>
+          <p className="text-base mt-2" style={{ color: 'var(--text-muted)' }}>
             {items.length} {filter === 'alle' ? 'Anträge gesamt' : `Anträge (${STATUS_CONFIG[filter]?.label ?? filter})`}
           </p>
         </div>
