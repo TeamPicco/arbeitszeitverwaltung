@@ -21,7 +21,9 @@ from datetime import date, datetime, time, timedelta
 from typing import Dict, List, Any, Optional, Tuple, Iterable
 import calendar
 import holidays
-import streamlit as st
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -916,7 +918,6 @@ def berechne_monat(
     }
 
 
-@st.cache_data(ttl=600, show_spinner=False)
 def berechne_monat_cached(
     eintraege: List[Dict[str, Any]],
     mitarbeiter: Dict[str, Any],

@@ -1,3 +1,7 @@
+"""Database utilities — FastAPI/standalone version (kein Streamlit)."""
+from __future__ import annotations
+
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -5,8 +9,13 @@ from urllib.parse import quote
 
 import bcrypt
 import requests
-import streamlit as st
 from supabase import Client, create_client
+
+logger = logging.getLogger(__name__)
+
+# ── Modul-Level Singletons (thread-safe für FastAPI/uvicorn) ─────────────────
+_anon_client: Optional[Client] = None
+_service_client: Optional[Client] = None
 
 
 def _require_env(name: str) -> str:
@@ -16,46 +25,38 @@ def _require_env(name: str) -> str:
     return value
 
 
-def init_supabase_client() -> Client:
-    """Initialisiert den regulären Supabase-Client aus Session-State."""
-    if "supabase" not in st.session_state:
-        url = _require_env("SUPABASE_URL")
-        # Streamlit läuft serverseitig. Für stabile Schreiboperationen mit RLS
-        # nutzen wir bevorzugt den Service-Role-Key (falls gesetzt).
-        key = (
-            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-            or os.getenv("SUPABASE_SERVICE_KEY")
-            or _require_env("SUPABASE_KEY")
-        )
-        st.session_state.supabase = create_client(url, key)
-    return st.session_state.supabase
-
-
 def get_supabase_client() -> Client:
-    """Alias für den regulären Supabase-Client."""
-    return init_supabase_client()
+    """Anon/regulärer Supabase-Client (Module-Singleton)."""
+    global _anon_client
+    if _anon_client is None:
+        url = _require_env("SUPABASE_URL")
+        key = _require_env("SUPABASE_KEY")
+        _anon_client = create_client(url, key)
+    return _anon_client
 
 
 def get_service_role_client() -> Client:
-    """
-    Liefert einen Service-Role-Client.
+    """Service-Role-Client — für serverseitige Admin-Operationen."""
+    global _service_client
+    if _service_client is None:
+        url = _require_env("SUPABASE_URL")
+        service_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+        )
+        if not service_key:
+            raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY fehlt")
+        _service_client = create_client(url, service_key)
+    return _service_client
 
-    Nur für serverseitige Admin-Aufgaben, niemals für Browser-seitige Secrets.
-    """
-    url = _require_env("SUPABASE_URL")
-    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
-    if not service_key:
-        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY fehlt")
-    return create_client(url, service_key)
+
+# Alias für Legacy-Code
+def init_supabase_client() -> Client:
+    return get_supabase_client()
 
 
-def set_betrieb_session(supabase_client, betrieb_id: int, user_id: Optional[int] = None) -> None:
-    """
-    Setzt die PostgreSQL Session-Variablen für RLS-Policies:
-      - app.current_betrieb_id  (Mandantentrennung)
-      - app.current_user_id     (Mitarbeiter-Datenisolation)
-    Muss nach jedem Login aufgerufen werden.
-    """
+def set_betrieb_session(supabase_client: Client, betrieb_id: int, user_id: Optional[int] = None) -> None:
+    """Setzt PostgreSQL Session-Variablen für RLS-Policies."""
     configs = [
         {"setting_name": "app.current_betrieb_id", "new_value": str(betrieb_id), "is_local": False},
     ]
@@ -108,11 +109,10 @@ def verify_credentials_with_betrieb(
         if bcrypt.checkpw(password.encode("utf-8"), pw_hash.encode("utf-8")):
             user["betrieb_name"] = betrieb.get("name", "")
             user["betrieb_id"] = betrieb["id"]
-            set_betrieb_session(supabase, betrieb["id"], user_id=user.get("id"))
             return user
         return None
     except Exception as exc:
-        st.error(f"Login-Fehler: {exc}")
+        logger.error("Login-Fehler: %s", exc)
         return None
 
 
@@ -127,7 +127,6 @@ def update_last_login(user_id: str) -> None:
             .execute()
         )
     except Exception:
-        # Login-Funktion darf nicht an Telemetrie scheitern.
         pass
 
 
@@ -137,17 +136,7 @@ def upload_file_to_storage_result(
     file_data: bytes,
     fallback_buckets: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """
-    Datei-Upload über Supabase Storage REST API mit Bucket-Fallback.
-
-    Rückgabe:
-      {
-        "ok": bool,
-        "bucket": str | None,
-        "status_code": int | None,
-        "error": str | None
-      }
-    """
+    """Datei-Upload über Supabase Storage REST API mit Bucket-Fallback."""
     try:
         url = _require_env("SUPABASE_URL")
         service_key = (
@@ -156,12 +145,7 @@ def upload_file_to_storage_result(
             or os.getenv("SUPABASE_KEY")
         )
         if not service_key:
-            return {
-                "ok": False,
-                "bucket": None,
-                "status_code": None,
-                "error": "SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY fehlt",
-            }
+            return {"ok": False, "bucket": None, "status_code": None, "error": "Service-Key fehlt"}
 
         headers = {
             "apikey": service_key,
@@ -178,54 +162,36 @@ def upload_file_to_storage_result(
             upload_url = f"{url}/storage/v1/object/{bucket}/{encoded_path}"
             response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
             if response.status_code in (200, 201):
-                return {
-                    "ok": True,
-                    "bucket": bucket,
-                    "status_code": response.status_code,
-                    "error": None,
-                }
+                return {"ok": True, "bucket": bucket, "status_code": response.status_code, "error": None}
             last_status = response.status_code
             body = (response.text or "").strip()
             last_error = body[:500] if body else "Unbekannter Storage-Fehler"
 
-        return {
-            "ok": False,
-            "bucket": None,
-            "status_code": last_status,
-            "error": last_error,
-        }
+        return {"ok": False, "bucket": None, "status_code": last_status, "error": last_error}
     except Exception as exc:
-        return {
-            "ok": False,
-            "bucket": None,
-            "status_code": None,
-            "error": str(exc),
-        }
+        return {"ok": False, "bucket": None, "status_code": None, "error": str(exc)}
 
 
 def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> bool:
-    """Legacy-Wrapper für bool-Rückgabe."""
     result = upload_file_to_storage_result(bucket_name, file_path, file_data)
     return bool(result.get("ok"))
 
 
-def get_all_mitarbeiter() -> List[Dict[str, Any]]:
-    """Lädt alle Mitarbeiter des aktuellen Betriebs (falls gesetzt)."""
+def get_all_mitarbeiter(betrieb_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Lädt alle Mitarbeiter eines Betriebs."""
     supabase = get_supabase_client()
     query = supabase.table("mitarbeiter").select("*").order("nachname")
-    betrieb_id = st.session_state.get("betrieb_id")
     if betrieb_id is not None:
         query = query.eq("betrieb_id", betrieb_id)
     res = query.execute()
     return res.data or []
 
 
-def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any]) -> bool:
+def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any], betrieb_id: Optional[int] = None) -> bool:
     """Aktualisiert einen Mitarbeiterdatensatz."""
     try:
         supabase = get_supabase_client()
         query = supabase.table("mitarbeiter").update(values).eq("id", mitarbeiter_id)
-        betrieb_id = st.session_state.get("betrieb_id")
         if betrieb_id is not None:
             query = query.eq("betrieb_id", betrieb_id)
         query.execute()
@@ -235,11 +201,7 @@ def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any]) -> bool:
 
 
 def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) -> float:
-    """
-    Speichert den Monatsabschluss in azk_historie.
-
-    Fallback-fähig für unterschiedliche historische Spaltennamen.
-    """
+    """Speichert den Monatsabschluss in azk_historie."""
     supabase = get_supabase_client()
 
     ist_res = (
@@ -283,12 +245,8 @@ def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) 
     return diff
 
 
-def get_signed_url(bucket_name: str, file_path: str, expires_in: int = 3600) -> str | None:
-    """
-    Erstellt eine signierte URL für eine Datei im Supabase Storage.
-    Läuft nach expires_in Sekunden ab (Standard: 1 Stunde).
-    Gibt None zurück wenn der Aufruf fehlschlägt.
-    """
+def get_signed_url(bucket_name: str, file_path: str, expires_in: int = 3600) -> Optional[str]:
+    """Erstellt eine signierte URL für eine Datei im Supabase Storage."""
     try:
         url = _require_env("SUPABASE_URL")
         service_key = (
@@ -304,19 +262,12 @@ def get_signed_url(bucket_name: str, file_path: str, expires_in: int = 3600) -> 
             "Content-Type": "application/json",
         }
         sign_url = f"{url}/storage/v1/object/sign/{bucket_name}/{file_path}"
-        response = requests.post(
-            sign_url,
-            headers=headers,
-            json={"expiresIn": expires_in},
-            timeout=10
-        )
+        response = requests.post(sign_url, headers=headers, json={"expiresIn": expires_in}, timeout=10)
         if response.status_code == 200:
             data = response.json()
             signed_path = data.get("signedURL") or data.get("signedUrl") or ""
             if signed_path:
-                if signed_path.startswith("http"):
-                    return signed_path
-                return f"{url}{signed_path}"
+                return signed_path if signed_path.startswith("http") else f"{url}{signed_path}"
         return None
     except Exception:
         return None

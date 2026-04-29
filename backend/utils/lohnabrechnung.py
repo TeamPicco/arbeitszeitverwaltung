@@ -220,11 +220,9 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
     
     except Exception as e:
         import traceback
-        import streamlit as st
+        import logging
         tb = traceback.format_exc()
-        print(f"Fehler Arbeitszeitkonto: {str(e)}\n{tb}")
-        st.error(f"❌ Fehler beim Berechnen des Arbeitszeitkontos:")
-        st.code(f"{str(e)}\n\n{tb}", language='text')
+        logging.getLogger(__name__).error("Fehler Arbeitszeitkonto: %s\n%s", e, tb)
         return None
 
 
@@ -317,11 +315,9 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
     
     except Exception as e:
         import traceback
-        import streamlit as st
+        import logging
         tb = traceback.format_exc()
-        print(f"Fehler Lohnabrechnung: {str(e)}\n{tb}")
-        st.error(f"❌ Fehler beim Erstellen der Lohnabrechnung:")
-        st.code(f"{str(e)}\n\n{tb}", language='text')
+        logging.getLogger(__name__).error("Fehler Lohnabrechnung: %s\n%s", e, tb)
         return None
 
 
