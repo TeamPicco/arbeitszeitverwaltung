@@ -3,6 +3,6 @@
   "outputDirectory": "frontend/dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "env": {
-    "VITE_API_URL": "https://your-railway-backend.railway.app"
+    "VITE_API_URL": "https://arbeitszeitverwaltung-production.up.railway.app"
   }
 }
