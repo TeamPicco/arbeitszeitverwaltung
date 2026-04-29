@@ -27,13 +27,11 @@ export function MetricCard({
   value,
   sub,
   icon,
-  trend,
 }: {
   label: string
   value: string | number
   sub?: string
   icon?: ReactNode
-  trend?: 'up' | 'down' | 'neutral'
 }) {
   return (
     <div
