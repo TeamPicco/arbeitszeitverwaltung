@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: transparent;
+    width: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 16px 16px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+
+  .hint {
+    color: #7a9cc0;
+    font-size: 1.05rem;
+    font-weight: 500;
+    margin-bottom: 16px;
+    text-align: center;
+    width: 100%;
+  }
+
+  .error-box {
+    background: #3e1010;
+    border: 2px solid #c62828;
+    border-radius: 12px;
+    padding: 10px 16px;
+    text-align: center;
+    font-size: 0.95rem;
+    color: #ff8a80;
+    margin-bottom: 14px;
+    font-weight: 600;
+    width: 100%;
+    max-width: 340px;
+    display: none;
+  }
+  .error-box.visible { display: block; }
+
+  .pin-wrap {
+    width: 100%;
+    max-width: 340px;
+    position: relative;
+  }
+
+  /* Sichtbares Punkte-Display (kein echtes Input) */
+  .pin-display {
+    width: 100%;
+    height: 88px;
+    background: #1a2535;
+    border: 2px solid #3a6ea8;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    box-shadow: 0 0 20px rgba(58, 110, 168, 0.3);
+    cursor: text;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+  .pin-display.focused {
+    border-color: #5a9fd9;
+    box-shadow: 0 0 30px rgba(74, 144, 217, 0.5);
+  }
+
+  .pin-dot {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2.5px solid #3a6ea8;
+    background: transparent;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  }
+  .pin-dot.filled {
+    background: #4a90d9;
+    border-color: #4a90d9;
+    transform: scale(1.15);
+  }
+
+  /* Unsichtbares echtes Input-Feld (für Tastatur) */
+  #real-input {
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%; height: 100%;
+    opacity: 0;
+    font-size: 16px; /* verhindert iOS-Zoom */
+    border: none;
+    background: transparent;
+    cursor: text;
+    z-index: 10;
+    -webkit-appearance: none;
+  }
+
+  .reset-btn {
+    margin-top: 14px;
+    background: #1a2535;
+    color: #90a4ae;
+    border: 1px solid #37474f;
+    border-radius: 8px;
+    padding: 9px 24px;
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .reset-btn:hover, .reset-btn:active {
+    background: #263545;
+    color: #ef5350;
+    border-color: #ef5350;
+  }
+</style>
+</head>
+<body>
+
+<div class="hint" id="hint-text">PIN über Tastatur eingeben</div>
+<div class="error-box" id="error-box"></div>
+
+<div class="pin-wrap">
+  <div class="pin-display" id="pin-display">
+    <div class="pin-dot" id="dot-0"></div>
+    <div class="pin-dot" id="dot-1"></div>
+    <div class="pin-dot" id="dot-2"></div>
+    <div class="pin-dot" id="dot-3"></div>
+  </div>
+  <!-- Unsichtbares Input über dem Display -->
+  <input
+    id="real-input"
+    type="tel"
+    inputmode="numeric"
+    pattern="[0-9]*"
+    maxlength="4"
+    autocomplete="off"
+    autocorrect="off"
+    autocapitalize="off"
+    spellcheck="false"
+  />
+</div>
+
+<button class="reset-btn" id="reset-btn">✕ PIN löschen</button>
+
+<script>
+// Streamlit Component API
+const Streamlit = {
+  setComponentValue: function(value) {
+    window.parent.postMessage({
+      type: "streamlit:setComponentValue",
+      value: value
+    }, "*");
+  },
+  setFrameHeight: function(height) {
+    window.parent.postMessage({
+      type: "streamlit:setFrameHeight",
+      height: height
+    }, "*");
+  }
+};
+
+// Höhe sofort und wiederholt melden (feste Höhe für zuverlässiges Rendering)
+Streamlit.setFrameHeight(200);
+setTimeout(function() { Streamlit.setFrameHeight(200); }, 100);
+setTimeout(function() { Streamlit.setFrameHeight(200); }, 500);
+
+const input = document.getElementById('real-input');
+const display = document.getElementById('pin-display');
+const dots = [0,1,2,3].map(i => document.getElementById('dot-' + i));
+const resetBtn = document.getElementById('reset-btn');
+const errorBox = document.getElementById('error-box');
+
+let pinValue = '';
+let submitted = false;
+
+// Fehlertext aus URL-Parameter lesen (wird von Python übergeben)
+const params = new URLSearchParams(window.location.search);
+const errorText = params.get('error') || '';
+if (errorText) {
+  errorBox.textContent = '❌ ' + decodeURIComponent(errorText);
+  errorBox.classList.add('visible');
+}
+
+function updateDisplay() {
+  dots.forEach(function(dot, i) {
+    dot.classList.toggle('filled', i < pinValue.length);
+  });
+}
+
+function doFocus() {
+  input.focus();
+}
+
+// Sofort fokussieren
+doFocus();
+setTimeout(doFocus, 100);
+setTimeout(doFocus, 500);
+
+// Klick auf Display → fokussieren
+display.addEventListener('click', doFocus);
+display.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  doFocus();
+});
+
+// Fokus-Status anzeigen
+input.addEventListener('focus', function() {
+  display.classList.add('focused');
+});
+input.addEventListener('blur', function() {
+  display.classList.remove('focused');
+  // Nach kurzer Pause wieder fokussieren (verhindert Fokusverlust)
+  if (!submitted) {
+    setTimeout(doFocus, 200);
+  }
+});
+
+// Eingabe verarbeiten
+input.addEventListener('input', function() {
+  if (submitted) return;
+  // Nur Ziffern, max 4
+  var val = input.value.replace(/[^0-9]/g, '').slice(0, 4);
+  input.value = val;
+  pinValue = val;
+  updateDisplay();
+
+  if (val.length === 4) {
+    submitted = true;
+    // Kurze visuelle Bestätigung, dann senden
+    setTimeout(function() {
+      Streamlit.setComponentValue({action: 'pin', pin: val});
+      // Feld zurücksetzen
+      pinValue = '';
+      input.value = '';
+      updateDisplay();
+      submitted = false;
+      doFocus();
+    }, 200);
+  }
+});
+
+// Backspace auch auf Desktop
+input.addEventListener('keydown', function(e) {
+  if (e.key === 'Backspace' && pinValue.length > 0) {
+    pinValue = pinValue.slice(0, -1);
+    input.value = pinValue;
+    updateDisplay();
+    e.preventDefault();
+  }
+  if (e.key === 'Escape') {
+    pinValue = '';
+    input.value = '';
+    updateDisplay();
+    Streamlit.setComponentValue({action: 'reset'});
+  }
+});
+
+// Reset-Button
+resetBtn.addEventListener('click', function() {
+  pinValue = '';
+  input.value = '';
+  updateDisplay();
+  errorBox.classList.remove('visible');
+  Streamlit.setComponentValue({action: 'reset'});
+  doFocus();
+});
+resetBtn.addEventListener('touchend', function(e) {
+  e.preventDefault();
+  pinValue = '';
+  input.value = '';
+  updateDisplay();
+  errorBox.classList.remove('visible');
+  Streamlit.setComponentValue({action: 'reset'});
+  doFocus();
+});
+
+// Streamlit-Nachrichten empfangen (z.B. für Fehleranzeige)
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'streamlit:render') {
+    var args = e.data.args || {};
+    if (args.error) {
+      errorBox.textContent = '❌ ' + args.error;
+      errorBox.classList.add('visible');
+    } else {
+      errorBox.classList.remove('visible');
+    }
+    if (args.reset) {
+      pinValue = '';
+      input.value = '';
+      updateDisplay();
+    }
+    // Höhe neu melden
+    Streamlit.setFrameHeight(200);
+    doFocus();
+  }
+});
+
+// Initiale Bereitschaft melden
+window.parent.postMessage({type: "streamlit:componentReady", apiVersion: 1}, "*");
+</script>
+</body>
+</html>

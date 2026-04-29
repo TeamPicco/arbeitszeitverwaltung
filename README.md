@@ -1,6 +1,6 @@
-# Arbeitszeitverwaltung
+# Complio
 
-Eine vollwertige, DSGVO-konforme Web-Anwendung zur Arbeitszeitverwaltung für kleine Unternehmen (6 Mitarbeiter + 1 Administrator). Die Anwendung erfüllt die Anforderungen des deutschen Arbeitsrechts und des Nachweisgesetzes.
+Complio ist eine DSGVO-konforme HR- & Compliance-Plattform für Gastronomie- und KMU-Betriebe. Sie deckt Zeiterfassung, Dienstplanung, Lohnvorbereitung, Vertragswesen und Compliance-Module (Gefährdungsbeurteilung, ArbZG, DATEV-Export) gemäß deutschem Arbeitsrecht und Nachweisgesetz ab.
 
 ## 🎯 Funktionen
 
@@ -100,13 +100,11 @@ streamlit run app.py
 
 Die Anwendung ist nun unter `http://localhost:8501` erreichbar.
 
-## 🔐 Standard-Anmeldedaten
+## 🔐 Erstanmeldung
 
-**Administrator:**
-- Benutzername: `admin`
-- Passwort: `admin123`
+Nach dem Setup erhält der Administrator ein zufällig generiertes Einmal-Passwort per E-Mail (siehe `SUPABASE_SETUP.md`).
 
-⚠️ **WICHTIG:** Ändern Sie das Admin-Passwort sofort nach dem ersten Login!
+⚠️ **WICHTIG:** Das Passwort beim ersten Login sofort ändern.
 
 ## 📦 Deployment auf Streamlit Cloud
 
@@ -131,7 +129,7 @@ git push -u origin main
 ```toml
 SUPABASE_URL = "https://xxxxxxxxxxxxx.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-BUNDESLAND = "NW"
+BUNDESLAND = "SN"
 SESSION_TIMEOUT_MINUTES = "480"
 ```
 
@@ -181,7 +179,7 @@ Um Testdaten zu erstellen, führen Sie folgende SQL-Abfragen in Supabase aus:
 In der `.env`-Datei können Sie das Bundesland für die Feiertags-Berechnung festlegen:
 
 ```
-BUNDESLAND=NW  # Nordrhein-Westfalen
+BUNDESLAND=SN  # Sachsen
 ```
 
 Verfügbare Optionen: BW, BY, BE, BB, HB, HH, HE, MV, NI, NW, RP, SL, SN, ST, SH, TH

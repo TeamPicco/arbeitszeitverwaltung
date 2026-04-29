@@ -1,4 +1,4 @@
-# Datenbankschema-Design: Arbeitszeitverwaltung
+# Datenbankschema-Design: Complio
 
 ## Übersicht
 

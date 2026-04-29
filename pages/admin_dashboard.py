@@ -1,1376 +1,1882 @@
-"""
-Administrator-Dashboard
-Zentrale Verwaltung aller Mitarbeiter, Zeiterfassung und Lohnabrechnung
-"""
+import json
+import os
+import re
+from datetime import date, datetime
 
 import streamlit as st
-from datetime import datetime, date, timedelta
-from typing import Optional
 
+from utils.absences import delete_absence, store_absence, update_absence
+from utils.absence_policy import (
+    load_absence_compensation_policy,
+    save_absence_compensation_policy,
+)
+from utils.cache_manager import clear_app_caches
 from utils.database import (
     get_supabase_client,
-    get_all_mitarbeiter,
-    create_user,
-    create_mitarbeiter,
+    get_service_role_client,
     update_mitarbeiter,
-    upload_file_to_storage,
-    download_file_from_storage,
-    change_password
+    upload_file_to_storage_result,
 )
-from utils.calculations import (
-    berechne_urlaubstage,
-    format_waehrung,
-    get_monatsnamen,
-    berechne_arbeitsstunden
+from utils.session import require_betrieb_id
+from utils.styles import apply_custom_css, apply_admin_nav_css
+from utils.work_accounts import (
+    close_work_account_month,
+    set_work_account_opening_balance,
+    sync_work_account_for_month,
+    validate_work_account_month,
 )
-from utils.push_notifications import show_notifications_widget
-from utils.chat_notifications import get_unread_chat_count
-from utils.styles import apply_custom_css, get_icon, COLORS
+from utils.branding import BRAND_APP_NAME, BRAND_LOGO_IMAGE
 
 
-def show():
-    """Zeigt das Administrator-Dashboard an"""
-    
-    # Wende Custom CSS an
-    apply_custom_css()
-    
-    # Zeige Benachrichtigungen in Sidebar
-    if hasattr(st.session_state, 'user_id'):
-        show_notifications_widget(st.session_state.user_id)
-    
-    # Zeige Betriebslogo für Piccolo (Betriebsnummer 20262204)
-    import os
-    import base64
-    
-    # Prüfe ob Piccolo-Betrieb
-    if hasattr(st.session_state, 'betrieb_id'):
-        supabase = get_supabase_client()
-        betrieb_response = supabase.table('betriebe').select('betriebsnummer').eq('id', st.session_state.betrieb_id).execute()
-        
-        if betrieb_response.data and betrieb_response.data[0].get('betriebsnummer') == '20262204':
-            # Zeige Piccolo-Logo
-            logo_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets", "piccolo_logo.jpeg")
-            if os.path.exists(logo_path):
-                with open(logo_path, "rb") as f:
-                    logo_data = base64.b64encode(f.read()).decode()
-                st.markdown(
-                    f'<div style="text-align: center; margin-bottom: 1rem;"><img src="data:image/jpeg;base64,{logo_data}" style="max-width: 300px; height: auto;"></div>',
-                    unsafe_allow_html=True
-                )
-    
-    st.title(f"{get_icon('dashboard')} Administrator-Dashboard")
-    
-    # Zähle ungelesene Chat-Nachrichten
-    last_read = st.session_state.get('chat_last_read', None)
-    unread_count = get_unread_chat_count(st.session_state.user_id, st.session_state.betrieb_id, last_read)
-    chat_badge = f" ({unread_count})" if unread_count > 0 else ""
-    
-    # Tab-Navigation mit einheitlichen Icons
-    tabs = st.tabs([
-        f"{get_icon('dashboard')} Übersicht",
-        f"{get_icon('mitarbeiter')} Mitarbeiterverwaltung",
-        f"{get_icon('dienstplan')} Dienstplanung",
-        f"{get_icon('urlaub')} Urlaubsgenehmigung",
-        f"{get_icon('dienstplan')} Urlaubskalender",
-        f"{get_icon('chat')} Plauderecke{chat_badge}",
-        f"{get_icon('zeit')} Zeiterfassung",
-        f"{get_icon('lohn')} Lohnabrechnung",
-        f"{get_icon('mastergeraete')} Mastergeräte",
-        f"{get_icon('einstellungen')} Einstellungen"
-    ])
-    
-    with tabs[0]:
-        show_uebersicht()
-    
-    with tabs[1]:
-        show_mitarbeiterverwaltung()
-    
-    with tabs[2]:
-        from pages.admin_dienstplan import show_dienstplanung
-        show_dienstplanung()
-    
-    with tabs[3]:
-        show_urlaubsgenehmigung()
-    
-    with tabs[4]:
-        show_urlaubskalender_admin()
-    
-    with tabs[5]:
-        show_plauderecke_admin()
-    
-    with tabs[6]:
-        show_zeiterfassung_admin()
-    
-    with tabs[7]:
-        show_lohnabrechnung()
-    
-    with tabs[8]:
-        from pages.admin_mastergeraete import show_mastergeraete
-        show_mastergeraete()
-    
-    with tabs[9]:
-        show_einstellungen()
+ADMIN_MITARBEITER_COLUMNS = (
+    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
+    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
+    "monatliche_soll_stunden, monatliche_brutto_verguetung, jahres_urlaubstage, resturlaub_vorjahr, "
+    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+ADMIN_MITARBEITER_COLUMNS_FALLBACK = (
+    "id, betrieb_id, vorname, nachname, personalnummer, email, telefon, "
+    "beschaeftigungsart, strasse, plz, ort, eintrittsdatum, austrittsdatum, geburtsdatum, "
+    "monatliche_soll_stunden, jahres_urlaubstage, resturlaub_vorjahr, "
+    "sonntagszuschlag_aktiv, feiertagszuschlag_aktiv"
+)
+STUNDENLOHN_PERSONAL_COLUMNS = (
+    "stundenlohn_personalakte",
+    "stundenlohn_brutto",
+    "stundenlohn",
+)
+ADMIN_NAV_OPTIONS = (
+    "Dienstplanung",
+    "Personalakte",
+    "Abwesenheiten",
+    "Zeitkonten",
+    "Zeitauswertung",
+    "Verträge",
+    "Premium",
+    "Datenschutz",
+    "Sicherheit",
+    "Leads",
+)
+ADMIN_NAV_ICONS = {
+    "Dienstplanung": "📅",
+    "Personalakte": "👤",
+    "Abwesenheiten": "🏥",
+    "Zeitkonten": "⏱",
+    "Zeitauswertung": "📊",
+    "Verträge": "📝",
+    "Premium": "⭐",
+    "Datenschutz": "🛡️",
+    "Sicherheit": "🔒",
+    "Leads": "📣",
+}
+ADMIN_NAV_ALIASES = {
+    "Vertraege": "Verträge",
+    "Mitarbeiter": "Personalakte",
+    "Arbeitszeitkonten": "Zeitkonten",
+}
 
 
-def show_uebersicht():
-    """Zeigt die Übersicht mit wichtigen Kennzahlen"""
-    
-    st.subheader("📊 Übersicht")
-    
-    # Benachrichtigungen anzeigen
-    show_benachrichtigungen_widget()
-    
+@st.cache_data(ttl=600, show_spinner=False)
+def _resolve_stundenlohn_personal_column() -> str:
+    """
+    Ermittelt eine optionale Stundenlohn-Spalte für die Personalakte.
+    Diese Spalte ist rein dokumentarisch und wird NICHT für Zeitberechnungen verwendet.
+    """
     supabase = get_supabase_client()
-    
-    # Lade Statistiken
+    for col in STUNDENLOHN_PERSONAL_COLUMNS:
+        try:
+            supabase.table("mitarbeiter").select(f"id,{col}").limit(1).execute()
+            return col
+        except Exception:
+            continue
+    return ""
+
+
+def _load_admin_mitarbeiter():
+    betrieb_id = st.session_state.get("betrieb_id")
+    return _cached_admin_mitarbeiter(betrieb_id)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_admin_mitarbeiter(betrieb_id):
+    supabase = get_supabase_client()
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
+    extra = f", {stundenlohn_col}" if stundenlohn_col else ""
+
+    def _run_query(columns: str):
+        q = supabase.table("mitarbeiter").select(columns).order("nachname")
+        if betrieb_id is not None:
+            q = q.eq("betrieb_id", betrieb_id)
+        return q.execute().data or []
+
     try:
-        # Anzahl Mitarbeiter
-        mitarbeiter_response = supabase.table('mitarbeiter').select('id', count='exact').execute()
-        anzahl_mitarbeiter = len(mitarbeiter_response.data) if mitarbeiter_response.data else 0
-        
-        # Offene Urlaubsanträge
-        urlaub_response = supabase.table('urlaubsantraege').select('id', count='exact').eq('status', 'beantragt').execute()
-        offene_antraege = len(urlaub_response.data) if urlaub_response.data else 0
-        
-        # Zeiterfassungen heute
-        heute = date.today().isoformat()
-        zeit_response = supabase.table('zeiterfassung').select('id', count='exact').eq('datum', heute).execute()
-        zeiterfassungen_heute = len(zeit_response.data) if zeit_response.data else 0
-        
-        # Zeige Kennzahlen
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Mitarbeiter", anzahl_mitarbeiter)
-        
-        with col2:
-            st.metric("Offene Urlaubsanträge", offene_antraege)
-        
-        with col3:
-            st.metric("Zeiterfassungen heute", zeiterfassungen_heute)
-        
-        with col4:
-            st.metric("Aktueller Monat", get_monatsnamen(date.today().month))
-        
-        st.markdown("---")
-        
-        # Zeige offene Urlaubsanträge
-        if offene_antraege > 0:
-            st.subheader("🔔 Offene Urlaubsanträge")
-            
-            urlaub_data = supabase.table('urlaubsantraege').select(
-                '*, mitarbeiter(vorname, nachname)'
-            ).eq('status', 'beantragt').order('beantragt_am').execute()
-            
-            if urlaub_data.data:
-                for antrag in urlaub_data.data:
-                    mitarbeiter = antrag['mitarbeiter']
-                    
-                    with st.expander(f"📅 {mitarbeiter['vorname']} {mitarbeiter['nachname']} - {antrag['von_datum']} bis {antrag['bis_datum']} ({antrag['anzahl_tage']} Tage)"):
-                        st.write(f"**Beantragt am:** {antrag['beantragt_am']}")
-                        if antrag.get('bemerkung_mitarbeiter'):
-                            st.write(f"**Bemerkung:** {antrag['bemerkung_mitarbeiter']}")
-                        
-                        st.markdown("---")
-                        
-                        # Genehmigung/Ablehnung
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True, type="primary"):
-                                import logging
-                                logger = logging.getLogger(__name__)
-                                try:
-                                    logger.info(f"DEBUG: Genehmige Urlaubsantrag ID {antrag['id']}")
-                                    
-                                    response = supabase.table('urlaubsantraege').update({
-                                        'status': 'Genehmigt',
-                                        'bearbeitet_am': datetime.now().isoformat()
-                                    }).eq('id', antrag['id']).execute()
-                                    
-                                    logger.info(f"DEBUG: Update Response: {response}")
-                                    
-                                    # Benachrichtigung für Mitarbeiter
-                                    mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
-                                    if mitarbeiter_user.data:
-                                        logger.info(f"DEBUG: Erstelle Benachrichtigung für User {mitarbeiter_user.data[0]['user_id']}")
-                                        supabase.table('benachrichtigungen').insert({
-                                            'user_id': mitarbeiter_user.data[0]['user_id'],
-                                            'typ': 'urlaubsantrag',
-                                            'titel': 'Urlaubsantrag genehmigt',
-                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde genehmigt.",
-                                            'gelesen': False,
-                                            'betrieb_id': st.session_state.betrieb_id
-                                        }).execute()
-                                    
-                                    st.success("✅ Urlaubsantrag genehmigt!")
-                                    logger.info("DEBUG: Urlaubsantrag erfolgreich genehmigt, rerun...")
-                                    st.rerun()
-                                except Exception as e:
-                                    logger.error(f"DEBUG ERROR bei Urlaubsgenehmigung: {e}", exc_info=True)
-                                    st.error(f"Fehler: {str(e)}")
-                        
-                        with col2:
-                            if st.button("❌ Ablehnen", key=f"reject_{antrag['id']}", use_container_width=True):
-                                try:
-                                    supabase.table('urlaubsantraege').update({
-                                        'status': 'abgelehnt',
-                                        'bearbeitet_am': datetime.now().isoformat()
-                                    }).eq('id', antrag['id']).execute()
-                                    
-                                    # Benachrichtigung für Mitarbeiter
-                                    mitarbeiter_user = supabase.table('mitarbeiter').select('user_id').eq('id', antrag['mitarbeiter_id']).execute()
-                                    if mitarbeiter_user.data:
-                                        supabase.table('benachrichtigungen').insert({
-                                            'user_id': mitarbeiter_user.data[0]['user_id'],
-                                            'typ': 'urlaubsantrag',
-                                            'titel': 'Urlaubsantrag abgelehnt',
-                                            'nachricht': f"Ihr Urlaubsantrag vom {antrag['von_datum']} bis {antrag['bis_datum']} wurde abgelehnt.",
-                                            'gelesen': False,
-                                            'betrieb_id': st.session_state.betrieb_id
-                                        }).execute()
-                                    
-                                    st.success("❌ Urlaubsantrag abgelehnt.")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Fehler: {str(e)}")
-        else:
-            st.info("✅ Keine offenen Urlaubsanträge")
-        
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Übersicht: {str(e)}")
+        rows = _run_query(ADMIN_MITARBEITER_COLUMNS + extra)
+    except Exception:
+        try:
+            rows = _run_query(ADMIN_MITARBEITER_COLUMNS_FALLBACK + extra)
+        except Exception:
+            rows = _run_query(ADMIN_MITARBEITER_COLUMNS_FALLBACK)
+        for row in rows:
+            row.setdefault("monatliche_brutto_verguetung", 0.0)
+
+    for row in rows:
+        row["akten_stundenlohn"] = _to_float(row.get(stundenlohn_col), 0.0) if stundenlohn_col else 0.0
+
+    return rows
 
 
-def show_mitarbeiterverwaltung():
-    """Zeigt die Mitarbeiterverwaltung an"""
-    
-    st.subheader("👥 Mitarbeiterverwaltung")
-    
-    # Aktionen
-    col1, col2 = st.columns([3, 1])
-    
-    with col2:
-        if st.button("➕ Neuer Mitarbeiter", use_container_width=True):
-            st.session_state.show_mitarbeiter_form = True
-    
-    # Zeige Formular für neuen/bearbeiteten Mitarbeiter
-    if st.session_state.get('show_mitarbeiter_form', False):
-        # Prüfe ob Bearbeitung oder Neuanlage
-        edit_id = st.session_state.get('edit_mitarbeiter_id', None)
-        if edit_id:
-            # Lade Mitarbeiterdaten für Bearbeitung
-            mitarbeiter_to_edit = next((m for m in get_all_mitarbeiter() if m['id'] == edit_id), None)
-            if mitarbeiter_to_edit:
-                show_mitarbeiter_form(mitarbeiter_to_edit)
-            else:
-                st.error("Mitarbeiter nicht gefunden.")
-                st.session_state.show_mitarbeiter_form = False
-                st.session_state.edit_mitarbeiter_id = None
-        else:
-            show_mitarbeiter_form()
-        st.markdown("---")
-    
-    # Lade alle Mitarbeiter
-    mitarbeiter_list = get_all_mitarbeiter()
-    
-    if not mitarbeiter_list:
-        st.info("Noch keine Mitarbeiter angelegt.")
-        return
-    
-    # Zeige Mitarbeiter-Tabelle
-    st.subheader("Mitarbeiter-Übersicht")
-    
-    # Erstelle Tabellen-Daten
-    table_data = []
-    for m in mitarbeiter_list:
-        table_data.append({
-            'Personalnr.': m['personalnummer'],
-            'Vorname': m['vorname'],
-            'Nachname': m['nachname'],
-            'E-Mail': m['email'],
-            'Soll-Std.': m['monatliche_soll_stunden'],
-            'Stundenlohn': f"{m['stundenlohn_brutto']:.2f} €",
-            'Urlaubstage': m['jahres_urlaubstage']
-        })
-    
-    st.dataframe(table_data, use_container_width=True, hide_index=True)
-    
-    # Details anzeigen
-    st.subheader("Mitarbeiter-Details")
-    
-    selected_mitarbeiter = st.selectbox(
-        "Mitarbeiter auswählen",
-        options=mitarbeiter_list,
-        format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})"
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_arbeitszeitkonten_rows(betrieb_id: int | None):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("arbeitszeit_konten")
+        .select(
+            "mitarbeiter_id, soll_stunden, ist_stunden, ueberstunden_saldo, "
+            "urlaubstage_gesamt, urlaubstage_genommen, krankheitstage_gesamt"
+        )
+        .order("mitarbeiter_id")
     )
-    
-    if selected_mitarbeiter:
-        show_mitarbeiter_details(selected_mitarbeiter)
+    q = base_q
+    if betrieb_id is not None:
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        # Legacy-Schema-Fallback ohne betrieb_id-Filter.
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
 
 
-def show_mitarbeiter_form(mitarbeiter_data: Optional[dict] = None):
-    """Zeigt das Formular zum Anlegen/Bearbeiten eines Mitarbeiters"""
-    
-    is_edit = mitarbeiter_data is not None
-    
-    st.subheader("✏️ Mitarbeiter bearbeiten" if is_edit else "➕ Neuer Mitarbeiter")
-    
-    with st.form("mitarbeiter_form"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("**Persönliche Daten**")
-            vorname = st.text_input("Vorname*", value=mitarbeiter_data.get('vorname', '') if is_edit else '')
-            nachname = st.text_input("Nachname*", value=mitarbeiter_data.get('nachname', '') if is_edit else '')
-            geburtsdatum = st.date_input(
-                "Geburtsdatum*",
-                value=datetime.fromisoformat(mitarbeiter_data['geburtsdatum']) if is_edit else date(1990, 1, 1),
-                min_value=date(1950, 1, 1),
-                max_value=date.today(),
-                format="DD.MM.YYYY"
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_azk_closed_rows(betrieb_id: int | None, monat: int, jahr: int):
+    supabase = get_supabase_client()
+    base_q = (
+        supabase.table("azk_monatsabschluesse")
+        .select("mitarbeiter_id, ueberstunden_saldo_start, korrektur_grund, manuelle_korrektur_saldo")
+        .eq("monat", int(monat))
+        .eq("jahr", int(jahr))
+    )
+    q = base_q
+    if betrieb_id is not None:
+        q = base_q.eq("betrieb_id", int(betrieb_id))
+    try:
+        return q.execute().data or []
+    except Exception:
+        try:
+            return base_q.execute().data or []
+        except Exception:
+            return []
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_existing_init_marker(mitarbeiter_id: int):
+    supabase = get_supabase_client()
+    try:
+        existing_init_res = (
+            supabase.table("azk_monatsabschluesse")
+            .select("id, monat, jahr")
+            .eq("mitarbeiter_id", int(mitarbeiter_id))
+            .eq("jahr", 2026)
+            .eq("ist_initialisierung", True)
+            .limit(1)
+            .execute()
+        )
+        return (existing_init_res.data or [None])[0]
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _cached_system_counts(betrieb_id: int | None) -> tuple[int, int, int]:
+    supabase = get_supabase_client()
+    try:
+        users_q = supabase.table("users").select("id", count="exact")
+        ma_q = supabase.table("mitarbeiter").select("id", count="exact")
+        zeit_q = supabase.table("zeiterfassung").select("id", count="exact")
+        if betrieb_id is not None:
+            users_q = users_q.eq("betrieb_id", int(betrieb_id))
+            ma_q = ma_q.eq("betrieb_id", int(betrieb_id))
+            zeit_q = zeit_q.eq("betrieb_id", int(betrieb_id))
+        users_count = users_q.limit(1).execute().count or 0
+        ma_count = ma_q.limit(1).execute().count or 0
+        zeit_count = zeit_q.limit(1).execute().count or 0
+        return int(users_count), int(ma_count), int(zeit_count)
+    except Exception:
+        return 0, 0, 0
+
+
+def _refresh_after_write() -> None:
+    clear_app_caches()
+
+
+def _normalize_admin_nav(selection: str | None) -> str:
+    normalized = ADMIN_NAV_ALIASES.get(str(selection or ""), str(selection or "Dienstplanung"))
+    if normalized not in ADMIN_NAV_OPTIONS:
+        return "Dienstplanung"
+    return normalized
+
+
+def _safe_date(value):
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except Exception:
+        return None
+
+
+def _storage_public_url(bucket: str, path: str | None) -> str | None:
+    if not path:
+        return None
+    base_url = os.getenv("SUPABASE_URL")
+    if not base_url:
+        return None
+    return f"{base_url}/storage/v1/object/public/{bucket}/{path}"
+
+
+def _to_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except Exception:
+        return default
+
+
+def _to_int(value, default: int = 0) -> int:
+    try:
+        return int(round(float(value if value is not None else default)))
+    except Exception:
+        return int(default)
+
+
+def _upload_status_key(mitarbeiter_id: int) -> str:
+    return f"personalakte_upload_status_{int(mitarbeiter_id)}"
+
+
+def _set_upload_status(
+    mitarbeiter_id: int,
+    *,
+    level: str,
+    message: str,
+    details: str = "",
+) -> None:
+    st.session_state[_upload_status_key(mitarbeiter_id)] = {
+        "level": str(level or "info"),
+        "message": str(message or ""),
+        "details": str(details or ""),
+        "ts": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _clear_upload_status(mitarbeiter_id: int) -> None:
+    st.session_state.pop(_upload_status_key(mitarbeiter_id), None)
+
+
+def _render_upload_status(mitarbeiter_id: int) -> None:
+    status = st.session_state.get(_upload_status_key(mitarbeiter_id))
+    if not status:
+        return
+    level = str(status.get("level") or "info").lower()
+    message = str(status.get("message") or "")
+    details = str(status.get("details") or "")
+    ts = str(status.get("ts") or "")
+
+    if level == "error":
+        st.error(message or "Letzter Upload fehlgeschlagen.")
+    elif level == "warning":
+        st.warning(message or "Letzter Upload mit Hinweisen.")
+    elif level == "success":
+        st.success(message or "Letzter Upload erfolgreich.")
+    else:
+        st.info(message or "Letzte Upload-Meldung.")
+
+    if ts:
+        st.caption(f"Zeitpunkt: {ts}")
+    if details:
+        st.caption("Fehler-/Statusdetails (kopierbar):")
+        st.code(details, language="text")
+
+    if st.button(
+        "Upload-Meldung ausblenden",
+        key=f"clear_upload_status_{int(mitarbeiter_id)}",
+        use_container_width=True,
+    ):
+        _clear_upload_status(mitarbeiter_id)
+        st.rerun()
+
+
+def _update_mitarbeiter_stammdaten_robust(
+    *,
+    mitarbeiter_id: int,
+    betrieb_id: int | None,
+    payload: dict,
+) -> tuple[bool, str, list[str]]:
+    """
+    Aktualisiert Stammdaten robust über unterschiedliche DB-Schemas:
+    - versucht primären Client + optional Service-Role-Client
+    - entfernt unbekannte Spalten automatisch aus dem Payload
+    """
+    working_payload = dict(payload)
+    dropped_columns: list[str] = []
+    last_error = "unbekannter Fehler"
+
+    clients: list[tuple[str, object]] = [("primary", get_supabase_client())]
+    try:
+        clients.append(("service_role", get_service_role_client()))
+    except Exception:
+        pass
+
+    max_attempts = max(1, len(working_payload) + 2)
+    for _ in range(max_attempts):
+        if not working_payload:
+            return False, "Keine speicherbaren Felder im Payload vorhanden.", dropped_columns
+
+        missing_column_handled = False
+        for client_name, client in clients:
+            try:
+                q = client.table("mitarbeiter").update(working_payload).eq("id", mitarbeiter_id)
+                if betrieb_id is not None:
+                    q = q.eq("betrieb_id", betrieb_id)
+                q.execute()
+                info = f"update_ok client={client_name}"
+                if dropped_columns:
+                    info += f" dropped={','.join(dropped_columns)}"
+                return True, info, dropped_columns
+            except Exception as exc:
+                last_error = f"update_fail client={client_name}: {exc}"
+                msg = str(exc)
+                col_match = re.search(r'column\s+"?([a-zA-Z0-9_]+)"?\s+does not exist', msg, flags=re.IGNORECASE)
+                if col_match:
+                    col = str(col_match.group(1) or "").strip()
+                    if col and col in working_payload:
+                        working_payload.pop(col, None)
+                        dropped_columns.append(col)
+                        missing_column_handled = True
+                        break
+        if not missing_column_handled:
+            break
+
+    return False, last_error, dropped_columns
+
+
+def _insert_mitarbeiter_dokument_robust(
+    supabase,
+    base_payload: dict,
+) -> tuple[bool, str]:
+    """
+    Speichert Dokument-Metadaten robust über unterschiedliche DB-Schemas:
+    - versucht mehrere Payload-Varianten (legacy/new)
+    - versucht bei Bedarf Service-Role-Client
+    """
+    variants: list[tuple[str, dict]] = []
+    full = dict(base_payload)
+    variants.append(("full", full))
+
+    v_no_ersteller = dict(full)
+    v_no_ersteller.pop("erstellt_von", None)
+    variants.append(("no_erstellt_von", v_no_ersteller))
+
+    v_no_meta = dict(full)
+    v_no_meta.pop("metadaten", None)
+    variants.append(("no_metadaten", v_no_meta))
+
+    v_no_status = dict(full)
+    v_no_status.pop("status", None)
+    variants.append(("no_status", v_no_status))
+
+    v_status_aktiv = dict(full)
+    v_status_aktiv["status"] = "aktiv"
+    variants.append(("status_aktiv", v_status_aktiv))
+
+    v_minimal = {
+        k: full.get(k)
+        for k in ("betrieb_id", "mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal", v_minimal))
+
+    v_minimal_no_betrieb = {
+        k: full.get(k)
+        for k in ("mitarbeiter_id", "name", "typ", "file_path", "file_url")
+        if full.get(k) is not None
+    }
+    variants.append(("minimal_no_betrieb", v_minimal_no_betrieb))
+
+    # Duplikate nach normalisierter Signatur vermeiden.
+    # Payload kann verschachtelte dicts enthalten (z. B. metadaten) und ist
+    # damit nicht direkt als tuple(payload.items()) hashbar.
+    dedup_variants: list[tuple[str, dict]] = []
+    seen: set[str] = set()
+    for label, payload in variants:
+        try:
+            sig = json.dumps(payload, sort_keys=True, ensure_ascii=True, default=str)
+        except Exception:
+            sig = str(payload)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        dedup_variants.append((label, payload))
+
+    clients: list[tuple[str, object]] = [("primary", supabase)]
+    try:
+        svc = get_service_role_client()
+        clients.append(("service_role", svc))
+    except Exception:
+        pass
+
+    last_error = "unbekannter Fehler"
+    for client_name, client in clients:
+        for variant_name, payload in dedup_variants:
+            try:
+                client.table("mitarbeiter_dokumente").insert(payload).execute()
+                return True, f"insert_ok client={client_name} variant={variant_name}"
+            except Exception as exc:
+                last_error = (
+                    f"insert_fail client={client_name} variant={variant_name}: {exc}"
+                )
+                continue
+    return False, last_error
+
+
+def _show_zeitauswertung_tab():
+    from pages import zeitauswertung
+
+    st.subheader("Zeitauswertung und Lohn")
+    alle_ma = _load_admin_mitarbeiter()
+    if not alle_ma:
+        st.info("Keine Mitarbeiter für die Auswertung gefunden.")
+        return
+
+    namen = [f"{m.get('nachname', '')} {m.get('vorname', '')}".strip() or f"ID {m.get('id')}" for m in alle_ma]
+    idx = st.selectbox(
+        "Mitarbeiter auswählen",
+        range(len(namen)),
+        format_func=lambda i: namen[i],
+        key="zeitauswertung_ma_idx",
+    )
+    zeitauswertung.show_zeitauswertung(alle_ma[idx], admin_modus=True)
+
+
+def _show_absenzen_tab():
+    st.subheader("Abwesenheiten und Atteste")
+    supabase = get_supabase_client()
+    alle_ma = _load_admin_mitarbeiter()
+    if not alle_ma:
+        st.info("Keine Mitarbeiter gefunden.")
+        return
+
+    betrieb_id = st.session_state.get("betrieb_id")
+    # Konfigurierbare Bezahl-Logik pro Betrieb.
+    paid_types = load_absence_compensation_policy(
+        supabase,
+        betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+    )
+    with st.expander("Bezahl-Logik konfigurieren", expanded=False):
+        st.caption("Diese Einstellung steuert, welche Abwesenheitstypen als bezahlt gelten.")
+        c1, c2 = st.columns(2)
+        with c1:
+            paid_urlaub = st.checkbox(
+                "Urlaub ist bezahlt",
+                value=bool(paid_types.get("urlaub", True)),
+                key="abwesen_paid_cfg_urlaub",
             )
-            
-            st.markdown("**Kontaktdaten**")
-            email = st.text_input("E-Mail", value=mitarbeiter_data.get('email', '') if is_edit else '')
-            telefon = st.text_input("Telefon", value=mitarbeiter_data.get('telefon', '') if is_edit else '')
-        
-        with col2:
-            st.markdown("**Adresse**")
-            strasse = st.text_input("Straße & Hausnummer", value=mitarbeiter_data.get('strasse', '') if is_edit else '')
-            plz = st.text_input("PLZ", value=mitarbeiter_data.get('plz', '') if is_edit else '')
-            ort = st.text_input("Ort", value=mitarbeiter_data.get('ort', '') if is_edit else '')
-            
-            st.markdown("**Beschäftigung**")
-            personalnummer = st.text_input(
-                "Personalnummer",
-                value=mitarbeiter_data.get('personalnummer', '') if is_edit else '',
-                disabled=is_edit
+            paid_krankheit = st.checkbox(
+                "Krankheit (LFZ) ist bezahlt",
+                value=bool(paid_types.get("krankheit", True)),
+                key="abwesen_paid_cfg_krankheit",
             )
-            eintrittsdatum = st.date_input(
-                "Eintrittsdatum",
-                value=datetime.fromisoformat(mitarbeiter_data['eintrittsdatum']) if is_edit else date.today(),
-                min_value=date(1995, 1, 1),
-                max_value=date.today(),
-                format="DD.MM.YYYY"
+        with c2:
+            paid_sonderurlaub = st.checkbox(
+                "Sonderurlaub ist bezahlt",
+                value=bool(paid_types.get("sonderurlaub", True)),
+                key="abwesen_paid_cfg_sonderurlaub",
             )
-        
-        st.markdown("---")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.markdown("**Lohnparameter**")
+            paid_unbezahlt = st.checkbox(
+                "Unbezahlter Urlaub ist bezahlt",
+                value=bool(paid_types.get("unbezahlter_urlaub", False)),
+                key="abwesen_paid_cfg_unbezahlter",
+            )
+        if st.button("Bezahl-Logik speichern", key="abwesen_paid_types_save", use_container_width=True):
+            policy_payload = {
+                "urlaub": bool(paid_urlaub),
+                "krankheit": bool(paid_krankheit),
+                "sonderurlaub": bool(paid_sonderurlaub),
+                "unbezahlter_urlaub": bool(paid_unbezahlt),
+            }
+            ok, msg = save_absence_compensation_policy(
+                supabase,
+                betrieb_id=int(betrieb_id or 0) if betrieb_id is not None else None,
+                policy=policy_payload,
+            )
+            if ok:
+                st.success("Bezahl-Logik gespeichert.")
+                paid_types = dict(policy_payload)
+                st.rerun()
+            else:
+                st.error(f"Konfiguration konnte nicht gespeichert werden: {msg}")
+    abs_query = (
+        supabase.table("abwesenheiten")
+        .select(
+            "id, mitarbeiter_id, typ, start_datum, ende_datum, datum, "
+            "stunden_gutschrift, attest_pfad, grund, status, created_at, betrieb_id"
+        )
+        .order("created_at", desc=True)
+        .limit(200)
+    )
+    if betrieb_id is not None:
+        abs_query = abs_query.eq("betrieb_id", betrieb_id)
+    abs_res = abs_query.execute()
+    abwesenheiten = abs_res.data or []
+    atteste_count = sum(1 for a in abwesenheiten if a.get("attest_pfad"))
+    krank_count = sum(1 for a in abwesenheiten if str(a.get("typ") or "").lower() in ("krankheit", "krank"))
+    urlaub_count = sum(1 for a in abwesenheiten if a.get("typ") == "urlaub")
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Einträge gesamt", len(abwesenheiten))
+    m2.metric("Urlaub", urlaub_count)
+    m3.metric("Krankheit", krank_count)
+    m4.metric("Atteste hinterlegt", atteste_count)
+    st.markdown("---")
+
+    ma_options = {f"{m['vorname']} {m['nachname']}": m for m in alle_ma}
+    selected_label = st.selectbox(
+        "Mitarbeiter auswählen",
+        list(ma_options.keys()),
+        key="abwesen_ma",
+        help="Neue Abwesenheit für diesen Mitarbeiter erfassen",
+    )
+    mitarbeiter = ma_options[selected_label]
+
+    with st.expander("Neue Abwesenheit erfassen", expanded=True):
+        with st.form("abwesenheit_form"):
+            c1, c2, c3 = st.columns([1, 1, 1.2])
+            with c1:
+                typ = st.selectbox("Typ", ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"])
+            with c2:
+                start = st.date_input("Von", value=date.today(), format="DD.MM.YYYY")
+            with c3:
+                ende = st.date_input("Bis", value=date.today(), format="DD.MM.YYYY")
+
+            attest = st.file_uploader("Attest (optional)", type=["pdf", "jpg", "jpeg", "png"])
+            grund = st.text_area("Grund / Kommentar", placeholder="Optionaler Hinweis")
+            submit = st.form_submit_button("Abwesenheit speichern", type="primary", use_container_width=True)
+
+            if submit:
+                if ende < start:
+                    st.error("Enddatum muss >= Startdatum sein.")
+                else:
+                    attest_pfad = None
+                    if attest is not None:
+                        att_bytes = attest.read()
+                        attest_pfad = (
+                            f"atteste/{mitarbeiter['id']}/{date.today().strftime('%Y%m%d')}_{attest.name}"
+                        )
+                        attest_upload = upload_file_to_storage_result(
+                            "dokumente",
+                            attest_pfad,
+                            att_bytes,
+                            fallback_buckets=["arbeitsvertraege"],
+                        )
+                        if not attest_upload.get("ok"):
+                            st.warning(
+                                "Attest konnte nicht hochgeladen werden, Abwesenheit wird trotzdem gespeichert. "
+                                f"Details: {attest_upload.get('status_code') or '-'} "
+                                f"{attest_upload.get('error') or ''}"
+                            )
+                            attest_pfad = None
+
+                    result = store_absence(
+                        supabase,
+                        betrieb_id=require_betrieb_id(),
+                        mitarbeiter_id=mitarbeiter["id"],
+                        typ=typ,
+                        start=start,
+                        end=ende,
+                        monthly_target_hours=float(mitarbeiter.get("monatliche_soll_stunden") or 0.0),
+                        attest_pfad=attest_pfad,
+                        grund=grund or None,
+                        paid_type_config=paid_types,
+                        created_by=st.session_state.get("user_id"),
+                    )
+                    st.success(
+                        f"Abwesenheit gespeichert: {result['tage']:.1f} Tage, "
+                        f"{result['stunden_gutschrift']:.2f}h Gutschrift."
+                    )
+                    _refresh_after_write()
+                    st.rerun()
+
+    st.markdown("#### Letzte Abwesenheiten")
+    if not abwesenheiten:
+        st.info("Noch keine Abwesenheiten gespeichert.")
+        return
+
+    typ_labels = {
+        "urlaub": "Urlaub",
+        "krankheit": "Krankheit",
+        "krank": "Krankheit",
+        "unbezahlter_urlaub": "Unbezahlter Urlaub",
+        "sonderurlaub": "Sonderurlaub",
+    }
+    ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
+    rows = []
+    for a in abwesenheiten[:50]:
+        rows.append(
+            {
+                "Mitarbeiter": ma_lookup.get(a.get("mitarbeiter_id"), str(a.get("mitarbeiter_id"))),
+                "Typ": typ_labels.get(a.get("typ"), a.get("typ")),
+                "Von": a.get("start_datum"),
+                "Bis": a.get("ende_datum"),
+                "Gutschrift (h)": float(a.get("stunden_gutschrift") or 0.0),
+                "Attest": "Ja" if a.get("attest_pfad") else "Nein",
+                "Status": a.get("status") or "-",
+            }
+        )
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Abwesenheit aendern oder loeschen (mit Begruendung)")
+    select_options = {}
+    for a in abwesenheiten[:200]:
+        a_id = a.get("id")
+        if a_id is None:
+            continue
+        ma_name = ma_lookup.get(a.get("mitarbeiter_id"), str(a.get("mitarbeiter_id")))
+        start_iso = a.get("start_datum") or a.get("datum") or "-"
+        end_iso = a.get("ende_datum") or a.get("datum") or "-"
+        typ_raw = str(a.get("typ") or "").lower()
+        typ_display = typ_labels.get(typ_raw, typ_raw or "-")
+        label = f"#{a_id} | {ma_name} | {typ_display} | {start_iso} bis {end_iso}"
+        select_options[label] = a
+
+    if not select_options:
+        st.info("Keine bearbeitbaren Abwesenheits-Einträge vorhanden.")
+        return
+
+    selected_label = st.selectbox(
+        "Eintrag auswählen",
+        list(select_options.keys()),
+        key="abwesenheit_edit_delete_select",
+    )
+    selected_absence = select_options[selected_label]
+
+    selected_id = int(selected_absence.get("id"))
+    selected_ma_id = int(selected_absence.get("mitarbeiter_id"))
+    selected_ma = next((m for m in alle_ma if int(m.get("id")) == selected_ma_id), {})
+    default_typ_raw = str(selected_absence.get("typ") or "").lower()
+    default_typ = "krankheit" if default_typ_raw == "krank" else default_typ_raw
+    if default_typ not in ("urlaub", "krankheit", "sonderurlaub"):
+        default_typ = "urlaub"
+    default_start = _safe_date(selected_absence.get("start_datum") or selected_absence.get("datum")) or date.today()
+    default_end = _safe_date(selected_absence.get("ende_datum") or selected_absence.get("datum")) or default_start
+
+    e1, e2 = st.columns(2)
+    with e1:
+        with st.form(f"abwesenheit_update_form_{selected_id}"):
+            st.markdown("**Abwesenheit bearbeiten**")
+            existing_attest = selected_absence.get("attest_pfad")
+            st.caption(f"Aktuelles Attest: {existing_attest or 'kein Attest hinterlegt'}")
+            new_typ = st.selectbox(
+                "Typ",
+                ["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"],
+                index=["urlaub", "krankheit", "unbezahlter_urlaub", "sonderurlaub"].index(default_typ),
+                key=f"abwesen_update_typ_{selected_id}",
+            )
+            new_start = st.date_input(
+                "Von",
+                value=default_start,
+                format="DD.MM.YYYY",
+                key=f"abwesen_update_start_{selected_id}",
+            )
+            new_end = st.date_input(
+                "Bis",
+                value=default_end,
+                format="DD.MM.YYYY",
+                key=f"abwesen_update_end_{selected_id}",
+            )
+            new_grund = st.text_area(
+                "Grund / Kommentar",
+                value=selected_absence.get("grund") or "",
+                key=f"abwesen_update_grund_{selected_id}",
+            )
+            new_attest = st.file_uploader(
+                "Attest nachträglich hochladen/ersetzen (optional)",
+                type=["pdf", "jpg", "jpeg", "png"],
+                key=f"abwesen_update_attest_{selected_id}",
+            )
+            edit_reason = st.text_area(
+                "Begründung der Änderung *",
+                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                key=f"abwesen_update_reason_{selected_id}",
+            )
+            save_edit = st.form_submit_button(
+                "Aenderung speichern",
+                type="primary",
+                use_container_width=True,
+            )
+            if save_edit:
+                if new_end < new_start:
+                    st.error("Enddatum muss >= Startdatum sein.")
+                elif not (edit_reason or "").strip():
+                    st.error("Bitte eine Begründung für die Änderung angeben.")
+                else:
+                    try:
+                        attest_pfad = existing_attest
+                        if new_attest is not None:
+                            att_bytes = new_attest.read()
+                            att_name = new_attest.name.replace(" ", "_")
+                            attest_pfad_neu = (
+                                f"atteste/{selected_ma_id}/{date.today().strftime('%Y%m%d')}_{selected_id}_{att_name}"
+                            )
+                            attest_upload = upload_file_to_storage_result(
+                                "dokumente",
+                                attest_pfad_neu,
+                                att_bytes,
+                                fallback_buckets=["arbeitsvertraege"],
+                            )
+                            if attest_upload.get("ok"):
+                                attest_pfad = attest_pfad_neu
+                            else:
+                                st.warning(
+                                    "Attest-Upload fehlgeschlagen, Änderung wird ohne neues Attest gespeichert. "
+                                    f"Details: {attest_upload.get('status_code') or '-'} "
+                                    f"{attest_upload.get('error') or ''}"
+                                )
+
+                        update_absence(
+                            supabase,
+                            absence_id=selected_id,
+                            typ=new_typ,
+                            start=new_start,
+                            end=new_end,
+                            monthly_target_hours=float(selected_ma.get("monatliche_soll_stunden") or 0.0),
+                            change_reason=edit_reason.strip(),
+                            changed_by=st.session_state.get("user_id"),
+                            attest_pfad=attest_pfad,
+                            grund=new_grund or None,
+                            paid_type_config=paid_types,
+                        )
+                        st.success("Abwesenheit wurde aktualisiert.")
+                        _refresh_after_write()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Änderung fehlgeschlagen: {e}")
+
+    with e2:
+        with st.form(f"abwesenheit_delete_form_{selected_id}"):
+            st.markdown("**Abwesenheit löschen**")
+            st.warning("Diese Aktion entfernt den Eintrag inkl. gespiegeltem Legacy-Zeiteintrag.")
+            delete_reason = st.text_area(
+                "Begründung der Löschung *",
+                placeholder="Pflichtfeld für Nachvollziehbarkeit / Audit",
+                key=f"abwesen_delete_reason_{selected_id}",
+            )
+            confirm_delete = st.checkbox(
+                "Ich bestätige die Löschung",
+                key=f"abwesen_delete_confirm_{selected_id}",
+            )
+            do_delete = st.form_submit_button(
+                "Eintrag loeschen",
+                use_container_width=True,
+            )
+            if do_delete:
+                if not confirm_delete:
+                    st.error("Bitte zuerst die Löschung bestätigen.")
+                elif not (delete_reason or "").strip():
+                    st.error("Bitte eine Begründung für die Löschung angeben.")
+                else:
+                    try:
+                        delete_absence(
+                            supabase,
+                            absence_id=selected_id,
+                            delete_reason=delete_reason.strip(),
+                            deleted_by=st.session_state.get("user_id"),
+                        )
+                        st.success("Abwesenheit wurde gelöscht.")
+                        _refresh_after_write()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Löschen fehlgeschlagen: {e}")
+
+
+def _show_mitarbeiter_stammdaten_tab():
+    st.subheader("Mitarbeiter-Stammdaten und Dokumente")
+    supabase = get_supabase_client()
+    # Schritt 1: Verbindung prüfen, bevor Stammdaten-UI gerendert wird.
+    try:
+        supabase.table("mitarbeiter").select("id").limit(1).execute()
+    except Exception as exc:
+        st.error(f"Datenbankverbindung für Personalakte fehlgeschlagen: {exc}")
+        return
+
+    stundenlohn_col = _resolve_stundenlohn_personal_column()
+    alle_ma = _load_admin_mitarbeiter()
+    st.caption(
+        "Hinweis: 'Stundenlohn' ist ein Personalakten-Feld und hat keinen Einfluss auf Dienstplan- oder Zeiterfassungsberechnungen."
+    )
+
+    with st.expander("Mitarbeiter neu anlegen", expanded=False):
+        with st.form("neuer_mitarbeiter_form"):
+            n1, n2, n3 = st.columns(3)
+            with n1:
+                new_vorname = st.text_input("Vorname*", value="")
+            with n2:
+                new_nachname = st.text_input("Nachname*", value="")
+            with n3:
+                new_personalnummer = st.text_input("Personalnummer*", value="")
+
+            n4, n5, n6 = st.columns(3)
+            with n4:
+                new_email = st.text_input("E-Mail", value="")
+            with n5:
+                new_telefon = st.text_input("Telefon", value="")
+            with n6:
+                new_beschaeftigungsart = st.text_input("Beschäftigungsart", value="")
+
+            n7, n8, n9 = st.columns(3)
+            with n7:
+                new_strasse = st.text_input("Straße", value="")
+            with n8:
+                new_plz = st.text_input("PLZ", value="")
+            with n9:
+                new_ort = st.text_input("Ort", value="")
+
+            n10, n11, n12 = st.columns(3)
+            with n10:
+                new_eintritt = st.date_input("Eintrittsdatum", value=date.today(), format="DD.MM.YYYY")
+            with n11:
+                new_soll = st.number_input("Monatliche Sollstunden", min_value=0.0, value=160.0, step=0.5)
+            with n12:
+                new_monatsbrutto = st.number_input("Monatliche Brutto-Vergütung", min_value=0.0, value=0.0, step=50.0)
+
+            n13, n14, n15, n16 = st.columns(4)
+            with n13:
+                new_urlaub = st.number_input("Urlaubstage/Jahr", min_value=0.0, value=28.0, step=0.5)
+            with n14:
+                new_resturlaub = st.number_input("Resturlaub Vorjahr", min_value=0.0, value=0.0, step=0.5)
+            with n15:
+                new_geburtsdatum = st.date_input("Geburtsdatum", value=date(1990, 1, 1), format="DD.MM.YYYY")
+            with n16:
+                new_stundenlohn = st.number_input(
+                    "Stundenlohn (Personalakte)",
+                    min_value=0.0,
+                    value=0.0,
+                    step=0.5,
+                    format="%.2f",
+                )
+
+            create = st.form_submit_button("Mitarbeiter anlegen", type="primary", use_container_width=True)
+            if create:
+                if not new_vorname.strip() or not new_nachname.strip() or not new_personalnummer.strip():
+                    st.error("Bitte Vorname, Nachname und Personalnummer ausfüllen.")
+                else:
+                    payload = {
+                        "betrieb_id": st.session_state.get("betrieb_id"),
+                        "vorname": new_vorname.strip(),
+                        "nachname": new_nachname.strip(),
+                        "personalnummer": new_personalnummer.strip(),
+                        "email": new_email.strip() or None,
+                        "telefon": new_telefon.strip() or None,
+                        "beschaeftigungsart": new_beschaeftigungsart.strip() or None,
+                        "strasse": new_strasse.strip() or None,
+                        "plz": new_plz.strip() or None,
+                        "ort": new_ort.strip() or None,
+                        "eintrittsdatum": new_eintritt.isoformat(),
+                        "geburtsdatum": new_geburtsdatum.isoformat(),
+                        "monatliche_soll_stunden": float(new_soll),
+                        "monatliche_brutto_verguetung": float(new_monatsbrutto),
+                        "jahres_urlaubstage": _to_int(new_urlaub, 28),
+                        "resturlaub_vorjahr": float(new_resturlaub),
+                        "sonntagszuschlag_aktiv": False,
+                        "feiertagszuschlag_aktiv": False,
+                    }
+                    if stundenlohn_col:
+                        payload[stundenlohn_col] = float(new_stundenlohn)
+                    try:
+                        supabase.table("mitarbeiter").insert(payload).execute()
+                        _refresh_after_write()
+                        st.success("Mitarbeiter erfolgreich angelegt.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Anlage fehlgeschlagen: {e}")
+
+    alle_ma = _load_admin_mitarbeiter()
+    if not alle_ma:
+        st.info("Keine Mitarbeiter vorhanden.")
+        return
+
+    ma_options = {f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m for m in alle_ma}
+    selected_label = st.selectbox(
+        "Mitarbeiter auswählen",
+        list(ma_options.keys()),
+        key="stammdaten_ma",
+    )
+    ma = ma_options[selected_label]
+    _render_upload_status(int(ma["id"]))
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Personalnummer", ma.get("personalnummer") or "-")
+    c2.metric("Soll (Monat)", f"{_to_float(ma.get('monatliche_soll_stunden')):.2f} h")
+    c3.metric("Monatsbrutto", f"{_to_float(ma.get('monatliche_brutto_verguetung')):.2f} EUR")
+    c4.metric("Urlaub/Jahr", f"{_to_float(ma.get('jahres_urlaubstage')):.1f} Tg")
+    c5.metric("Stundenlohn (Akte)", f"{_to_float(ma.get('akten_stundenlohn')):.2f} EUR")
+    if not stundenlohn_col:
+        st.info(
+            "Im aktuellen DB-Schema wurde keine Stundenlohn-Spalte gefunden. "
+            "Das Feld wird angezeigt, aber erst nach Hinzufügen einer passenden Spalte dauerhaft gespeichert."
+        )
+
+    eintritt_default = _safe_date(ma.get("eintrittsdatum")) or date.today()
+    austritt_default = _safe_date(ma.get("austrittsdatum"))
+
+    with st.form(f"stammdaten_form_{ma['id']}"):
+        st.markdown("#### Stammdaten bearbeiten")
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            vorname = st.text_input("Vorname", value=ma.get("vorname") or "")
+        with p2:
+            nachname = st.text_input("Nachname", value=ma.get("nachname") or "")
+        with p3:
+            personalnummer = st.text_input("Personalnummer", value=ma.get("personalnummer") or "")
+
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            email = st.text_input("E-Mail", value=ma.get("email") or "")
+        with a2:
+            telefon = st.text_input("Telefon", value=ma.get("telefon") or "")
+        with a3:
+            beschaeftigungsart = st.text_input("Beschäftigungsart", value=ma.get("beschaeftigungsart") or "")
+
+        adr1, adr2, adr3 = st.columns(3)
+        with adr1:
+            strasse = st.text_input("Straße", value=ma.get("strasse") or "")
+        with adr2:
+            plz = st.text_input("PLZ", value=ma.get("plz") or "")
+        with adr3:
+            ort = st.text_input("Ort", value=ma.get("ort") or "")
+
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            eintrittsdatum = st.date_input("Eintrittsdatum", value=eintritt_default, format="DD.MM.YYYY")
+        with d2:
+            hat_austritt = st.checkbox("Austrittsdatum gesetzt", value=austritt_default is not None)
+        with d3:
+            austrittsdatum = st.date_input(
+                "Austrittsdatum",
+                value=austritt_default or date.today(),
+                format="DD.MM.YYYY",
+                disabled=not hat_austritt,
+            )
+
+        l1, l2, l3 = st.columns(3)
+        with l1:
             monatliche_soll_stunden = st.number_input(
-                "Monatliche Soll-Stunden*",
+                "Monatliche Sollstunden",
                 min_value=0.0,
-                max_value=250.0,
-                value=float(mitarbeiter_data.get('monatliche_soll_stunden', 160.0)) if is_edit else 160.0,
-                step=0.5
+                value=_to_float(ma.get("monatliche_soll_stunden")),
+                step=0.5,
             )
-            stundenlohn_brutto = st.number_input(
-                "Stundenlohn (brutto)*",
+        with l2:
+            monatliche_brutto_verguetung = st.number_input(
+                "Monatliche Brutto-Vergütung",
                 min_value=0.0,
-                max_value=100.0,
-                value=float(mitarbeiter_data.get('stundenlohn_brutto', 15.0)) if is_edit else 15.0,
-                step=0.5
+                value=_to_float(ma.get("monatliche_brutto_verguetung")),
+                step=50.0,
             )
-        
-        with col2:
-            st.markdown("**Urlaub**")
+        with l3:
             jahres_urlaubstage = st.number_input(
-                "Jährliche Urlaubstage*",
-                min_value=20,
-                max_value=50,
-                value=int(mitarbeiter_data.get('jahres_urlaubstage', 28)) if is_edit else 28
+                "Urlaubstage/Jahr",
+                min_value=0.0,
+                value=_to_float(ma.get("jahres_urlaubstage")),
+                step=1.0,
+                format="%.0f",
             )
+
+        z1, z2, z3, z4 = st.columns(4)
+        with z1:
             resturlaub_vorjahr = st.number_input(
                 "Resturlaub Vorjahr",
                 min_value=0.0,
-                max_value=50.0,
-                value=float(mitarbeiter_data.get('resturlaub_vorjahr', 0.0)) if is_edit else 0.0,
-                step=0.5
+                value=_to_float(ma.get("resturlaub_vorjahr")),
+                step=0.5,
             )
-        
-        with col3:
-            st.markdown("**Zuschäge**")
+        with z2:
             sonntagszuschlag_aktiv = st.checkbox(
-                "50% Sonntagszuschlag",
-                value=mitarbeiter_data.get('sonntagszuschlag_aktiv', False) if is_edit else False
+                "Sonntagszuschlag aktiv",
+                value=bool(ma.get("sonntagszuschlag_aktiv")),
             )
+        with z3:
             feiertagszuschlag_aktiv = st.checkbox(
-                "100% Feiertagszuschlag",
-                value=mitarbeiter_data.get('feiertagszuschlag_aktiv', False) if is_edit else False
+                "Feiertagszuschlag aktiv",
+                value=bool(ma.get("feiertagszuschlag_aktiv")),
             )
-            
-            st.markdown("**Zeiterfassung**")
-            mobile_zeiterfassung = st.checkbox(
-                "📱 Mobile Zeiterfassung erlaubt",
-                value=mitarbeiter_data.get('mobile_zeiterfassung', False) if is_edit else False,
-                help="Erlaubt Zeiterfassung per App (für Außendienst)"
+        with z4:
+            akten_stundenlohn = st.number_input(
+                "Stundenlohn (Personalakte)",
+                min_value=0.0,
+                value=_to_float(ma.get("akten_stundenlohn")),
+                step=0.5,
+                format="%.2f",
             )
-        
-        st.markdown("---")
-        
-        # Benutzerkonto (nur bei Neuanlage)
-        if not is_edit:
-            st.markdown("**Benutzerkonto**")
-            col1, col2 = st.columns(2)
-            with col1:
-                username = st.text_input("Benutzername*")
-            with col2:
-                password = st.text_input("Passwort*", type="password")
-        
-        col1, col2 = st.columns([1, 5])
-        
-        with col1:
-            submit = st.form_submit_button("Speichern", use_container_width=True)
-        
-        with col2:
-            if st.form_submit_button("Abbrechen", use_container_width=True):
-                st.session_state.show_mitarbeiter_form = False
-                st.session_state.edit_mitarbeiter_id = None
-                st.rerun()
-        
-        if submit:
-            # Validierung - nur Name und Vorname sind Pflichtfelder
-            if not vorname or not nachname:
-                st.error("Bitte füllen Sie mindestens Vorname und Nachname aus.")
-                return
-            
-            if not is_edit and (not username or not password):
-                st.error("Bitte geben Sie Benutzername und Passwort ein.")
-                return
-            
-            # Personalnummer-Validierung
-            if not personalnummer or personalnummer.strip() == '':
-                st.error("Bitte geben Sie eine Personalnummer ein.")
-                return
-            
-            # Erstelle/Aktualisiere Mitarbeiter
-            mitarbeiter_daten = {
-                'vorname': vorname,
-                'nachname': nachname,
-                'geburtsdatum': geburtsdatum.isoformat(),
-                'strasse': strasse,
-                'plz': plz,
-                'ort': ort,
-                'email': email,
-                'telefon': telefon,
-                'personalnummer': personalnummer,
-                'eintrittsdatum': eintrittsdatum.isoformat(),
-                'monatliche_soll_stunden': monatliche_soll_stunden,
-                'stundenlohn_brutto': stundenlohn_brutto,
-                'jahres_urlaubstage': jahres_urlaubstage,
-                'resturlaub_vorjahr': resturlaub_vorjahr,
-                'sonntagszuschlag_aktiv': sonntagszuschlag_aktiv,
-                'feiertagszuschlag_aktiv': feiertagszuschlag_aktiv,
-                'mobile_zeiterfassung': mobile_zeiterfassung
+
+        save = st.form_submit_button("Stammdaten speichern", type="primary", use_container_width=True)
+        if save:
+            payload = {
+                "vorname": vorname,
+                "nachname": nachname,
+                "personalnummer": personalnummer,
+                "email": email,
+                "telefon": telefon,
+                "beschaeftigungsart": beschaeftigungsart,
+                "strasse": strasse,
+                "plz": plz,
+                "ort": ort,
+                "eintrittsdatum": eintrittsdatum.isoformat(),
+                "austrittsdatum": austrittsdatum.isoformat() if hat_austritt else None,
+                "monatliche_soll_stunden": float(monatliche_soll_stunden),
+                "monatliche_brutto_verguetung": float(monatliche_brutto_verguetung),
+                "jahres_urlaubstage": _to_int(jahres_urlaubstage, _to_int(ma.get("jahres_urlaubstage"), 28)),
+                "resturlaub_vorjahr": float(resturlaub_vorjahr),
+                "sonntagszuschlag_aktiv": bool(sonntagszuschlag_aktiv),
+                "feiertagszuschlag_aktiv": bool(feiertagszuschlag_aktiv),
             }
-            
-            if is_edit:
-                # Aktualisiere bestehenden Mitarbeiter
-                if update_mitarbeiter(mitarbeiter_data['id'], mitarbeiter_daten):
-                    st.success("Mitarbeiter erfolgreich aktualisiert!")
-                    st.session_state.show_mitarbeiter_form = False
-                    st.session_state.edit_mitarbeiter_id = None
-                    st.rerun()
-            else:
-                # Erstelle neuen Benutzer
-                try:
-                    user_id = create_user(username, password, 'mitarbeiter')
-                    
-                    if user_id:
-                        # Erstelle Mitarbeiter
-                        mitarbeiter_id = create_mitarbeiter(user_id, mitarbeiter_daten)
-                        
-                        if mitarbeiter_id:
-                            st.success(f"Mitarbeiter {vorname} {nachname} erfolgreich angelegt!")
-                            st.session_state.show_mitarbeiter_form = False
-                            st.rerun()
-                        else:
-                            st.error("Fehler beim Erstellen des Mitarbeiters. Bitte prüfen Sie die Logs.")
-                    else:
-                        st.error("Fehler beim Erstellen des Benutzerkontos. Möglicherweise existiert der Benutzername bereits.")
-                except Exception as e:
-                    st.error(f"Fehler beim Anlegen des Mitarbeiters: {str(e)}")
-                    import logging
-                    logging.error(f"Fehler beim Anlegen des Mitarbeiters: {e}", exc_info=True)
-
-
-def show_mitarbeiter_details(mitarbeiter: dict):
-    """Zeigt die Details eines Mitarbeiters an"""
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**Persönliche Daten**")
-        st.write(f"**Name:** {mitarbeiter['vorname']} {mitarbeiter['nachname']}")
-        geburtsdatum_formatted = datetime.fromisoformat(mitarbeiter['geburtsdatum']).strftime('%d.%m.%Y')
-        st.write(f"**Geburtsdatum:** {geburtsdatum_formatted}")
-        st.write(f"**E-Mail:** {mitarbeiter.get('email', 'Nicht angegeben')}")
-        st.write(f"**Telefon:** {mitarbeiter.get('telefon', 'Nicht angegeben')}")
-        
-        st.markdown("**Adresse**")
-        st.write(f"{mitarbeiter['strasse']}")
-        st.write(f"{mitarbeiter['plz']} {mitarbeiter['ort']}")
-    
-    with col2:
-        st.markdown("**Vertragsdaten**")
-        st.write(f"**Personalnummer:** {mitarbeiter.get('personalnummer', 'Nicht angegeben')}")
-        eintrittsdatum_formatted = datetime.fromisoformat(mitarbeiter['eintrittsdatum']).strftime('%d.%m.%Y') if mitarbeiter.get('eintrittsdatum') else 'Nicht angegeben'
-        st.write(f"**Eintrittsdatum:** {eintrittsdatum_formatted}")
-        st.write(f"**Soll-Stunden/Monat:** {mitarbeiter['monatliche_soll_stunden']}")
-        st.write(f"**Stundenlohn:** {format_waehrung(mitarbeiter['stundenlohn_brutto'])}")
-        st.write(f"**Urlaubstage/Jahr:** {mitarbeiter['jahres_urlaubstage']}")
-        
-        st.markdown("**Zuschläge**")
-        st.write(f"Sonntagszuschlag: {'✅ Aktiv' if mitarbeiter['sonntagszuschlag_aktiv'] else '❌ Inaktiv'}")
-        st.write(f"Feiertagszuschlag: {'✅ Aktiv' if mitarbeiter['feiertagszuschlag_aktiv'] else '❌ Inaktiv'}")
-    
-    st.markdown("---")
-    
-    # Bearbeiten und Löschen-Buttons
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("✏️ Mitarbeiter bearbeiten", key=f"edit_{mitarbeiter['id']}", use_container_width=True):
-            st.session_state.edit_mitarbeiter_id = mitarbeiter['id']
-            st.session_state.show_mitarbeiter_form = True
-            st.rerun()
-    
-    with col2:
-        # Eindeutiger Key für Bestätigungsflag
-        confirm_key = f"confirm_delete_ma_{mitarbeiter['id']}"
-        
-        # Zeige Bestätigungsbutton wenn Bestätigung aussteht
-        if st.session_state.get(confirm_key, False):
-            col_cancel, col_confirm = st.columns(2)
-            with col_cancel:
-                if st.button("❌ Abbrechen", key=f"cancel_delete_{mitarbeiter['id']}", use_container_width=True):
-                    st.session_state[confirm_key] = False
-                    st.rerun()
-            with col_confirm:
-                if st.button("✅ Bestätigen", key=f"confirm_delete_{mitarbeiter['id']}", use_container_width=True, type="primary"):
-                    # Lösche Mitarbeiter
-                    try:
-                        from utils.database import delete_mitarbeiter
-                        
-                        if delete_mitarbeiter(mitarbeiter['id']):
-                            st.success(f"✅ Mitarbeiter {mitarbeiter['vorname']} {mitarbeiter['nachname']} gelöscht!")
-                            st.session_state[confirm_key] = False
-                            st.rerun()
-                        else:
-                            st.error("Fehler beim Löschen des Mitarbeiters.")
-                            st.session_state[confirm_key] = False
-                    except Exception as e:
-                        st.error(f"Fehler: {str(e)}")
-                        st.session_state[confirm_key] = False
-        else:
-            # Zeige Löschen-Button
-            if st.button("🗑️ Mitarbeiter löschen", key=f"delete_{mitarbeiter['id']}", use_container_width=True, type="secondary"):
-                st.session_state[confirm_key] = True
-                st.rerun()
-    
-
-
-
-def show_urlaubsgenehmigung():
-    """Zeigt die Urlaubsgenehmigung an"""
-    
-    st.subheader("🏖️ Urlaubsgenehmigung")
-    
-    supabase = get_supabase_client()
-    
-    # Lade alle Urlaubsanträge
-    try:
-        urlaub_data = supabase.table('urlaubsantraege').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer)'
-        ).order('beantragt_am', desc=True).execute()
-        
-        if not urlaub_data.data:
-            st.info("Keine Urlaubsanträge vorhanden.")
-            return
-        
-        # Filtere nach Status
-        status_filter = st.selectbox(
-            "Status filtern",
-            options=['Alle', 'Beantragt', 'Genehmigt', 'Abgelehnt'],
-            index=0  # Standard: "Alle"
-        )
-        
-        filtered_data = urlaub_data.data
-        if status_filter != 'Alle':
-            filtered_data = [a for a in urlaub_data.data if a['status'] == status_filter.lower()]
-        
-        if not filtered_data:
-            st.info(f"Keine Urlaubsanträge mit Status '{status_filter}'.")
-            return
-        
-        # Zeige Anträge
-        for antrag in filtered_data:
-            mitarbeiter = antrag['mitarbeiter']
-            
-            with st.expander(
-                f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
-                f"{antrag['von_datum']} bis {antrag['bis_datum']} "
-                f"({antrag['anzahl_tage']} Tage) - Status: {antrag['status'].upper()}"
-            ):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Mitarbeiter:** {mitarbeiter['vorname']} {mitarbeiter['nachname']}")
-                    st.write(f"**Personalnummer:** {mitarbeiter['personalnummer']}")
-                    st.write(f"**Zeitraum:** {antrag['von_datum']} bis {antrag['bis_datum']}")
-                    st.write(f"**Anzahl Tage:** {antrag['anzahl_tage']}")
-                
-                with col2:
-                    st.write(f"**Beantragt am:** {antrag['beantragt_am']}")
-                    st.write(f"**Status:** {antrag['status'].upper()}")
-                    if antrag.get('bemerkung_mitarbeiter'):
-                        st.write(f"**Bemerkung:** {antrag['bemerkung_mitarbeiter']}")
-                
-                # Genehmigung/Ablehnung (nur für offene Anträge)
-                if antrag['status'] == 'beantragt':
-                    st.markdown("---")
-                    
-                    bemerkung_admin = st.text_area(
-                        "Bemerkung (optional)",
-                        key=f"bemerkung_{antrag['id']}"
-                    )
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("✅ Genehmigen", key=f"approve_{antrag['id']}", use_container_width=True):
-                            # Aktualisiere Antrag
-                            supabase.table('urlaubsantraege').update({
-                                'status': 'genehmigt',
-                                'bemerkung_admin': bemerkung_admin,
-                                'bearbeitet_am': datetime.now().isoformat(),
-                                'bearbeitet_von': st.session_state.user_id
-                            }).eq('id', antrag['id']).execute()
-                            
-                            st.success("Urlaubsantrag genehmigt!")
-                            st.rerun()
-                    
-                    with col2:
-                        if st.button("❌ Ablehnen", key=f"reject_{antrag['id']}", use_container_width=True):
-                            # Aktualisiere Antrag
-                            supabase.table('urlaubsantraege').update({
-                                'status': 'abgelehnt',
-                                'bemerkung_admin': bemerkung_admin,
-                                'bearbeitet_am': datetime.now().isoformat(),
-                                'bearbeitet_von': st.session_state.user_id
-                            }).eq('id', antrag['id']).execute()
-                            
-                            st.warning("Urlaubsantrag abgelehnt!")
-                            st.rerun()
-    
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Urlaubsanträge: {str(e)}")
-
-
-def show_zeiterfassung_admin():
-    """Zeigt die Zeiterfassung für alle Mitarbeiter an"""
-    
-    st.subheader("⏰ Zeiterfassung (Übersicht & Korrektur)")
-    
-    # Filter
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        mitarbeiter_list = get_all_mitarbeiter()
-        if not mitarbeiter_list:
-            st.warning("Keine Mitarbeiter vorhanden.")
-            return
-        
-        mitarbeiter_options = [{'id': None, 'name': 'Alle Mitarbeiter'}] + \
-                             [{'id': m['id'], 'name': f"{m['vorname']} {m['nachname']}"} for m in mitarbeiter_list]
-        
-        selected_mitarbeiter_idx = st.selectbox(
-            "Mitarbeiter",
-            range(len(mitarbeiter_options)),
-            format_func=lambda x: mitarbeiter_options[x]['name']
-        )
-        selected_mitarbeiter_id = mitarbeiter_options[selected_mitarbeiter_idx]['id']
-    
-    with col2:
-        filter_datum_von = st.date_input(
-            "Von",
-            value=date.today() - timedelta(days=30),
-            format="DD.MM.YYYY"
-        )
-    
-    with col3:
-        filter_datum_bis = st.date_input(
-            "Bis",
-            value=date.today(),
-            format="DD.MM.YYYY"
-        )
-    
-    # Lade Zeiterfassungen
-    supabase = get_supabase_client()
-    
-    try:
-        query = supabase.table('zeiterfassung').select('*, mitarbeiter(vorname, nachname)')
-        
-        if selected_mitarbeiter_id:
-            query = query.eq('mitarbeiter_id', selected_mitarbeiter_id)
-        
-        query = query.gte('datum', filter_datum_von.isoformat())
-        query = query.lte('datum', filter_datum_bis.isoformat())
-        query = query.order('datum', desc=True).order('start_zeit', desc=True)
-        
-        response = query.execute()
-        zeiterfassungen = response.data if response.data else []
-        
-        if not zeiterfassungen:
-            st.info("ℹ️ Keine Zeiterfassungen im gewählten Zeitraum gefunden.")
-            return
-        
-        st.write(f"**{len(zeiterfassungen)} Zeiterfassungen gefunden**")
-        
-        # Zeige Zeiterfassungen mit Bearbeitungs-Option
-        for ze in zeiterfassungen:
-            with st.expander(
-                f"👤 {ze['mitarbeiter']['vorname']} {ze['mitarbeiter']['nachname']} - "
-                f"{datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')} - "
-                f"{ze['start_zeit'][:5]} bis {ze['ende_zeit'][:5] if ze['ende_zeit'] else 'Offen'}"
-            ):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Datum:** {datetime.fromisoformat(ze['datum']).strftime('%d.%m.%Y')}")
-                    st.write(f"**Check-In:** {ze['start_zeit']}")
-                    st.write(f"**Check-Out:** {ze['ende_zeit'] if ze['ende_zeit'] else '❌ Noch nicht ausgestempelt'}")
-                    
-                    if ze.get('arbeitsstunden'):
-                        st.write(f"**Arbeitsstunden:** {ze['arbeitsstunden']:.2f} h")
-                
-                with col2:
-                    st.write(f"**Pause (Min):** {ze.get('pause_minuten', 0)}")
-                    st.write(f"**Sonntag:** {'✅' if ze.get('ist_sonntag') else '❌'}")
-                    st.write(f"**Feiertag:** {'✅' if ze.get('ist_feiertag') else '❌'}")
-                
-                # Korrektur-Formular
-                st.markdown("---")
-                st.markdown("**✏️ Zeiterfassung korrigieren**")
-                
-                with st.form(f"korrektur_form_{ze['id']}"):
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        new_check_in = st.time_input(
-                            "Check-In",
-                            value=datetime.strptime(ze['start_zeit'], '%H:%M:%S').time()
-                        )
-                    
-                    with col2:
-                        if ze['ende_zeit']:
-                            default_checkout = datetime.strptime(ze['ende_zeit'], '%H:%M:%S').time()
-                        else:
-                            default_checkout = datetime.now().time()
-                        
-                        new_check_out = st.time_input(
-                            "Check-Out",
-                            value=default_checkout
-                        )
-                    
-                    with col3:
-                        new_pause = st.number_input(
-                            "Pause (Min)",
-                            min_value=0,
-                            max_value=240,
-                            value=ze.get('pause_minuten', 0)
-                        )
-                    
-                    korrektur_grund = st.text_area(
-                        "Grund der Korrektur",
-                        placeholder="z.B. Vergessener Logout, Systemfehler, etc."
-                    )
-                    
-                    col1, col2 = st.columns([1, 3])
-                    
-                    with col1:
-                        if st.form_submit_button("💾 Speichern", use_container_width=True):
-                            if not korrektur_grund:
-                                st.error("⚠️ Bitte geben Sie einen Grund für die Korrektur an.")
-                            else:
-                                # Berechne neue Arbeitsstunden
-                                from utils.calculations import berechne_arbeitsstunden, is_sonntag, is_feiertag
-                                
-                                # Stelle sicher, dass new_check_in/out datetime.time Objekte sind
-                                if isinstance(new_check_in, datetime):
-                                    new_check_in = new_check_in.time()
-                                if isinstance(new_check_out, datetime):
-                                    new_check_out = new_check_out.time()
-                                
-                                check_in_dt = datetime.combine(date.today(), new_check_in)
-                                check_out_dt = datetime.combine(date.today(), new_check_out)
-                                
-                                arbeitsstunden = berechne_arbeitsstunden(
-                                    check_in_dt,
-                                    check_out_dt,
-                                    new_pause
-                                )
-                                
-                                # Prüfe Sonntag/Feiertag für das Datum
-                                zeiterfassung_datum = datetime.fromisoformat(ze['datum']).date()
-                                ist_sonntag_tag = is_sonntag(zeiterfassung_datum)
-                                ist_feiertag_tag = is_feiertag(zeiterfassung_datum)
-                                
-                                # Aktualisiere Zeiterfassung
-                                update_data = {
-                                    'start_zeit': new_check_in.strftime('%H:%M:%S'),
-                                    'ende_zeit': new_check_out.strftime('%H:%M:%S'),
-                                    'pause_minuten': new_pause,
-                                    'arbeitsstunden': arbeitsstunden,
-                                    'ist_sonntag': ist_sonntag_tag,
-                                    'ist_feiertag': ist_feiertag_tag,
-                                    'korrigiert_von_admin': True,
-                                    'korrektur_grund': korrektur_grund,
-                                    'korrektur_datum': datetime.now().isoformat()
-                                }
-                                
-                                supabase.table('zeiterfassung').update(update_data).eq('id', ze['id']).execute()
-                                
-                                st.success("✅ Zeiterfassung erfolgreich korrigiert!")
-                                st.rerun()
-                    
-                    with col2:
-                        if st.form_submit_button("🗑️ Löschen", use_container_width=True):
-                            if st.session_state.get(f'confirm_delete_{ze["id"]}', False):
-                                supabase.table('zeiterfassung').delete().eq('id', ze['id']).execute()
-                                st.success("✅ Zeiterfassung gelöscht!")
-                                st.rerun()
-                            else:
-                                st.session_state[f'confirm_delete_{ze["id"]}'] = True
-                                st.warning("⚠️ Nochmal klicken zum Bestätigen!")
-    
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Zeiterfassungen: {str(e)}")
-
-
-def show_lohnabrechnung():
-    """Zeigt die Lohnabrechnung an"""
-    
-    st.subheader("💰 Lohnabrechnung")
-    
-    from utils.lohnabrechnung import (
-        erstelle_lohnabrechnung,
-        generiere_lohnabrechnung_pdf,
-        speichere_lohnabrechnung_pdf
-    )
-    
-    # Auswahl Mitarbeiter und Zeitraum
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        mitarbeiter_list = get_all_mitarbeiter()
-        if not mitarbeiter_list:
-            st.warning("Keine Mitarbeiter vorhanden.")
-            return
-        
-        selected_mitarbeiter = st.selectbox(
-            "Mitarbeiter",
-            options=mitarbeiter_list,
-            format_func=lambda x: f"{x['vorname']} {x['nachname']} ({x['personalnummer']})"
-        )
-    
-    with col2:
-        jahr = st.number_input(
-            "Jahr",
-            min_value=2020,
-            max_value=2030,
-            value=date.today().year
-        )
-    
-    with col3:
-        monatsnamen = get_monatsnamen()
-        aktueller_monat = date.today().month
-        monat_index = st.selectbox(
-            "Monat",
-            options=list(range(1, 13)),
-            format_func=lambda x: monatsnamen[x],
-            index=aktueller_monat - 1
-        )
-        monat = monat_index
-    
-    if st.button("💰 Lohnabrechnung erstellen", use_container_width=True):
-        with st.spinner("Erstelle Lohnabrechnung..."):
-            lohnabrechnung_id = erstelle_lohnabrechnung(
-                selected_mitarbeiter['id'],
-                monat,
-                jahr
+            if stundenlohn_col:
+                payload[stundenlohn_col] = float(akten_stundenlohn)
+            ok, info, dropped_columns = _update_mitarbeiter_stammdaten_robust(
+                mitarbeiter_id=int(ma["id"]),
+                betrieb_id=st.session_state.get("betrieb_id"),
+                payload=payload,
             )
-            
-            if lohnabrechnung_id:
-                # Generiere und speichere PDF
-                pdf_path = speichere_lohnabrechnung_pdf(lohnabrechnung_id)
-                
-                if pdf_path:
-                    st.success("✅ Lohnabrechnung erfolgreich erstellt!")
-                    st.rerun()
-                else:
-                    st.warning("Lohnabrechnung erstellt, aber PDF-Speicherung fehlgeschlagen.")
+            if ok:
+                _refresh_after_write()
+                st.success("Stammdaten gespeichert.")
+                if dropped_columns:
+                    st.warning(
+                        "Speichern war nur teilweise möglich. Nicht im DB-Schema vorhandene Felder wurden ausgelassen: "
+                        + ", ".join(dropped_columns)
+                    )
+                st.rerun()
             else:
-                st.error("Fehler beim Erstellen der Lohnabrechnung.")
-    
-    st.markdown("---")
-    
-    # Zeige vorhandene Lohnabrechnungen
-    st.subheader("Vorhandene Lohnabrechnungen")
-    
-    supabase = get_supabase_client()
-    
-    try:
-        lohnabrechnungen = supabase.table('lohnabrechnungen').select(
-            '*, mitarbeiter(vorname, nachname, personalnummer)'
-        ).order('jahr', desc=True).order('monat', desc=True).execute()
-        
-        if lohnabrechnungen.data:
-            for abrechnung in lohnabrechnungen.data:
-                mitarbeiter = abrechnung['mitarbeiter']
-                
-                with st.expander(
-                    f"{mitarbeiter['vorname']} {mitarbeiter['nachname']} - "
-                    f"{get_monatsnamen(abrechnung['monat'])} {abrechnung['jahr']} - "
-                    f"{format_waehrung(abrechnung['gesamtbetrag'])}"
-                ):
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.write(f"**Grundlohn:** {format_waehrung(abrechnung['grundlohn'])}")
-                        if abrechnung['sonntagszuschlag'] > 0:
-                            st.write(f"**Sonntagszuschlag:** {format_waehrung(abrechnung['sonntagszuschlag'])}")
-                        if abrechnung['feiertagszuschlag'] > 0:
-                            st.write(f"**Feiertagszuschlag:** {format_waehrung(abrechnung['feiertagszuschlag'])}")
-                    
-                    with col2:
-                        st.write(f"**Gesamtbetrag:** {format_waehrung(abrechnung['gesamtbetrag'])}")
-                        st.write(f"**Erstellt am:** {abrechnung['erstellt_am']}")
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("📥 PDF herunterladen", key=f"download_lohn_{abrechnung['id']}"):
-                            pdf_bytes = generiere_lohnabrechnung_pdf(abrechnung['id'])
-                            if pdf_bytes:
-                                st.download_button(
-                                    label="Download starten",
-                                    data=pdf_bytes,
-                                    file_name=f"Lohnabrechnung_{mitarbeiter['personalnummer']}_{abrechnung['jahr']}_{abrechnung['monat']:02d}.pdf",
-                                    mime="application/pdf",
-                                    key=f"dl_{abrechnung['id']}"
-                                )
-                    
-                    with col2:
-                        if st.button("🔄 Neu berechnen", key=f"recalc_{abrechnung['id']}"):
-                            lohnabrechnung_id = erstelle_lohnabrechnung(
-                                abrechnung['mitarbeiter_id'],
-                                abrechnung['monat'],
-                                abrechnung['jahr']
+                st.error("Speichern fehlgeschlagen. Bitte Felder/Schema prüfen.")
+                st.caption("Technische Details (kopierbar):")
+                st.code(info, language="text")
+
+    with st.expander("Vertrag oder Dokument hochladen", expanded=True):
+        with st.form(f"dokument_upload_form_{ma['id']}"):
+            u1, u2, u3 = st.columns(3)
+            with u1:
+                dokument_typ = st.selectbox(
+                    "Dokumenttyp",
+                    ["arbeitsvertrag", "zusatzvereinbarung", "attest", "bescheinigung", "sonstiges"],
+                )
+            with u2:
+                gueltig_ab = st.date_input("Gültig ab", value=date.today(), format="DD.MM.YYYY")
+            with u3:
+                befristet = st.checkbox("Befristet", value=False)
+
+            u4, u5, u6 = st.columns(3)
+            with u4:
+                gueltig_bis = st.date_input(
+                    "Gültig bis",
+                    value=date.today(),
+                    format="DD.MM.YYYY",
+                    disabled=not befristet,
+                )
+            with u5:
+                vertrag_wochenstunden = st.number_input("Wochenstunden", min_value=0.0, value=0.0, step=0.5)
+            with u6:
+                vertrag_soll_monat = st.number_input(
+                    "Sollstunden/Monat",
+                    min_value=0.0,
+                    value=float(ma.get("monatliche_soll_stunden") or 0.0),
+                    step=0.5,
+                )
+
+            u7, u8, u9 = st.columns(3)
+            with u7:
+                vertrag_urlaub = st.number_input(
+                    "Urlaub/Jahr (Vertrag)",
+                    min_value=0.0,
+                    value=float(ma.get("jahres_urlaubstage") or 0.0),
+                    step=0.5,
+                )
+            with u8:
+                vertrag_monatsbrutto = st.number_input(
+                    "Monatliche Brutto-Vergütung (Vertrag)",
+                    min_value=0.0,
+                    value=float(ma.get("monatliche_brutto_verguetung") or 0.0),
+                    step=50.0,
+                )
+            with u9:
+                dokument_status = st.selectbox("Status", ["aktiv", "abgelaufen", "fehlend"])
+
+            notiz = st.text_input("Dokumentname / Notiz", value=f"{dokument_typ}_{datetime.now().strftime('%Y%m%d')}")
+            upload = st.file_uploader(
+                "Datei auswählen",
+                type=["pdf", "png", "jpg", "jpeg", "doc", "docx"],
+                key=f"dokument_file_{ma['id']}",
+            )
+            save_upload = st.form_submit_button("Dokument hochladen", type="primary", use_container_width=True)
+
+            if save_upload:
+                _clear_upload_status(int(ma["id"]))
+                if upload is None:
+                    _set_upload_status(
+                        int(ma["id"]),
+                        level="error",
+                        message="Bitte zuerst eine Datei auswählen.",
+                    )
+                    st.error("Bitte zuerst eine Datei auswählen.")
+                else:
+                    file_bytes = upload.read()
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    safe_name = upload.name.replace(" ", "_")
+                    file_path = f"mitarbeiter/{ma['id']}/{ts}_{safe_name}"
+                    upload_result = upload_file_to_storage_result(
+                        "dokumente",
+                        file_path,
+                        file_bytes,
+                        fallback_buckets=["arbeitsvertraege"],
+                    )
+                    if not upload_result.get("ok"):
+                        details = (
+                            f"bucket=dokumente|arbeitsvertraege\n"
+                            f"path={file_path}\n"
+                            f"status_code={upload_result.get('status_code') or '-'}\n"
+                            f"error={upload_result.get('error') or 'unbekannt'}"
+                        )
+                        _set_upload_status(
+                            int(ma["id"]),
+                            level="error",
+                            message="Upload in Supabase Storage fehlgeschlagen.",
+                            details=details,
+                        )
+                        st.error(
+                            "Upload in Supabase Storage fehlgeschlagen. "
+                            f"Details: {upload_result.get('status_code') or '-'} "
+                            f"{upload_result.get('error') or ''}"
+                        )
+                    else:
+                        used_bucket = upload_result.get("bucket") or "dokumente"
+                        file_url = _storage_public_url(used_bucket, file_path)
+                        metadata_saved = True
+                        warning_details: list[str] = []
+                        meta_payload = {
+                            "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                            "mitarbeiter_id": ma["id"],
+                            "name": notiz or upload.name,
+                            "typ": dokument_typ,
+                            "file_path": file_path,
+                            "file_url": file_url,
+                            "status": dokument_status,
+                            "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
+                            "metadaten": {
+                                "uploaded_at": datetime.now().isoformat(),
+                                "source": "admin_dashboard",
+                            },
+                            "erstellt_von": st.session_state.get("user_id"),
+                        }
+                        meta_ok, meta_msg = _insert_mitarbeiter_dokument_robust(
+                            supabase, meta_payload
+                        )
+                        if not meta_ok:
+                            metadata_saved = False
+                            details = (
+                                f"bucket={used_bucket}\n"
+                                f"path={file_path}\n"
+                                f"file_name={safe_name}\n"
+                                f"metadata_error={meta_msg}"
                             )
-                            if lohnabrechnung_id:
-                                speichere_lohnabrechnung_pdf(lohnabrechnung_id)
-                                st.success("✅ Lohnabrechnung neu berechnet!")
-                                st.rerun()
-        else:
-            st.info("Noch keine Lohnabrechnungen erstellt.")
-    
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Lohnabrechnungen: {str(e)}")
+                            _set_upload_status(
+                                int(ma["id"]),
+                                level="error",
+                                message=(
+                                    "Datei wurde in Storage geladen, aber Dokument-Metadaten "
+                                    "konnten nicht gespeichert werden."
+                                ),
+                                details=details,
+                            )
+                            st.error(
+                                "Datei wurde hochgeladen, aber die Zuordnung zur Personalakte "
+                                "ist fehlgeschlagen. Details stehen oben dauerhaft."
+                            )
+                        elif "variant=full" not in meta_msg or "client=primary" not in meta_msg:
+                            warning_details.append(f"metadata_fallback={meta_msg}")
 
+                        if metadata_saved and dokument_typ == "arbeitsvertrag":
+                            try:
+                                payload_vertrag = {
+                                    "betrieb_id": ma.get("betrieb_id") or st.session_state.get("betrieb_id"),
+                                    "mitarbeiter_id": ma["id"],
+                                    "gueltig_ab": gueltig_ab.isoformat(),
+                                    "gueltig_bis": gueltig_bis.isoformat() if befristet else None,
+                                    "wochenstunden": float(vertrag_wochenstunden or 0.0),
+                                    "soll_stunden_monat": float(vertrag_soll_monat or 0.0),
+                                    "urlaubstage_jahr": float(vertrag_urlaub or 0.0),
+                                    "monatsbrutto_verguetung": float(vertrag_monatsbrutto or 0.0),
+                                    "vertrag_dokument_pfad": file_path,
+                                }
+                                supabase.table("vertraege").insert(payload_vertrag).execute()
+                            except Exception as e:
+                                warning_details.append(f"vertraege_insert_error={str(e)}")
+                                st.warning(f"Vertragseintrag konnte nicht gespeichert werden: {e}")
 
-def show_einstellungen():
-    """Zeigt die Einstellungen an"""
-    
-    st.subheader("⚙️ Einstellungen")
-    
-    # Passwort ändern
-    st.markdown("**Passwort ändern**")
-    
-    with st.form("change_password_form"):
-        new_password = st.text_input("Neues Passwort", type="password")
-        confirm_password = st.text_input("Passwort bestätigen", type="password")
-        
-        submit = st.form_submit_button("Passwort ändern")
-        
-        if submit:
-            if not new_password or not confirm_password:
-                st.error("Bitte füllen Sie alle Felder aus.")
-            elif new_password != confirm_password:
-                st.error("Passwörter stimmen nicht überein.")
-            elif len(new_password) < 8:
-                st.error("Passwort muss mindestens 8 Zeichen lang sein.")
-            else:
-                if change_password(st.session_state.user_id, new_password):
-                    st.success("Passwort erfolgreich geändert!")
-                else:
-                    st.error("Fehler beim Ändern des Passworts.")
+                            # Legacy-Fallback-Felder
+                            try:
+                                update_mitarbeiter(ma["id"], {"vertrag_pdf_path": file_path})
+                            except Exception:
+                                pass
+                            try:
+                                update_mitarbeiter(ma["id"], {"arbeitsvertrag_pfad": file_path})
+                            except Exception:
+                                pass
 
-
-def show_benachrichtigungen_widget():
-    """Zeigt Widget mit ungelesenen Benachrichtigungen und Änderungsanfragen"""
-    from utils.notifications import (
-        get_ungelesene_benachrichtigungen,
-        markiere_benachrichtigung_gelesen,
-        get_pending_aenderungsanfragen,
-        approve_aenderungsanfrage,
-        reject_aenderungsanfrage
-    )
-    
-    # Lade Benachrichtigungen und Änderungsanfragen
-    benachrichtigungen = get_ungelesene_benachrichtigungen()
-    aenderungsanfragen = get_pending_aenderungsanfragen()
-    
-    total_notifications = len(benachrichtigungen) + len(aenderungsanfragen)
-    
-    if total_notifications > 0:
-        st.markdown(f"""
-        <div style="background-color: #fff3cd; border-left: 5px solid #ffc107; padding: 1rem; margin-bottom: 1.5rem; border-radius: 5px;">
-            <strong>🔔 {total_notifications} neue Benachrichtigung(en)</strong>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Expander für Benachrichtigungen
-        if benachrichtigungen:
-            with st.expander(f"📬 {len(benachrichtigungen)} Benachrichtigungen", expanded=True):
-                for notif in benachrichtigungen:
-                    col1, col2 = st.columns([4, 1])
-                    
-                    with col1:
-                        mitarbeiter_info = notif.get('mitarbeiter', {})
-                        st.markdown(f"""
-                        **{mitarbeiter_info.get('vorname', '')} {mitarbeiter_info.get('nachname', '')} (#{mitarbeiter_info.get('personalnummer', '')})**  
-                        {notif['nachricht']}  
-                        <small>{notif['erstellt_am'][:16]}</small>
-                        """, unsafe_allow_html=True)
-                    
-                    with col2:
-                        if st.button("✓", key=f"mark_read_{notif['id']}", help="Als gelesen markieren"):
-                            markiere_benachrichtigung_gelesen(notif['id'])
+                        if metadata_saved:
+                            if warning_details:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="warning",
+                                    message=(
+                                        "Dokument hochgeladen, aber Vertrags-Metadaten konnten "
+                                        "nicht vollständig gespeichert werden."
+                                    ),
+                                    details=(
+                                        f"bucket={used_bucket}\npath={file_path}\n"
+                                        + "\n".join(warning_details)
+                                    ),
+                                )
+                            else:
+                                _set_upload_status(
+                                    int(ma["id"]),
+                                    level="success",
+                                    message="Dokument erfolgreich hochgeladen.",
+                                    details=f"bucket={used_bucket}\npath={file_path}\nfile_name={safe_name}",
+                                )
+                            _refresh_after_write()
+                            st.success("Dokument erfolgreich hochgeladen.")
                             st.rerun()
-                    
-                    st.markdown("---")
-        
-        # Expander für Änderungsanfragen
-        if aenderungsanfragen:
-            with st.expander(f"✋ {len(aenderungsanfragen)} Änderungsanfragen", expanded=True):
-                for anfrage in aenderungsanfragen:
-                    mitarbeiter_info = anfrage.get('mitarbeiter', {})
-                    
-                    st.markdown(f"""
-                    **{mitarbeiter_info.get('vorname', '')} {mitarbeiter_info.get('nachname', '')} (#{mitarbeiter_info.get('personalnummer', '')})**  
-                    Feld: **{anfrage['feld']}**  
-                    Alt: `{anfrage['alter_wert']}` → Neu: `{anfrage['neuer_wert']}`  
-                    Grund: {anfrage.get('grund', 'Nicht angegeben')}  
-                    <small>{anfrage['erstellt_am'][:16]}</small>
-                    """, unsafe_allow_html=True)
-                    
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        if st.button("✅ Genehmigen", key=f"approve_{anfrage['id']}", use_container_width=True):
-                            if approve_aenderungsanfrage(anfrage['id'], st.session_state.user_id):
-                                st.success("Änderung genehmigt!")
-                                st.rerun()
-                            else:
-                                st.error("Fehler beim Genehmigen")
-                    
-                    with col2:
-                        if st.button("❌ Ablehnen", key=f"reject_{anfrage['id']}", use_container_width=True):
-                            if reject_aenderungsanfrage(anfrage['id'], st.session_state.user_id):
-                                st.info("Änderung abgelehnt")
-                                st.rerun()
-                            else:
-                                st.error("Fehler beim Ablehnen")
-                    
-                    st.markdown("---")
-    else:
-        st.success("✅ Keine neuen Benachrichtigungen")
 
-
-def show_plauderecke_admin():
-    """Zeigt die Plauderecke für Administrator an"""
-    from utils.chat import get_chat_nachrichten, send_chat_nachricht, delete_chat_nachricht
-    from utils.chat_notifications import mark_chat_as_read
-    
-    # Markiere Chat als gelesen
-    mark_chat_as_read(st.session_state.user_id)
-    
-    st.subheader("💬 Plauderecke")
-    st.caption("Interner Chat für alle Mitarbeiter und Administrator")
-    
-    # Lade Chat-Nachrichten
-    nachrichten = get_chat_nachrichten(limit=100, betrieb_id=st.session_state.betrieb_id)
-    
-    # Chat-Container
-    chat_container = st.container()
-    
-    with chat_container:
-        if nachrichten:
-            for msg in nachrichten:
-                # Hole Mitarbeiter-Info
-                mitarbeiter_info = msg.get('mitarbeiter', {})
-                if mitarbeiter_info:
-                    vorname = mitarbeiter_info.get('vorname', 'Administrator')
-                    nachname = mitarbeiter_info.get('nachname', '')
-                else:
-                    vorname = "Administrator"
-                    nachname = ""
-                
-                # Eigene Nachricht?
-                is_own = msg['user_id'] == st.session_state.user_id
-                
-                # Zeitstempel formatieren
-                timestamp = msg['erstellt_am'][:16].replace('T', ' ')
-                
-                if is_own:
-                    # Eigene Nachricht rechts
-                    col1, col2 = st.columns([1, 3])
-                    with col2:
-                        st.markdown(f"""
-                        <div style="background-color: #198754; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; text-align: right;">
-                            <strong style="color: #ffffff;">Sie (Admin)</strong><br>
-                            <span style="color: #ffffff;">{msg['nachricht']}</span><br>
-                            <small style="color: #e0e0e0;">{timestamp}</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        if st.button("🗑️", key=f"delete_admin_{msg['id']}", help="Nachricht löschen"):
-                            if delete_chat_nachricht(msg['id'], st.session_state.user_id):
-                                st.rerun()
-                else:
-                    # Andere Nachricht links
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.markdown(f"""
-                        <div style="background-color: #e9ecef; padding: 0.75rem; border-radius: 10px; margin-bottom: 0.5rem; border: 1px solid #dee2e6;">
-                            <strong style="color: #212529;">{vorname} {nachname}</strong><br>
-                            <span style="color: #212529;">{msg['nachricht']}</span><br>
-                            <small style="color: #6c757d;">{timestamp}</small>
-                        </div>
-                        """, unsafe_allow_html=True)
-        else:
-            st.info("Noch keine Nachrichten in der Plauderecke.")
-    
-    st.markdown("---")
-    
-    # Nachricht senden
-    with st.form("send_message_form_admin", clear_on_submit=True):
-        nachricht = st.text_area("Nachricht schreiben", placeholder="Ihre Nachricht an das Team...", height=100)
-        submit = st.form_submit_button("📤 Senden", use_container_width=True)
-        
-        if submit and nachricht.strip():
-            if send_chat_nachricht(st.session_state.user_id, nachricht.strip(), st.session_state.betrieb_id):
-                st.success("✅ Nachricht gesendet!")
-                st.rerun()
-            else:
-                st.error("Fehler beim Senden der Nachricht.")
-
-
-def show_urlaubskalender_admin():
-    """Zeigt Urlaubskalender aller Mitarbeiter an (Admin-Ansicht) - JAHRESÜBERSICHT"""
-    st.markdown('<div class="section-header">📅 Urlaubskalender - Jahresübersicht</div>', unsafe_allow_html=True)
-    
-    st.info("ℹ️ Jahresübersicht aller genehmigten Urlaube. Hilft bei der Personalplanung und Dienstplan-Erstellung.")
-    
-    # Nur Jahr-Auswahl (keine Monatsauswahl mehr)
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        heute = date.today()
-        jahr = st.selectbox("Jahr", range(heute.year - 1, heute.year + 3), index=1, key="admin_jahr")
-    
-    with col2:
-        st.markdown(f"### 📆 Urlaubsübersicht für das Jahr {jahr}")
-    
-    # Lade Urlaube für das gesamte Jahr
-    supabase = get_supabase_client()
-    
-    # Berechne Start- und Enddatum des Jahres
-    erster_tag = date(jahr, 1, 1)
-    letzter_tag = date(jahr, 12, 31)
-    
+    st.markdown("#### Hinterlegte Verträge")
     try:
-        # Lade ALLE genehmigten Urlaubsanträge für das gesamte Jahr
-        # Korrekte Logik: Urlaub überschneidet sich mit Jahr wenn:
-        # von_datum <= letzter_tag UND bis_datum >= erster_tag
-        urlaube_response = supabase.table('urlaubsantraege').select(
-            'id, mitarbeiter_id, von_datum, bis_datum, status, grund, mitarbeiter(vorname, nachname)'
-        ).lte('von_datum', str(letzter_tag)).gte('bis_datum', str(erster_tag)).eq('status', 'genehmigt').execute()
-        
-        if not urlaube_response.data:
-            st.info(f"📬 Keine genehmigten Urlaube im Jahr {jahr}")
-            return
-        
-        # Erstelle Kalender-Ansicht
-        st.markdown("---")
-        
-        # Gruppiere Urlaube nach Mitarbeiter
-        urlaube_nach_mitarbeiter = {}
-        for urlaub in urlaube_response.data:
-            mitarbeiter_name = f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}"
-            if mitarbeiter_name not in urlaube_nach_mitarbeiter:
-                urlaube_nach_mitarbeiter[mitarbeiter_name] = []
-            urlaube_nach_mitarbeiter[mitarbeiter_name].append(urlaub)
-        
-        # Zeige Urlaube nach Mitarbeiter
-        for mitarbeiter_name in sorted(urlaube_nach_mitarbeiter.keys()):
-            with st.expander(f"👤 {mitarbeiter_name}", expanded=True):
-                for urlaub in urlaube_nach_mitarbeiter[mitarbeiter_name]:
-                    von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
-                    bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
-                    
-                    # Berechne Anzahl Tage
-                    tage = (bis - von).days + 1
-                    
-                    # Formatiere Datum
-                    von_str = von.strftime('%d.%m.%Y')
-                    bis_str = bis.strftime('%d.%m.%Y')
-                    
-                    # Status-Badge
-                    if urlaub['status'] == 'Genehmigt':
-                        status_badge = "✅ Genehmigt"
-                        status_color = "green"
-                    elif urlaub['status'] == 'Abgelehnt':
-                        status_badge = "❌ Abgelehnt"
-                        status_color = "red"
-                    else:
-                        status_badge = "⏳ Ausstehend"
-                        status_color = "orange"
-                    
-                    # Zeige Urlaub
-                    col1, col2, col3, col4 = st.columns([2, 2, 1, 1])
-                    with col1:
-                        st.write(f"📅 **Von:** {von_str}")
-                    with col2:
-                        st.write(f"📅 **Bis:** {bis_str}")
-                    with col3:
-                        st.write(f"🗓️ **{tage} Tag{'e' if tage != 1 else ''}**")
-                    with col4:
-                        st.markdown(f"<span style='color: {status_color};'>{status_badge}</span>", unsafe_allow_html=True)
-                    
-                    if urlaub.get('grund'):
-                        st.caption(f"💬 Grund: {urlaub['grund']}")
-                    
-                    st.markdown("---")
-        
-        # Statistik
-        st.markdown("### 📊 Statistik")
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            st.metric("Mitarbeiter im Urlaub", len(urlaube_nach_mitarbeiter))
-        
-        with col2:
-            gesamt_tage = sum([
-                (datetime.strptime(u['bis_datum'], '%Y-%m-%d').date() - 
-                 datetime.strptime(u['von_datum'], '%Y-%m-%d').date()).days + 1
-                for urlaube in urlaube_nach_mitarbeiter.values()
-                for u in urlaube
-            ])
-            st.metric("Gesamt Urlaubstage", gesamt_tage)
-        
-        with col3:
-            genehmigt_count = len([u for urlaube in urlaube_nach_mitarbeiter.values() for u in urlaube if u['status'] == 'Genehmigt'])
-            st.metric("Genehmigte Anträge", genehmigt_count)
-        
-        # Jahres-Kalender-Ansicht (12 Monate)
-        st.markdown("---")
-        st.markdown("### 📆 Jahreskalender-Ansicht")
-        
-        import calendar
-        import locale
-        
-        # Setze Locale auf Deutsch für Monatsnamen
-        try:
-            locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
-        except:
-            try:
-                locale.setlocale(locale.LC_TIME, 'de_DE')
-            except:
-                pass
-        
-        monate = [
-            "Januar", "Februar", "März", "April", "Mai", "Juni",
-            "Juli", "August", "September", "Oktober", "November", "Dezember"
-        ]
-        
-        # Zeige 12 Monate in 3 Spalten
-        for quartal in range(4):  # 4 Quartale
-            cols = st.columns(3)
-            for i in range(3):
-                monat_nr = quartal * 3 + i + 1
-                if monat_nr <= 12:
-                    with cols[i]:
-                        st.markdown(f"**{monate[monat_nr-1]} {jahr}**")
-                        
-                        # Erstelle Monatskalender
-                        cal = calendar.monthcalendar(jahr, monat_nr)
-                        wochentage = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
-                        
-                        html = '<table style="width:100%; border-collapse: collapse; font-size: 0.8rem;">'
-                        html += '<tr>' + ''.join([f'<th style="border: 1px solid #ddd; padding: 4px; text-align: center; background-color: #1e3a5f; color: white;">{tag}</th>' for tag in wochentage]) + '</tr>'
-                        
-                        for woche in cal:
-                            html += '<tr>'
-                            for tag in woche:
-                                if tag == 0:
-                                    html += '<td style="border: 1px solid #ddd; padding: 4px;"></td>'
-                                else:
-                                    aktuelles_datum = date(jahr, monat_nr, tag)
-                                    
-                                    # Prüfe ob an diesem Tag jemand im Urlaub ist
-                                    urlaub_heute = []
-                                    for urlaub in urlaube_response.data:
-                                        von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()
-                                        bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date()
-                                        if von <= aktuelles_datum <= bis:
-                                            urlaub_heute.append(f"{urlaub['mitarbeiter']['vorname']} {urlaub['mitarbeiter']['nachname']}")
-                                    
-                                    # Färbe Zelle wenn Urlaub
-                                    if urlaub_heute:
-                                        if len(urlaub_heute) >= 3:
-                                            bg_color = '#ff9800'  # Orange
-                                        else:
-                                            bg_color = '#ffeb3b'  # Gelb
-                                        title = f"{len(urlaub_heute)} im Urlaub: {', '.join(urlaub_heute)}"
-                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; background-color: {bg_color}; text-align: center;" title="{title}"><strong>{tag}</strong></td>'
-                                    else:
-                                        html += f'<td style="border: 1px solid #ddd; padding: 4px; text-align: center;">{tag}</td>'
-                            html += '</tr>'
-                        
-                        html += '</table>'
-                        st.markdown(html, unsafe_allow_html=True)
-        
-        st.caption("💡 Tipp: Gelb = 1-2 Mitarbeiter im Urlaub | Orange = 3+ Mitarbeiter im Urlaub. Fahre mit der Maus über die Zelle für Details.")
-        st.markdown("---")
-        
-        # Export-Funktion
-        st.markdown("---")
-        if st.button("📥 Urlaubsplan als CSV exportieren"):
-            import io
-            
-            # Erstelle CSV
-            csv_data = "Mitarbeiter,Von,Bis,Tage,Status,Grund\n"
-            for mitarbeiter_name in sorted(urlaube_nach_mitarbeiter.keys()):
-                for urlaub in urlaube_nach_mitarbeiter[mitarbeiter_name]:
-                    von = datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date().strftime('%d.%m.%Y')
-                    bis = datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date().strftime('%d.%m.%Y')
-                    tage = (datetime.strptime(urlaub['bis_datum'], '%Y-%m-%d').date() - 
-                           datetime.strptime(urlaub['von_datum'], '%Y-%m-%d').date()).days + 1
-                    grund = urlaub.get('grund', '').replace(',', ';')  # Kommas ersetzen
-                    csv_data += f"{mitarbeiter_name},{von},{bis},{tage},{urlaub['status']},{grund}\n"
-            
-            st.download_button(
-                label="💾 CSV herunterladen",
-                data=csv_data,
-                file_name=f"urlaubsplan_{jahr}.csv",
-                mime="text/csv"
+        vertr_res = (
+            supabase.table("vertraege")
+            .select(
+                "id, gueltig_ab, gueltig_bis, soll_stunden_monat, "
+                "wochenstunden, urlaubstage_jahr, monatsbrutto_verguetung"
             )
-        
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Urlaube: {str(e)}")
+            .eq("mitarbeiter_id", ma["id"])
+            .order("gueltig_ab", desc=True)
+            .limit(20)
+            .execute()
+        )
+        vertraege = vertr_res.data or []
+    except Exception:
+        vertraege = []
 
+    if vertraege:
+        st.dataframe(
+            [
+                {
+                    "ID": v.get("id"),
+                    "Gültig ab": v.get("gueltig_ab"),
+                    "Gültig bis": v.get("gueltig_bis") or "unbefristet",
+                    "Soll (Monat)": float(v.get("soll_stunden_monat") or 0.0),
+                    "Wochenstunden": float(v.get("wochenstunden") or 0.0),
+                    "Urlaub/Jahr": float(v.get("urlaubstage_jahr") or 0.0),
+                    "Monatsbrutto": float(v.get("monatsbrutto_verguetung") or 0.0),
+                }
+                for v in vertraege
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("#### Vertragsversionen bearbeiten")
+        for v in vertraege:
+            vid = v.get("id")
+            if vid is None:
+                continue
+            with st.expander(
+                f"Vertrag #{vid} | ab {v.get('gueltig_ab')} | Soll {float(v.get('soll_stunden_monat') or 0):.2f}h",
+                expanded=False,
+            ):
+                with st.form(f"vertrag_edit_{vid}"):
+                    e1, e2, e3 = st.columns(3)
+                    with e1:
+                        vg_ab = st.date_input(
+                            "Gültig ab",
+                            value=_safe_date(v.get("gueltig_ab")) or date.today(),
+                            format="DD.MM.YYYY",
+                            key=f"vg_ab_{vid}",
+                        )
+                    with e2:
+                        vg_befristet = st.checkbox(
+                            "Befristet",
+                            value=bool(v.get("gueltig_bis")),
+                            key=f"vg_bef_{vid}",
+                        )
+                    with e3:
+                        vg_bis = st.date_input(
+                            "Gültig bis",
+                            value=_safe_date(v.get("gueltig_bis")) or date.today(),
+                            format="DD.MM.YYYY",
+                            disabled=not vg_befristet,
+                            key=f"vg_bis_{vid}",
+                        )
+
+                    e4, e5, e6 = st.columns(3)
+                    with e4:
+                        vg_wochen = st.number_input(
+                            "Wochenstunden",
+                            min_value=0.0,
+                            value=float(v.get("wochenstunden") or 0.0),
+                            step=0.5,
+                            key=f"vg_wochen_{vid}",
+                        )
+                    with e5:
+                        vg_soll = st.number_input(
+                            "Sollstunden/Monat",
+                            min_value=0.0,
+                            value=float(v.get("soll_stunden_monat") or 0.0),
+                            step=0.5,
+                            key=f"vg_soll_{vid}",
+                        )
+                    with e6:
+                        vg_urlaub = st.number_input(
+                            "Urlaub/Jahr",
+                            min_value=0.0,
+                            value=float(v.get("urlaubstage_jahr") or 0.0),
+                            step=0.5,
+                            key=f"vg_urlaub_{vid}",
+                        )
+
+                    vg_monatsbrutto = st.number_input(
+                        "Monatliche Brutto-Vergütung",
+                        min_value=0.0,
+                        value=float(v.get("monatsbrutto_verguetung") or 0.0),
+                        step=50.0,
+                        key=f"vg_monatsbrutto_{vid}",
+                    )
+
+                    s_col, d_col = st.columns(2)
+                    with s_col:
+                        save_vertrag = st.form_submit_button("Vertrag speichern", type="primary", use_container_width=True)
+                    with d_col:
+                        delete_vertrag = st.form_submit_button("Vertrag löschen", use_container_width=True)
+
+                    if save_vertrag:
+                        try:
+                            update_payload = {
+                                "gueltig_ab": vg_ab.isoformat(),
+                                "gueltig_bis": vg_bis.isoformat() if vg_befristet else None,
+                                "wochenstunden": float(vg_wochen),
+                                "soll_stunden_monat": float(vg_soll),
+                                "urlaubstage_jahr": float(vg_urlaub),
+                                "monatsbrutto_verguetung": float(vg_monatsbrutto),
+                            }
+                            supabase.table("vertraege").update(update_payload).eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
+                            st.success("Vertrag aktualisiert.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Vertrag konnte nicht gespeichert werden: {e}")
+
+                    if delete_vertrag:
+                        try:
+                            supabase.table("vertraege").delete().eq("id", vid).eq("mitarbeiter_id", ma["id"]).execute()
+                            _refresh_after_write()
+                            st.success("Vertrag gelöscht.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Vertrag konnte nicht gelöscht werden: {e}")
+    else:
+        st.info("Keine Verträge gespeichert.")
+
+    st.markdown("#### Mitarbeiter-Dokumente")
+    try:
+        docs_res = (
+            supabase.table("mitarbeiter_dokumente")
+            .select("name, typ, status, gueltig_bis, file_path, file_url, created_at")
+            .eq("mitarbeiter_id", ma["id"])
+            .order("created_at", desc=True)
+            .limit(50)
+            .execute()
+        )
+        docs = docs_res.data or []
+    except Exception:
+        docs = []
+
+    if docs:
+        rows = []
+        for d in docs:
+            url = d.get("file_url") or _storage_public_url("dokumente", d.get("file_path"))
+            rows.append(
+                {
+                    "Name": d.get("name"),
+                    "Typ": d.get("typ"),
+                    "Status": d.get("status"),
+                    "Gültig bis": d.get("gueltig_bis"),
+                    "Upload": d.get("created_at"),
+                    "Link": url or "-",
+                }
+            )
+        st.dataframe(rows, use_container_width=True, hide_index=True)
+    else:
+        st.info("Keine Dokumente für diesen Mitarbeiter vorhanden.")
+
+
+def _show_vertrag_generator_tab():
+    from modules.vertraege.ui import show_vertraege
+    show_vertraege()
+
+
+def _show_system_tab():
+    st.subheader("Systemstatus")
+    supabase = get_supabase_client()
+    betrieb_id = st.session_state.get("betrieb_id")
+
+    col1, col2, col3 = st.columns(3)
+    users_count, ma_count, zeit_count = _cached_system_counts(
+        int(betrieb_id) if betrieb_id is not None else None
+    )
+
+    with col1:
+        st.metric("Benutzer", users_count)
+    with col2:
+        st.metric("Mitarbeiter", ma_count)
+    with col3:
+        st.metric("Zeiteinträge", zeit_count)
+
+    st.caption(f"Berichtsdatum: {date.today().strftime('%d.%m.%Y')}")
+
+    st.markdown("---")
+    st.markdown("### Geschlossener Kreislauf – AZK Konsistenzcheck")
+    st.caption(
+        "Prüft, ob Zeiteinträge/Abwesenheiten und berechneter AZK-Snapshot zueinander passen. "
+        "Abweichungen weisen auf Dateninkonsistenzen oder fehlerhafte Zweckzuordnung hin."
+    )
+
+    cc1, cc2 = st.columns([1, 1])
+    with cc1:
+        check_monat = st.number_input(
+            "Prüfmonat",
+            min_value=1,
+            max_value=12,
+            value=date.today().month,
+            key="sys_check_monat",
+        )
+    with cc2:
+        check_jahr = st.number_input(
+            "Prüfjahr",
+            min_value=2024,
+            max_value=2100,
+            value=date.today().year,
+            key="sys_check_jahr",
+        )
+
+    if st.button("Kreislauf prüfen", use_container_width=True, key="sys_cycle_check"):
+        ma_list = _load_admin_mitarbeiter()
+        if not ma_list:
+            st.info("Keine Mitarbeiter für den Konsistenzcheck gefunden.")
+            return
+
+        findings = []
+        ok_count = 0
+        for ma in ma_list:
+            try:
+                validation = validate_work_account_month(
+                    supabase,
+                    betrieb_id=require_betrieb_id(),
+                    mitarbeiter_id=ma["id"],
+                    monat=int(check_monat),
+                    jahr=int(check_jahr),
+                )
+                if validation.get("ok"):
+                    ok_count += 1
+                else:
+                    findings.append(
+                        {
+                            "Mitarbeiter": f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip(),
+                            "Monat": f"{int(check_monat):02d}/{int(check_jahr)}",
+                            "Details": "; ".join(validation.get("issues") or ["Unbekannte Abweichung"]),
+                        }
+                    )
+            except Exception as exc:
+                findings.append(
+                    {
+                        "Mitarbeiter": f"{ma.get('vorname', '')} {ma.get('nachname', '')}".strip(),
+                        "Monat": f"{int(check_monat):02d}/{int(check_jahr)}",
+                        "Details": f"Prüfung fehlgeschlagen: {exc}",
+                    }
+                )
+
+        if findings:
+            st.warning(
+                f"Kreislauf-Check abgeschlossen: {ok_count} konsistent, {len(findings)} mit Abweichung."
+            )
+            st.dataframe(findings, use_container_width=True, hide_index=True)
+        else:
+            st.success(f"Kreislauf-Check erfolgreich: alle {ok_count} Mitarbeiter konsistent.")
+
+
+def _show_arbeitszeitkonten_tab():
+    st.subheader("Arbeitszeitkonten")
+    supabase = get_supabase_client()
+    alle_ma = _load_admin_mitarbeiter()
+    if not alle_ma:
+        st.info("Keine Mitarbeiter vorhanden.")
+        return
+
+    col_a, col_b = st.columns([1, 1])
+    with col_a:
+        monat = st.number_input("Monat", min_value=1, max_value=12, value=date.today().month)
+    with col_b:
+        jahr = st.number_input("Jahr", min_value=2024, max_value=2100, value=date.today().year)
+
+    if st.button("Konten synchronisieren", type="primary", use_container_width=True):
+        closed_count = 0
+        for ma in alle_ma:
+            try:
+                snapshot = sync_work_account_for_month(
+                    supabase,
+                    betrieb_id=require_betrieb_id(),
+                    mitarbeiter_id=ma["id"],
+                    monat=int(monat),
+                    jahr=int(jahr),
+                )
+                if snapshot.monat_abgeschlossen:
+                    closed_count += 1
+            except Exception:
+                pass
+        st.success("Arbeitszeitkonten synchronisiert.")
+        if closed_count:
+            st.info(f"{closed_count} Konten stammen aus unveränderlichen Monatsabschlüssen.")
+
+    if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
+        for ma in alle_ma:
+            try:
+                close_work_account_month(
+                    supabase,
+                    betrieb_id=require_betrieb_id(),
+                    mitarbeiter_id=ma["id"],
+                    monat=int(monat),
+                    jahr=int(jahr),
+                    created_by=st.session_state.get("user_id"),
+                )
+            except Exception:
+                pass
+        st.success(f"Monat {int(monat):02d}/{int(jahr)} wurde abgeschlossen.")
+
+    st.markdown("---")
+    with st.expander("Einmalige Initialisierung 2026 (Altdaten-Vorträge)", expanded=False):
+        st.caption(
+            "Erfasst den Startbestand für 2026 (Produktivstart April/Mai): "
+            "Überstunden-Saldo, bereits genommene Urlaubstage und Krankheitstage."
+        )
+        init_ma_options = {
+            f"{m.get('vorname', '')} {m.get('nachname', '')} ({m.get('personalnummer', '-')})": m
+            for m in alle_ma
+        }
+        init_label = st.selectbox(
+            "Mitarbeiter für Initialisierung",
+            list(init_ma_options.keys()),
+            key="azk_init_ma",
+        )
+        init_ma = init_ma_options[init_label]
+        c_init_1, c_init_2 = st.columns(2)
+        with c_init_1:
+            init_monat = st.selectbox(
+                "Startmonat 2026",
+                options=[4, 5],
+                format_func=lambda m: f"{m:02d}/2026",
+                key="azk_init_monat_2026",
+            )
+        with c_init_2:
+            init_jahr = st.number_input(
+                "Startjahr",
+                min_value=2026,
+                max_value=2026,
+                value=2026,
+                step=1,
+                key="azk_init_jahr_2026",
+            )
+
+        k_i1, k_i2, k_i3 = st.columns(3)
+        with k_i1:
+            init_saldo = st.number_input(
+                "Übertrag Überstunden (+/-)",
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_saldo",
+            )
+        with k_i2:
+            init_urlaub_genommen = st.number_input(
+                "Urlaubstage bereits genommen (Jan-Startmonat)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_urlaub_genommen",
+            )
+        with k_i3:
+            init_krank_tage = st.number_input(
+                "Krankheitstage bisher",
+                min_value=0.0,
+                value=0.0,
+                step=0.5,
+                format="%.2f",
+                key="azk_init_krank_tage",
+            )
+
+        init_reason = st.text_area(
+            "Begründung / Nachweis *",
+            placeholder="Pflichtfeld: z.B. Übernahme Planungsstand bis 31.03.2026 aus Vorzeitsystem",
+            key="azk_init_reason",
+        )
+
+        existing_init = _cached_existing_init_marker(int(init_ma["id"]))
+
+        start_month_editable = int(init_jahr) == 2026 and int(init_monat) in (4, 5)
+        if not start_month_editable:
+            st.warning("Initialisierung ist nur für den Startmonat 04/2026 oder 05/2026 erlaubt.")
+        if existing_init:
+            st.info(
+                f"Für diesen Mitarbeiter existiert bereits eine Initialisierung "
+                f"({int(existing_init.get('monat') or 0):02d}/{int(existing_init.get('jahr') or 0)}). "
+                "Die Einmal-Initialisierung ist damit gesperrt."
+            )
+
+        do_init = st.button(
+            "Einmal-Initialisierung speichern",
+            type="primary",
+            use_container_width=True,
+            disabled=(not start_month_editable) or bool(existing_init),
+            key="azk_init_save_btn",
+        )
+        if do_init:
+            if not (init_reason or "").strip():
+                st.error("Bitte eine Begründung eintragen (Pflicht für Audit/GoBD).")
+            else:
+                try:
+                    set_work_account_opening_balance(
+                        supabase,
+                        betrieb_id=require_betrieb_id(),
+                        mitarbeiter_id=int(init_ma["id"]),
+                        monat=int(init_monat),
+                        jahr=int(init_jahr),
+                        opening_hours=float(init_saldo),
+                        opening_vacation_taken=float(init_urlaub_genommen),
+                        opening_sick_days=float(init_krank_tage),
+                        correction_reason=init_reason.strip(),
+                        created_by=st.session_state.get("user_id"),
+                        is_initialization=True,
+                    )
+                    _refresh_after_write()
+                    st.success("Einmal-Initialisierung gespeichert.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Initialisierung fehlgeschlagen: {exc}")
+
+    rows = _cached_arbeitszeitkonten_rows(st.session_state.get("betrieb_id"))
+    if not rows:
+        st.info("Keine Einträge in arbeitszeit_konten vorhanden.")
+        return
+
+    positive = sum(1 for r in rows if float(r.get("ueberstunden_saldo") or 0) >= 0)
+    negative = len(rows) - positive
+    total_ist = sum(float(r.get("ist_stunden") or 0) for r in rows)
+    total_soll = sum(float(r.get("soll_stunden") or 0) for r in rows)
+
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Konten", len(rows))
+    s2.metric("Saldo ≥ 0", positive)
+    s3.metric("Saldo < 0", negative)
+    s4.metric("Ist / Soll", f"{total_ist:.1f}h / {total_soll:.1f}h")
+    st.markdown("---")
+
+    closed_ids = set()
+    closed_meta = {}
+    try:
+        closed_rows = _cached_azk_closed_rows(
+            st.session_state.get("betrieb_id"),
+            int(monat),
+            int(jahr),
+        )
+        closed_ids = {int(r.get("mitarbeiter_id")) for r in closed_rows if r.get("mitarbeiter_id") is not None}
+        for r in closed_rows:
+            ma_id = r.get("mitarbeiter_id")
+            if ma_id is not None:
+                closed_meta[int(ma_id)] = r
+    except Exception:
+        closed_ids = set()
+        closed_meta = {}
+
+    ma_lookup = {m["id"]: f"{m['vorname']} {m['nachname']}" for m in alle_ma}
+    view_rows = []
+    for row in rows:
+        ma_id = row.get("mitarbeiter_id")
+        ist_h = float(row.get("ist_stunden") or 0.0)
+        soll_h = float(row.get("soll_stunden") or 0.0)
+        saldo_h = float(row.get("ueberstunden_saldo") or 0.0)
+        differenz_h = round(ist_h - soll_h, 2)
+        saldenvortrag = round(saldo_h - differenz_h, 2)
+        meta_row = closed_meta.get(int(ma_id)) if ma_id is not None else None
+        manuelle_korr = saldenvortrag
+        if meta_row is not None and meta_row.get("manuelle_korrektur_saldo") is not None:
+            try:
+                manuelle_korr = float(meta_row.get("manuelle_korrektur_saldo") or 0.0)
+            except Exception:
+                manuelle_korr = saldenvortrag
+        view_rows.append(
+            {
+                "Mitarbeiter": ma_lookup.get(ma_id, str(ma_id)),
+                "Monat fixiert": "Ja" if ma_id in closed_ids else "Nein",
+                "Soll (h)": soll_h,
+                "Ist (h)": ist_h,
+                "Manuelle Korrekturen / Saldenvortrag (h)": round(manuelle_korr, 2),
+                "Saldo (h)": saldo_h,
+                "Urlaub gesamt": float(row.get("urlaubstage_gesamt") or 0),
+                "Urlaub genommen": float(row.get("urlaubstage_genommen") or 0),
+                "Krankheitstage": float(row.get("krankheitstage_gesamt") or 0),
+            }
+        )
+    st.dataframe(view_rows, use_container_width=True, hide_index=True)
+
+
+def _show_premium_tab():
+    """Premium-Module – nur bei Buchung aktiv."""
+    from modules.hazard.hazard_ui import show_hazard_modul
+    from modules.hazard.rechtsstand_admin import show_rechtsstand_admin
+    from utils.feature_flags import get_user_plan
+
+    supabase = st.session_state.get("supabase")
+    betrieb_id = st.session_state.get("betrieb_id", "")
+    user_id = st.session_state.get("user_id", "")
+
+    user_plan = get_user_plan(supabase, betrieb_id)
+
+    st.markdown("## 🛡️ Premium-Module")
+    st.caption(f"Dein aktueller Plan: **{user_plan.capitalize()}**")
+    st.markdown("---")
+
+    modul_tab1, modul_tab2, modul_tab3, modul_tab4, modul_tab5 = st.tabs([
+        "🔍 Gefährdungsbeurteilung",
+        "📄 Vorlagen & Nachweise",
+        "⏰ ArbZG-Wächter",
+        "📤 DATEV-Export",
+        "⚖️ Rechtsstand"
+    ])
+
+    with modul_tab1:
+        show_hazard_modul(supabase, betrieb_id, user_id, user_plan)
+
+    with modul_tab2:
+        from modules.documents.ui import show_document_center
+        show_document_center()
+
+    with modul_tab3:
+        st.markdown("### ⏰ ArbZG-Wächter")
+        st.caption("Automatische Erkennung von Arbeitszeitverstößen")
+        st.info("Dieses Modul wird in Kürze verfügbar.")
+
+    with modul_tab4:
+        st.markdown("### 📤 DATEV-Export")
+        st.caption("Lohnabrechnung für deinen Steuerberater")
+        st.info("DATEV-Export wird in Kürze verfügbar.")
+
+    with modul_tab5:
+        show_rechtsstand_admin(supabase)
+
+
+def _show_datenschutz_tab():
+    """DSGVO-Compliance: AVV-Register + Löschprotokoll."""
+    from modules.datenschutz.avv_ui import show_avv_register
+    from modules.datenschutz.loeschung_ui import show_loeschprotokoll
+
+    tab1, tab2 = st.tabs(["AVV-Register", "Löschroutine"])
+    with tab1:
+        show_avv_register()
+    with tab2:
+        show_loeschprotokoll()
+
+
+def _show_sicherheit_tab():
+    """Sicherheits-Tools des Admins (Passwort-Reset, etc.)."""
+    from modules.admin.password_reset import show_password_reset
+
+    show_password_reset()
+
+
+def _show_leads_tab():
+    """Outreach-Leads und Akquise-Dashboard."""
+    from modules.leads.leads_ui import show_leads_dashboard
+    show_leads_dashboard()
+
+
+def show_admin_dashboard():
+    apply_custom_css()
+    apply_admin_nav_css()
+
+    # Versions-Check: sichtbar bis Sidebar bestätigt funktioniert
+    st.sidebar.markdown("**v2.0 – Sidebar aktiv ✓**")
+
+    if st.session_state.get("admin_nav") is None:
+        st.session_state["admin_nav"] = "Dienstplanung"
+
+    # ── Linke Sidebar-Navigation ──
+    current_nav = _normalize_admin_nav(st.session_state.get("admin_nav", "Dienstplanung"))
+    selected = current_nav
+
+    with st.sidebar:
+        with st.container(key="header_logo"):
+            st.image(BRAND_LOGO_IMAGE, width=160)
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        for opt in ADMIN_NAV_OPTIONS:
+            icon = ADMIN_NAV_ICONS.get(opt, "")
+            label = f"{icon}  {opt}" if icon else opt
+            is_active = selected == opt
+            if st.button(
+                label,
+                key=f"nav_{opt}",
+                use_container_width=True,
+                type="primary" if is_active else "secondary",
+            ):
+                selected = opt
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        betrieb_name = st.session_state.get("betrieb_name", "")
+        if betrieb_name:
+            st.caption(f"🏢 {betrieb_name}")
+
+    st.session_state["admin_nav"] = _normalize_admin_nav(selected)
+
+    # ── Hauptinhalt ──
+    selected = _normalize_admin_nav(st.session_state.get("admin_nav"))
+    if selected == "Dienstplanung":
+        from pages import admin_dienstplan
+        admin_dienstplan.show_dienstplanung()
+    else:
+        section_handlers = {
+            "Personalakte": _show_mitarbeiter_stammdaten_tab,
+            "Abwesenheiten": _show_absenzen_tab,
+            "Zeitkonten": _show_arbeitszeitkonten_tab,
+            "Zeitauswertung": _show_zeitauswertung_tab,
+            "Verträge": _show_vertrag_generator_tab,
+            "Premium": _show_premium_tab,
+            "Datenschutz": _show_datenschutz_tab,
+            "Sicherheit": _show_sicherheit_tab,
+            "Leads": _show_leads_tab,
+        }
+        handler = section_handlers.get(selected)
+        if handler is None:
+            st.warning("Unbekannter Bereich. Es wird Dienstplanung geladen.")
+            st.session_state["admin_nav"] = "Dienstplanung"
+            from pages import admin_dienstplan
+            admin_dienstplan.show_dienstplanung()
+        else:
+            handler()
+
+
+if __name__ == "__main__":
+    show_admin_dashboard()

@@ -1,8 +1,8 @@
 """
 Lohnabrechnung und PDF-Export
 """
-
-from datetime import date, datetime, time
+from datetime import datetime, date, timedelta
+from utils.calculations import parse_zeit
 from typing import Dict, Any, List, Optional
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -15,6 +15,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import io
 
 from utils.database import get_supabase_client
+from utils.planning_tables import resolve_planning_table
 from utils.calculations import (
     berechne_arbeitsstunden,
     berechne_grundlohn,
@@ -41,6 +42,7 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
     """
     try:
         supabase = get_supabase_client()
+        planning_table = resolve_planning_table(supabase)
         
         # Lade Mitarbeiterdaten
         mitarbeiter_response = supabase.table('mitarbeiter').select('*').eq('id', mitarbeiter_id).execute()
@@ -62,6 +64,17 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'mitarbeiter_id', mitarbeiter_id
         ).gte('datum', von_datum.isoformat()).lt('datum', bis_datum.isoformat()).execute()
         
+        # Lade Dienstpläne für Urlaubstage und Frei-Tage
+        # Nur schichttyp-Feld verwenden (ist_urlaub-Spalte in schichtvorlagen ggf. nicht vorhanden)
+        dienstplaene = supabase.table(planning_table).select('*').eq(
+            'mitarbeiter_id', mitarbeiter_id
+        ).gte('datum', von_datum.isoformat()).lt('datum', bis_datum.isoformat()).execute()
+        
+        # Berechne Stunden pro Urlaubstag (Soll-Stunden / Arbeitstage)
+        # 5-Tage-Woche (Mi-So) = ca. 21,65 Arbeitstage pro Monat
+        arbeitstage_pro_monat = 21.65
+        stunden_pro_urlaubstag = float(mitarbeiter.get('monatliche_soll_stunden') or 160.0) / arbeitstage_pro_monat
+        
         # Berechne Stunden
         ist_stunden = 0
         sonntagsstunden = 0
@@ -69,10 +82,22 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
         
         for z in zeiterfassungen.data:
             if z['ende_zeit']:
+                # Import-/Abwesenheitszeilen mit 00:00 -> 00:00 wurden historisch als
+                # Marker genutzt und dürfen nicht als 24h-Schicht gewertet werden.
+                if (
+                    str(z.get('start_zeit') or '')[:8] == '00:00:00'
+                    and str(z.get('ende_zeit') or '')[:8] == '00:00:00'
+                ):
+                    continue
+                # Konvertiere zu time-Objekten für berechne_arbeitsstunden
+                start_time, _ = parse_zeit(z['start_zeit'])
+                ende_time, naechster_tag = parse_zeit(z['ende_zeit'])
+                
                 stunden = berechne_arbeitsstunden(
-                    datetime.strptime(z['start_zeit'], '%H:%M:%S').time(),
-                    datetime.strptime(z['ende_zeit'], '%H:%M:%S').time(),
-                    z['pause_minuten']
+                    start_time,
+                    ende_time,
+                    z['pause_minuten'],
+                    naechster_tag=naechster_tag
                 )
                 
                 ist_stunden += stunden
@@ -83,6 +108,59 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
                 
                 if z['ist_feiertag'] and mitarbeiter['feiertagszuschlag_aktiv']:
                     feiertagsstunden += stunden
+        
+        # Zähle Urlaubstage aus Dienstplan und addiere Stunden
+        # Priorität: neues schichttyp-Feld > altes schichtvorlage.ist_urlaub
+        urlaubstage_aus_dienstplan = 0
+        urlaubsstunden_gesamt = 0.0
+        if dienstplaene.data:
+            for dienst in dienstplaene.data:
+                typ = dienst.get('schichttyp', 'arbeit')
+                
+                if typ == 'frei':
+                    # Frei-Tage: kein Lohn, keine Stunden
+                    continue
+                
+                elif typ == 'urlaub':
+                    # Urlaub: Stunden aus urlaub_stunden-Feld oder Fallback
+                    urlaubstage_aus_dienstplan += 1
+                    u_stunden = float(dienst.get('urlaub_stunden') or stunden_pro_urlaubstag)
+                    ist_stunden += u_stunden
+                    urlaubsstunden_gesamt += u_stunden
+                
+                elif typ == 'krank':
+                    # Krank: LFZ-Stunden aus urlaub_stunden-Feld (werden als Ist-Stunden gezählt)
+                    lfz_stunden = float(dienst.get('urlaub_stunden') or stunden_pro_urlaubstag)
+                    ist_stunden += lfz_stunden
+                
+                elif typ == 'arbeit':
+                    # Arbeit: kein Urlaub, keine Sonderbehandlung
+                    pass
+        
+        # Überstunden-Vortrag aus Vormonat laden
+        if monat == 1:
+            vormonat, vorjahr = 12, jahr - 1
+        else:
+            vormonat, vorjahr = monat - 1, jahr
+        
+        vormonat_konto = supabase.table('arbeitszeitkonto').select(
+            'ueberstunden_saldo'
+        ).eq('mitarbeiter_id', mitarbeiter_id).eq('monat', vormonat).eq('jahr', vorjahr).execute()
+        
+        ueberstunden_vortrag = 0.0
+        if vormonat_konto.data and vormonat_konto.data[0].get('ueberstunden_saldo') is not None:
+            ueberstunden_vortrag = float(vormonat_konto.data[0]['ueberstunden_saldo'])
+        
+        # Ausgezahlte Überstunden dieses Monats abziehen
+        korrekturen_resp = supabase.table('ueberstunden_korrekturen').select(
+            'stunden'
+        ).eq('mitarbeiter_id', mitarbeiter_id).eq('monat', monat).eq('jahr', jahr).execute()
+        ausgezahlte_stunden = sum(float(k.get('stunden') or 0) for k in (korrekturen_resp.data or []))
+        
+        # Neuen Saldo berechnen: Vortrag + Differenz (Ist - Soll) - Ausgezahlte
+        soll_stunden_monat = float(mitarbeiter.get('monatliche_soll_stunden') or 160.0)
+        differenz_monat = round(ist_stunden - soll_stunden_monat, 2)
+        neuer_saldo = round(ueberstunden_vortrag + differenz_monat - ausgezahlte_stunden, 2)
         
         # Lade genommene Urlaubstage
         urlaub_response = supabase.table('urlaubsantraege').select('anzahl_tage').eq(
@@ -96,30 +174,57 @@ def berechne_arbeitszeitkonto(mitarbeiter_id: str, monat: int, jahr: int) -> Opt
             'mitarbeiter_id', mitarbeiter_id
         ).eq('monat', monat).eq('jahr', jahr).execute()
         
+        # Basis-Daten die immer vorhanden sind
         arbeitszeitkonto_data = {
             'mitarbeiter_id': mitarbeiter_id,
             'monat': monat,
             'jahr': jahr,
-            'soll_stunden': float(mitarbeiter['monatliche_soll_stunden']),
-            'ist_stunden': ist_stunden,
-            'urlaubstage_genommen': urlaubstage_genommen,
-            'sonntagsstunden': sonntagsstunden,
-            'feiertagsstunden': feiertagsstunden
+            'soll_stunden': float(mitarbeiter.get('monatliche_soll_stunden') or 160.0),
+            'ist_stunden': round(ist_stunden, 2),
+            'urlaubstage_genommen': float(urlaubstage_genommen),
+            'differenz_stunden': differenz_monat,
+            'ueberstunden_vortrag': round(ueberstunden_vortrag, 2),
+            'ueberstunden_saldo': neuer_saldo,
         }
         
+        # Optionale Felder (nur wenn Migration ausgeführt wurde)
+        # Werden per try/except beim Speichern abgesichert
+        arbeitszeitkonto_data_extra = {
+            'sonntagsstunden': round(sonntagsstunden, 2),
+            'feiertagsstunden': round(feiertagsstunden, 2),
+            'urlaubsstunden': round(urlaubsstunden_gesamt, 2),
+        }
+        
+        # Versuche zuerst mit optionalen Feldern (nach Migration)
+        # Falls Spalten noch nicht existieren, Fallback ohne extra Felder
+        daten_komplett = {**arbeitszeitkonto_data, **arbeitszeitkonto_data_extra}
+        
         if existing.data:
-            # Aktualisiere bestehendes Arbeitszeitkonto
-            response = supabase.table('arbeitszeitkonto').update(arbeitszeitkonto_data).eq(
-                'id', existing.data[0]['id']
-            ).execute()
+            try:
+                response = supabase.table('arbeitszeitkonto').update(daten_komplett).eq(
+                    'id', existing.data[0]['id']
+                ).execute()
+            except Exception:
+                # Fallback: ohne optionale Felder
+                response = supabase.table('arbeitszeitkonto').update(arbeitszeitkonto_data).eq(
+                    'id', existing.data[0]['id']
+                ).execute()
             return response.data[0] if response.data else None
         else:
-            # Erstelle neues Arbeitszeitkonto
-            response = supabase.table('arbeitszeitkonto').insert(arbeitszeitkonto_data).execute()
+            try:
+                response = supabase.table('arbeitszeitkonto').insert(daten_komplett).execute()
+            except Exception:
+                # Fallback: ohne optionale Felder
+                response = supabase.table('arbeitszeitkonto').insert(arbeitszeitkonto_data).execute()
             return response.data[0] if response.data else None
     
     except Exception as e:
-        print(f"Fehler beim Berechnen des Arbeitszeitkontos: {str(e)}")
+        import traceback
+        import streamlit as st
+        tb = traceback.format_exc()
+        print(f"Fehler Arbeitszeitkonto: {str(e)}\n{tb}")
+        st.error(f"❌ Fehler beim Berechnen des Arbeitszeitkontos:")
+        st.code(f"{str(e)}\n\n{tb}", language='text')
         return None
 
 
@@ -150,38 +255,53 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
         
         mitarbeiter = mitarbeiter_response.data[0]
         
+        # Berechne Stundenwert aus Monatsbrutto und Sollstunden
+        monatsbrutto = float(mitarbeiter.get('monatliche_brutto_verguetung') or 0.0)
+        soll_stunden = float(mitarbeiter.get('monatliche_soll_stunden') or 0.0)
+        stundenwert = (monatsbrutto / soll_stunden) if soll_stunden > 0 else 0.0
+
         # Berechne Lohnbestandteile
         grundlohn = berechne_grundlohn(
-            float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['ist_stunden']
+            stundenwert,
+            float(arbeitszeitkonto.get('ist_stunden') or 0)
         )
         
+        # sonntagsstunden / feiertagsstunden können fehlen wenn Migration noch nicht ausgeführt
+        sonntagsstunden = float(arbeitszeitkonto.get('sonntagsstunden') or 0)
+        feiertagsstunden = float(arbeitszeitkonto.get('feiertagsstunden') or 0)
+        
         sonntagszuschlag = berechne_sonntagszuschlag(
-            float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['sonntagsstunden']
-        ) if mitarbeiter['sonntagszuschlag_aktiv'] else 0
+            stundenwert,
+            sonntagsstunden
+        ) if mitarbeiter.get('sonntagszuschlag_aktiv') else 0
         
         feiertagszuschlag = berechne_feiertagszuschlag(
-            float(mitarbeiter['stundenlohn_brutto']),
-            arbeitszeitkonto['feiertagsstunden']
-        ) if mitarbeiter['feiertagszuschlag_aktiv'] else 0
+            stundenwert,
+            feiertagsstunden
+        ) if mitarbeiter.get('feiertagszuschlag_aktiv') else 0
         
-        gesamtbetrag = berechne_gesamtlohn(grundlohn, sonntagszuschlag, feiertagszuschlag)
+        gesamtbrutto = berechne_gesamtlohn(grundlohn, sonntagszuschlag, feiertagszuschlag)
+        ist_stunden = float(arbeitszeitkonto.get('ist_stunden') or 0)
         
         # Prüfe, ob bereits eine Lohnabrechnung existiert
         existing = supabase.table('lohnabrechnungen').select('*').eq(
             'mitarbeiter_id', mitarbeiter_id
         ).eq('monat', monat).eq('jahr', jahr).execute()
         
+        # Spaltennamen gemäß echtem DB-Schema:
+        # arbeitsstunden (NOT NULL), sonntagsstunden, feiertagsstunden, gesamtbrutto
+        # KEIN arbeitszeitkonto_id (existiert nicht im Schema)
         lohnabrechnung_data = {
             'mitarbeiter_id': mitarbeiter_id,
             'monat': monat,
             'jahr': jahr,
-            'arbeitszeitkonto_id': arbeitszeitkonto['id'],
-            'grundlohn': grundlohn,
-            'sonntagszuschlag': sonntagszuschlag,
-            'feiertagszuschlag': feiertagszuschlag,
-            'gesamtbetrag': gesamtbetrag
+            'arbeitsstunden': round(ist_stunden, 2),
+            'sonntagsstunden': round(sonntagsstunden, 2),
+            'feiertagsstunden': round(feiertagsstunden, 2),
+            'grundlohn': round(grundlohn, 2),
+            'sonntagszuschlag': round(sonntagszuschlag, 2),
+            'feiertagszuschlag': round(feiertagszuschlag, 2),
+            'gesamtbrutto': round(gesamtbrutto, 2),
         }
         
         if existing.data:
@@ -196,7 +316,12 @@ def erstelle_lohnabrechnung(mitarbeiter_id: str, monat: int, jahr: int) -> Optio
             return response.data[0]['id'] if response.data else None
     
     except Exception as e:
-        print(f"Fehler beim Erstellen der Lohnabrechnung: {str(e)}")
+        import traceback
+        import streamlit as st
+        tb = traceback.format_exc()
+        print(f"Fehler Lohnabrechnung: {str(e)}\n{tb}")
+        st.error(f"❌ Fehler beim Erstellen der Lohnabrechnung:")
+        st.code(f"{str(e)}\n\n{tb}", language='text')
         return None
 
 

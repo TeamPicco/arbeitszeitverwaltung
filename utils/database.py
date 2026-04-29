@@ -1,355 +1,322 @@
-"""
-Datenbank-Utility-Funktionen für Supabase
-"""
-
-import streamlit as st
-from supabase import create_client, Client
-import bcrypt
 import os
-from datetime import datetime
-from typing import Optional, Dict, Any, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
+
+import bcrypt
+import requests
+import streamlit as st
+from supabase import Client, create_client
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Fehlende Umgebungsvariable: {name}")
+    return value
 
 
 def init_supabase_client() -> Client:
-    """
-    Initialisiert den Supabase-Client und speichert ihn im Session State
-    
-    Returns:
-        Client: Supabase-Client-Instanz
-    """
-    if 'supabase' not in st.session_state:
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        
-        if not url or not key:
-            st.error("Supabase-Konfiguration fehlt. Bitte .env-Datei prüfen.")
-            st.stop()
-        
+    """Initialisiert den regulären Supabase-Client aus Session-State."""
+    if "supabase" not in st.session_state:
+        url = _require_env("SUPABASE_URL")
+        # Streamlit läuft serverseitig. Für stabile Schreiboperationen mit RLS
+        # nutzen wir bevorzugt den Service-Role-Key (falls gesetzt).
+        key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or _require_env("SUPABASE_KEY")
+        )
         st.session_state.supabase = create_client(url, key)
-    
     return st.session_state.supabase
 
 
 def get_supabase_client() -> Client:
-    """
-    Gibt den Supabase-Client aus dem Session State zurück
-    
-    Returns:
-        Client: Supabase-Client-Instanz
-    """
-    if 'supabase' not in st.session_state:
-        return init_supabase_client()
-    return st.session_state.supabase
+    """Alias für den regulären Supabase-Client."""
+    return init_supabase_client()
 
 
-def hash_password(password: str) -> str:
+def get_service_role_client() -> Client:
     """
-    Hasht ein Passwort mit bcrypt
-    
-    Args:
-        password: Klartext-Passwort
-        
-    Returns:
-        str: Gehashtes Passwort
+    Liefert einen Service-Role-Client.
+
+    Nur für serverseitige Admin-Aufgaben, niemals für Browser-seitige Secrets.
     """
-    salt = bcrypt.gensalt(rounds=12)
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    url = _require_env("SUPABASE_URL")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SERVICE_KEY")
+    if not service_key:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY fehlt")
+    return create_client(url, service_key)
 
 
-def verify_password(password: str, password_hash: str) -> bool:
+def set_betrieb_session(supabase_client, betrieb_id: int, user_id: Optional[int] = None) -> None:
     """
-    Verifiziert ein Passwort gegen einen Hash
-    
-    Args:
-        password: Klartext-Passwort
-        password_hash: Gespeicherter Hash
-        
-    Returns:
-        bool: True wenn Passwort korrekt, sonst False
+    Setzt die PostgreSQL Session-Variablen für RLS-Policies:
+      - app.current_betrieb_id  (Mandantentrennung)
+      - app.current_user_id     (Mitarbeiter-Datenisolation)
+    Muss nach jedem Login aufgerufen werden.
     """
-    try:
-        return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
-    except Exception:
-        return False
+    configs = [
+        {"setting_name": "app.current_betrieb_id", "new_value": str(betrieb_id), "is_local": False},
+    ]
+    if user_id is not None:
+        configs.append(
+            {"setting_name": "app.current_user_id", "new_value": str(user_id), "is_local": False}
+        )
+    for cfg in configs:
+        try:
+            supabase_client.rpc("set_config", cfg).execute()
+        except Exception as exc:
+            raise RuntimeError(
+                f"RLS-Session-Setup fehlgeschlagen für {cfg.get('setting_name')}: {exc}"
+            ) from exc
 
 
-def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]:
-    """
-    Verifiziert Benutzername und Passwort
-    
-    Args:
-        username: Benutzername
-        password: Passwort
-        
-    Returns:
-        Optional[Dict]: Benutzerdaten wenn erfolgreich, sonst None
-    """
+def verify_credentials_with_betrieb(
+    betriebsnummer: str, username: str, password: str
+) -> Optional[Dict[str, Any]]:
+    """Verifiziert die Anmeldung inkl. Betriebsnummer."""
     try:
         supabase = get_supabase_client()
-        
-        # Hole Benutzerdaten
-        response = supabase.table('users').select('*').eq('username', username).eq('is_active', True).execute()
-        
-        if not response.data or len(response.data) == 0:
+        betrieb_res = (
+            supabase.table("betriebe")
+            .select("*")
+            .eq("betriebsnummer", betriebsnummer)
+            .eq("aktiv", True)
+            .execute()
+        )
+        if not betrieb_res.data:
             return None
-        
-        user = response.data[0]
-        
-        # Verifiziere Passwort
-        if verify_password(password, user['password_hash']):
+
+        betrieb = betrieb_res.data[0]
+        user_res = (
+            supabase.table("users")
+            .select("*")
+            .eq("username", username)
+            .eq("betrieb_id", betrieb["id"])
+            .eq("is_active", True)
+            .execute()
+        )
+        if not user_res.data:
+            return None
+
+        user = user_res.data[0]
+        pw_hash = user.get("password_hash", "")
+        if not pw_hash:
+            return None
+
+        if bcrypt.checkpw(password.encode("utf-8"), pw_hash.encode("utf-8")):
+            user["betrieb_name"] = betrieb.get("name", "")
+            user["betrieb_id"] = betrieb["id"]
+            set_betrieb_session(supabase, betrieb["id"], user_id=user.get("id"))
             return user
-        
         return None
-        
-    except Exception as e:
-        st.error(f"Fehler bei der Authentifizierung: {str(e)}")
+    except Exception as exc:
+        st.error(f"Login-Fehler: {exc}")
         return None
 
 
-def update_last_login(user_id: str) -> bool:
-    """
-    Aktualisiert den letzten Login-Zeitstempel
-    
-    Args:
-        user_id: Benutzer-ID
-        
-    Returns:
-        bool: True wenn erfolgreich
-    """
+def update_last_login(user_id: str) -> None:
+    """Aktualisiert den Zeitstempel des letzten Logins."""
     try:
         supabase = get_supabase_client()
-        supabase.table('users').update({
-            'last_login': datetime.now().isoformat()
-        }).eq('id', user_id).execute()
-        return True
+        (
+            supabase.table("users")
+            .update({"last_login": datetime.now(timezone.utc).isoformat()})
+            .eq("id", user_id)
+            .execute()
+        )
     except Exception:
-        return False
+        # Login-Funktion darf nicht an Telemetrie scheitern.
+        pass
 
 
-def get_mitarbeiter_by_user_id(user_id: str) -> Optional[Dict[str, Any]]:
+def upload_file_to_storage_result(
+    bucket_name: str,
+    file_path: str,
+    file_data: bytes,
+    fallback_buckets: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """
-    Holt Mitarbeiterdaten anhand der User-ID
-    
-    Args:
-        user_id: Benutzer-ID
-        
-    Returns:
-        Optional[Dict]: Mitarbeiterdaten wenn gefunden
+    Datei-Upload über Supabase Storage REST API mit Bucket-Fallback.
+
+    Rückgabe:
+      {
+        "ok": bool,
+        "bucket": str | None,
+        "status_code": int | None,
+        "error": str | None
+      }
     """
     try:
-        supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').eq('user_id', user_id).execute()
-        
-        if response.data and len(response.data) > 0:
-            return response.data[0]
-        return None
-        
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Mitarbeiterdaten: {str(e)}")
-        return None
+        url = _require_env("SUPABASE_URL")
+        service_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_KEY")
+        )
+        if not service_key:
+            return {
+                "ok": False,
+                "bucket": None,
+                "status_code": None,
+                "error": "SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY fehlt",
+            }
+
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "x-upsert": "true",
+            "Content-Type": "application/octet-stream",
+        }
+        buckets = [bucket_name] + [b for b in (fallback_buckets or []) if b and b != bucket_name]
+
+        last_status = None
+        last_error = None
+        for bucket in buckets:
+            encoded_path = quote(file_path, safe="/")
+            upload_url = f"{url}/storage/v1/object/{bucket}/{encoded_path}"
+            response = requests.post(upload_url, headers=headers, data=file_data, timeout=30)
+            if response.status_code in (200, 201):
+                return {
+                    "ok": True,
+                    "bucket": bucket,
+                    "status_code": response.status_code,
+                    "error": None,
+                }
+            last_status = response.status_code
+            body = (response.text or "").strip()
+            last_error = body[:500] if body else "Unbekannter Storage-Fehler"
+
+        return {
+            "ok": False,
+            "bucket": None,
+            "status_code": last_status,
+            "error": last_error,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "bucket": None,
+            "status_code": None,
+            "error": str(exc),
+        }
+
+
+def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> bool:
+    """Legacy-Wrapper für bool-Rückgabe."""
+    result = upload_file_to_storage_result(bucket_name, file_path, file_data)
+    return bool(result.get("ok"))
 
 
 def get_all_mitarbeiter() -> List[Dict[str, Any]]:
-    """
-    Holt alle Mitarbeiter (nur für Admin)
-    
-    Returns:
-        List[Dict]: Liste aller Mitarbeiter
-    """
-    try:
-        supabase = get_supabase_client()
-        response = supabase.table('mitarbeiter').select('*').order('nachname').execute()
-        return response.data if response.data else []
-        
-    except Exception as e:
-        st.error(f"Fehler beim Laden der Mitarbeiter: {str(e)}")
-        return []
+    """Lädt alle Mitarbeiter des aktuellen Betriebs (falls gesetzt)."""
+    supabase = get_supabase_client()
+    query = supabase.table("mitarbeiter").select("*").order("nachname")
+    betrieb_id = st.session_state.get("betrieb_id")
+    if betrieb_id is not None:
+        query = query.eq("betrieb_id", betrieb_id)
+    res = query.execute()
+    return res.data or []
 
 
-def create_user(username: str, password: str, role: str) -> Optional[str]:
-    """
-    Erstellt einen neuen Benutzer
-    
-    Args:
-        username: Benutzername
-        password: Passwort (wird gehasht)
-        role: Rolle ('admin' oder 'mitarbeiter')
-        
-    Returns:
-        Optional[str]: User-ID wenn erfolgreich, sonst None
-    """
+def update_mitarbeiter(mitarbeiter_id: Any, values: Dict[str, Any]) -> bool:
+    """Aktualisiert einen Mitarbeiterdatensatz."""
     try:
         supabase = get_supabase_client()
-        
-        # Prüfe, ob Benutzername bereits existiert
-        existing = supabase.table('users').select('id').eq('username', username).execute()
-        if existing.data and len(existing.data) > 0:
-            st.error(f"Benutzername '{username}' existiert bereits.")
+        query = supabase.table("mitarbeiter").update(values).eq("id", mitarbeiter_id)
+        betrieb_id = st.session_state.get("betrieb_id")
+        if betrieb_id is not None:
+            query = query.eq("betrieb_id", betrieb_id)
+        query.execute()
+        return True
+    except Exception:
+        return False
+
+
+def check_and_save_monats_abschluss(mitarbeiter_id: Any, monat: int, jahr: int) -> float:
+    """
+    Speichert den Monatsabschluss in azk_historie.
+
+    Fallback-fähig für unterschiedliche historische Spaltennamen.
+    """
+    supabase = get_supabase_client()
+
+    ist_res = (
+        supabase.table("zeiterfassung")
+        .select("arbeitsstunden, stunden")
+        .eq("mitarbeiter_id", mitarbeiter_id)
+        .eq("monat", monat)
+        .eq("jahr", jahr)
+        .execute()
+    )
+    ist = 0.0
+    for row in ist_res.data or []:
+        ist += float(row.get("arbeitsstunden") or row.get("stunden") or 0.0)
+
+    ma = (
+        supabase.table("mitarbeiter")
+        .select("monatliche_soll_stunden, soll_stunden_monat")
+        .eq("id", mitarbeiter_id)
+        .single()
+        .execute()
+    )
+    ma_data = ma.data or {}
+    soll = float(ma_data.get("monatliche_soll_stunden") or ma_data.get("soll_stunden_monat") or 160.0)
+
+    diff = round(ist - soll, 2)
+    (
+        supabase.table("azk_historie")
+        .upsert(
+            {
+                "mitarbeiter_id": mitarbeiter_id,
+                "monat": monat,
+                "jahr": jahr,
+                "ist_stunden": round(ist, 2),
+                "soll_stunden": round(soll, 2),
+                "differenz": diff,
+            },
+            on_conflict="mitarbeiter_id,monat,jahr",
+        )
+        .execute()
+    )
+    return diff
+
+
+def get_signed_url(bucket_name: str, file_path: str, expires_in: int = 3600) -> str | None:
+    """
+    Erstellt eine signierte URL für eine Datei im Supabase Storage.
+    Läuft nach expires_in Sekunden ab (Standard: 1 Stunde).
+    Gibt None zurück wenn der Aufruf fehlschlägt.
+    """
+    try:
+        url = _require_env("SUPABASE_URL")
+        service_key = (
+            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            or os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_KEY")
+        )
+        if not service_key:
             return None
-        
-        # Erstelle Benutzer
-        password_hash = hash_password(password)
-        response = supabase.table('users').insert({
-            'username': username,
-            'password_hash': password_hash,
-            'role': role,
-            'is_active': True
-        }).execute()
-        
-        if response.data and len(response.data) > 0:
-            return response.data[0]['id']
+        headers = {
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
+            "Content-Type": "application/json",
+        }
+        sign_url = f"{url}/storage/v1/object/sign/{bucket_name}/{file_path}"
+        response = requests.post(
+            sign_url,
+            headers=headers,
+            json={"expiresIn": expires_in},
+            timeout=10
+        )
+        if response.status_code == 200:
+            data = response.json()
+            signed_path = data.get("signedURL") or data.get("signedUrl") or ""
+            if signed_path:
+                if signed_path.startswith("http"):
+                    return signed_path
+                return f"{url}{signed_path}"
         return None
-        
-    except Exception as e:
-        st.error(f"Fehler beim Erstellen des Benutzers: {str(e)}")
-        return None
-
-
-def create_mitarbeiter(user_id: str, mitarbeiter_data: Dict[str, Any]) -> Optional[str]:
-    """
-    Erstellt einen neuen Mitarbeiter
-    
-    Args:
-        user_id: Benutzer-ID
-        mitarbeiter_data: Mitarbeiterdaten
-        
-    Returns:
-        Optional[str]: Mitarbeiter-ID wenn erfolgreich
-    """
-    try:
-        supabase = get_supabase_client()
-        
-        # Füge user_id hinzu
-        mitarbeiter_data['user_id'] = user_id
-        
-        response = supabase.table('mitarbeiter').insert(mitarbeiter_data).execute()
-        
-        if response.data and len(response.data) > 0:
-            return response.data[0]['id']
-        return None
-        
-    except Exception as e:
-        st.error(f"Fehler beim Erstellen des Mitarbeiters: {str(e)}")
-        return None
-
-
-def update_mitarbeiter(mitarbeiter_id: str, mitarbeiter_data: Dict[str, Any]) -> bool:
-    """
-    Aktualisiert Mitarbeiterdaten
-    
-    Args:
-        mitarbeiter_id: Mitarbeiter-ID
-        mitarbeiter_data: Zu aktualisierende Daten
-        
-    Returns:
-        bool: True wenn erfolgreich
-    """
-    try:
-        supabase = get_supabase_client()
-        supabase.table('mitarbeiter').update(mitarbeiter_data).eq('id', mitarbeiter_id).execute()
-        return True
-        
-    except Exception as e:
-        st.error(f"Fehler beim Aktualisieren des Mitarbeiters: {str(e)}")
-        return False
-
-
-def change_password(user_id: str, new_password: str) -> bool:
-    """
-    Ändert das Passwort eines Benutzers
-    
-    Args:
-        user_id: Benutzer-ID
-        new_password: Neues Passwort
-        
-    Returns:
-        bool: True wenn erfolgreich
-    """
-    try:
-        supabase = get_supabase_client()
-        password_hash = hash_password(new_password)
-        
-        supabase.table('users').update({
-            'password_hash': password_hash
-        }).eq('id', user_id).execute()
-        
-        return True
-        
-    except Exception as e:
-        st.error(f"Fehler beim Ändern des Passworts: {str(e)}")
-        return False
-
-
-def upload_file_to_storage(bucket_name: str, file_path: str, file_data: bytes) -> Optional[str]:
-    """
-    Lädt eine Datei in Supabase Storage hoch
-    
-    Args:
-        bucket_name: Name des Buckets
-        file_path: Pfad innerhalb des Buckets
-        file_data: Datei-Bytes
-        
-    Returns:
-        Optional[str]: Öffentlicher Pfad wenn erfolgreich
-    """
-    try:
-        supabase = get_supabase_client()
-        
-        # Lösche existierende Datei falls vorhanden
-        try:
-            supabase.storage.from_(bucket_name).remove([file_path])
-        except:
-            pass
-        
-        # Lade neue Datei hoch
-        response = supabase.storage.from_(bucket_name).upload(file_path, file_data)
-        
-        if response:
-            return file_path
-        return None
-        
-    except Exception as e:
-        st.error(f"Fehler beim Hochladen der Datei: {str(e)}")
-        return None
-
-
-def download_file_from_storage(bucket_name: str, file_path: str) -> Optional[bytes]:
-    """
-    Lädt eine Datei aus Supabase Storage herunter
-    
-    Args:
-        bucket_name: Name des Buckets
-        file_path: Pfad innerhalb des Buckets
-        
-    Returns:
-        Optional[bytes]: Datei-Bytes wenn erfolgreich
-    """
-    try:
-        supabase = get_supabase_client()
-        response = supabase.storage.from_(bucket_name).download(file_path)
-        return response
-        
-    except Exception as e:
-        st.error(f"Fehler beim Herunterladen der Datei: {str(e)}")
-        return None
-
-
-def get_public_url(bucket_name: str, file_path: str) -> Optional[str]:
-    """
-    Generiert eine öffentliche URL für eine Datei (funktioniert nur bei öffentlichen Buckets)
-    
-    Args:
-        bucket_name: Name des Buckets
-        file_path: Pfad innerhalb des Buckets
-        
-    Returns:
-        Optional[str]: Öffentliche URL
-    """
-    try:
-        supabase = get_supabase_client()
-        response = supabase.storage.from_(bucket_name).get_public_url(file_path)
-        return response
-        
-    except Exception as e:
+    except Exception:
         return None
