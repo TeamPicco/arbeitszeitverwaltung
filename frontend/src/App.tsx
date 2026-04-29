@@ -9,6 +9,7 @@ import { AdminUrlaub } from './pages/admin/Urlaub'
 import { AdminEinstellungen } from './pages/admin/Einstellungen'
 import { AdminLohn } from './pages/admin/Lohn'
 import { AdminDokumente } from './pages/admin/Dokumente'
+import { AdminDienstplan } from './pages/admin/Dienstplan'
 import { KioskTerminal } from './pages/admin/KioskTerminal'
 import { MitarbeiterDashboard } from './pages/mitarbeiter/Dashboard'
 import { MeineZeiten } from './pages/mitarbeiter/MeineZeiten'
@@ -51,6 +52,7 @@ export default function App() {
                 <Routes>
                   <Route index element={<AdminDashboard />} />
                   <Route path="mitarbeiter" element={<AdminMitarbeiter />} />
+                  <Route path="dienstplan" element={<AdminDienstplan />} />
                   <Route path="zeiten" element={<AdminZeiten />} />
                   <Route path="urlaub" element={<AdminUrlaub />} />
                   <Route path="lohn" element={<AdminLohn />} />

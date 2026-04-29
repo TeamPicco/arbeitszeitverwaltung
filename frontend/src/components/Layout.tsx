@@ -9,7 +9,10 @@ export function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar isAdmin={isAdmin} />
-      <main className="flex-1 overflow-y-auto p-6" style={{ background: 'var(--bg)' }}>
+      <main
+        className="flex-1 overflow-y-auto"
+        style={{ background: 'var(--bg)', padding: '32px 40px' }}
+      >
         {children}
       </main>
     </div>

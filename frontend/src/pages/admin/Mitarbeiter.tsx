@@ -5,7 +5,7 @@ import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Spinner } from '../../components/Spinner'
-import { UserPlus, Pencil, UserX } from 'lucide-react'
+import { UserPlus, Pencil, UserX, Mail, Clock, Briefcase, Search, UserCheck } from 'lucide-react'
 
 type Mitarbeiter = {
   id: number
@@ -22,77 +22,165 @@ export function AdminMitarbeiter() {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Mitarbeiter | null>(null)
+  const [search, setSearch] = useState('')
 
   const { data: mitarbeiter, isLoading } = useQuery<Mitarbeiter[]>({
     queryKey: ['mitarbeiter'],
     queryFn: () => mitarbeiterListe(true),
   })
 
-  const handleDeactivate = async (id: number) => {
-    await mitarbeiterAktualisieren(id, { aktiv: false })
+  const filtered = (mitarbeiter ?? []).filter((ma) => {
+    const q = search.toLowerCase()
+    return (
+      !q ||
+      ma.vorname.toLowerCase().includes(q) ||
+      ma.nachname.toLowerCase().includes(q) ||
+      (ma.position ?? '').toLowerCase().includes(q) ||
+      (ma.email ?? '').toLowerCase().includes(q)
+    )
+  })
+
+  const handleDeactivate = async (ma: Mitarbeiter) => {
+    if (!confirm(`${ma.vorname} ${ma.nachname} wirklich deaktivieren?`)) return
+    await mitarbeiterAktualisieren(ma.id, { aktiv: false })
     qc.invalidateQueries({ queryKey: ['mitarbeiter'] })
+  }
+
+  const handleEdit = (ma: Mitarbeiter) => {
+    setEditing(ma)
+    setShowForm(false)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  const handleNew = () => {
+    setEditing(null)
+    setShowForm(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   if (isLoading)
     return <div className="flex justify-center h-40 items-center"><Spinner /></div>
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Mitarbeiter</h1>
-        <Button onClick={() => { setEditing(null); setShowForm(true) }}>
-          <UserPlus size={15} /> Hinzufügen
+        <div>
+          <h1 className="text-2xl font-bold">Mitarbeiter</h1>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            {(mitarbeiter ?? []).length} aktive Mitarbeiter
+          </p>
+        </div>
+        <Button onClick={handleNew}>
+          <UserPlus size={16} /> Neu anlegen
         </Button>
       </div>
 
+      {/* Form */}
       {(showForm || editing) && (
-        <MitarbeiterForm
-          initial={editing}
-          onSave={async (data) => {
-            if (editing) {
-              await mitarbeiterAktualisieren(editing.id, data)
-            } else {
-              await mitarbeiterAnlegen(data)
-            }
-            qc.invalidateQueries({ queryKey: ['mitarbeiter'] })
-            setShowForm(false)
-            setEditing(null)
-          }}
-          onCancel={() => { setShowForm(false); setEditing(null) }}
-        />
+        <div className="mb-6">
+          <MitarbeiterForm
+            initial={editing}
+            onSave={async (data) => {
+              if (editing) {
+                await mitarbeiterAktualisieren(editing.id, data)
+              } else {
+                await mitarbeiterAnlegen(data)
+              }
+              qc.invalidateQueries({ queryKey: ['mitarbeiter'] })
+              setShowForm(false)
+              setEditing(null)
+            }}
+            onCancel={() => { setShowForm(false); setEditing(null) }}
+          />
+        </div>
       )}
 
-      <div className="flex flex-col gap-2">
-        {(mitarbeiter ?? []).map((ma) => (
-          <div
-            key={ma.id}
-            className="flex items-center justify-between px-4 py-3 rounded-xl"
-            style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}
-          >
-            <div>
-              <p className="font-medium">{ma.vorname} {ma.nachname}</p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                {ma.position ?? 'Keine Position'} · {ma.email ?? '–'}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                className="h-8 px-3 text-xs"
-                onClick={() => { setEditing(ma); setShowForm(false) }}
-              >
-                <Pencil size={13} />
-              </Button>
-              <Button
-                variant="danger"
-                className="h-8 px-3 text-xs"
-                onClick={() => handleDeactivate(ma.id)}
-              >
-                <UserX size={13} />
-              </Button>
-            </div>
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
+        <input
+          type="text"
+          placeholder="Suchen nach Name, Position, E-Mail …"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm outline-none focus:ring-1 focus:ring-[#F97316]"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)', maxWidth: 400 }}
+        />
+      </div>
+
+      {/* List */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ border: '1px solid var(--border)' }}
+      >
+        {filtered.length === 0 ? (
+          <div className="flex flex-col items-center py-16 gap-3">
+            <UserCheck size={40} style={{ color: 'var(--text-muted)', opacity: 0.3 }} />
+            <p style={{ color: 'var(--text-muted)' }}>
+              {search ? 'Keine Ergebnisse gefunden.' : 'Noch keine Mitarbeiter angelegt.'}
+            </p>
           </div>
-        ))}
+        ) : (
+          filtered.map((ma, idx) => (
+            <div
+              key={ma.id}
+              className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#141414]"
+              style={{
+                borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
+                background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+              }}
+            >
+              <div className="flex items-center gap-4">
+                {/* Avatar */}
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0"
+                  style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+                >
+                  {ma.vorname[0]}{ma.nachname[0]}
+                </div>
+
+                {/* Info */}
+                <div>
+                  <p className="font-semibold">{ma.vorname} {ma.nachname}</p>
+                  <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                    {ma.position && (
+                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <Briefcase size={11} /> {ma.position}
+                      </span>
+                    )}
+                    {ma.email && (
+                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <Mail size={11} /> {ma.email}
+                      </span>
+                    )}
+                    {ma.monatliche_soll_stunden && (
+                      <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <Clock size={11} /> {ma.monatliche_soll_stunden} h/Monat
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="secondary"
+                  className="h-9 px-3"
+                  onClick={() => handleEdit(ma)}
+                >
+                  <Pencil size={14} /> Bearbeiten
+                </Button>
+                <Button
+                  variant="danger"
+                  className="h-9 px-3"
+                  onClick={() => handleDeactivate(ma)}
+                >
+                  <UserX size={14} />
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )
@@ -134,18 +222,24 @@ function MitarbeiterForm({
   }
 
   return (
-    <Card className="mb-4">
-      <h2 className="font-semibold mb-4">{initial ? 'Bearbeiten' : 'Neuer Mitarbeiter'}</h2>
-      <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3">
-        <Input label="Vorname" value={form.vorname} onChange={f('vorname')} required />
-        <Input label="Nachname" value={form.nachname} onChange={f('nachname')} required />
-        <Input label="Position" value={form.position} onChange={f('position')} />
-        <Input label="E-Mail" type="email" value={form.email} onChange={f('email')} />
-        <Input label="Stundenlohn (€)" type="number" step="0.01" value={form.stundenlohn} onChange={f('stundenlohn')} />
-        <Input label="Soll-Stunden/Monat" type="number" step="0.5" value={form.monatliche_soll_stunden} onChange={f('monatliche_soll_stunden')} />
-        <div className="col-span-2 flex gap-2 justify-end mt-2">
+    <Card>
+      <h2 className="font-semibold text-base mb-5">
+        {initial ? `${initial.vorname} ${initial.nachname} bearbeiten` : 'Neuen Mitarbeiter anlegen'}
+      </h2>
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+          <Input label="Vorname" value={form.vorname} onChange={f('vorname')} required autoFocus={!initial} />
+          <Input label="Nachname" value={form.nachname} onChange={f('nachname')} required />
+          <Input label="Position / Rolle" value={form.position} onChange={f('position')} placeholder="z.B. Kellner, Koch …" />
+          <Input label="E-Mail" type="email" value={form.email} onChange={f('email')} />
+          <Input label="Stundenlohn (€)" type="number" step="0.01" min="0" value={form.stundenlohn} onChange={f('stundenlohn')} placeholder="0.00" />
+          <Input label="Soll-Stunden / Monat" type="number" step="0.5" min="0" value={form.monatliche_soll_stunden} onChange={f('monatliche_soll_stunden')} placeholder="160" />
+        </div>
+        <div className="flex gap-2 justify-end">
           <Button variant="secondary" type="button" onClick={onCancel}>Abbrechen</Button>
-          <Button type="submit" loading={loading}>Speichern</Button>
+          <Button type="submit" loading={loading}>
+            {initial ? 'Änderungen speichern' : 'Mitarbeiter anlegen'}
+          </Button>
         </div>
       </form>
     </Card>
