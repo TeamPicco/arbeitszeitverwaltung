@@ -67,49 +67,51 @@ def _load_mitarbeiter_id(supabase, betrieb_id: int, user_id: int) -> Optional[in
 def login(body: LoginRequest):
     try:
         supabase = _get_supabase()
+
+        # 1. Betrieb prüfen
+        betrieb_res = (
+            supabase.table("betriebe")
+            .select("id, name")
+            .eq("betriebsnummer", body.betriebsnummer)
+            .eq("aktiv", True)
+            .execute()
+        )
+        if not betrieb_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Login fehlgeschlagen. Betriebsnummer nicht gefunden oder Betrieb inaktiv.",
+            )
+        betrieb = betrieb_res.data[0]
+
+        # 2. User prüfen
+        user_res = (
+            supabase.table("users")
+            .select("id, username, password_hash, role, is_active")
+            .eq("username", body.username)
+            .eq("betrieb_id", betrieb["id"])
+            .eq("is_active", True)
+            .execute()
+        )
+        if not user_res.data:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Login fehlgeschlagen. Benutzername oder Passwort falsch.",
+            )
+        user = user_res.data[0]
+
+        # 3. Passwort prüfen
+        pw_hash = user.get("password_hash", "")
+        if not pw_hash or not bcrypt.checkpw(body.password.encode(), pw_hash.encode()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Login fehlgeschlagen. Benutzername oder Passwort falsch.",
+            )
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"DB-Verbindungsfehler: {exc}",
-        )
-
-    # 1. Betrieb prüfen
-    betrieb_res = (
-        supabase.table("betriebe")
-        .select("id, name")
-        .eq("betriebsnummer", body.betriebsnummer)
-        .eq("aktiv", True)
-        .execute()
-    )
-    if not betrieb_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Login fehlgeschlagen. Betriebsnummer nicht gefunden oder Betrieb inaktiv.",
-        )
-    betrieb = betrieb_res.data[0]
-
-    # 2. User prüfen
-    user_res = (
-        supabase.table("users")
-        .select("id, username, password_hash, role, is_active")
-        .eq("username", body.username)
-        .eq("betrieb_id", betrieb["id"])
-        .eq("is_active", True)
-        .execute()
-    )
-    if not user_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Login fehlgeschlagen. Benutzername oder Passwort falsch.",
-        )
-    user = user_res.data[0]
-
-    # 3. Passwort prüfen
-    pw_hash = user.get("password_hash", "")
-    if not pw_hash or not bcrypt.checkpw(body.password.encode(), pw_hash.encode()):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Login fehlgeschlagen. Benutzername oder Passwort falsch.",
+            detail=f"Server-Fehler beim Login: {type(exc).__name__}: {exc}",
         )
 
     # 4. Mitarbeiter-ID laden (optional, nur für Mitarbeiter-Rolle)
