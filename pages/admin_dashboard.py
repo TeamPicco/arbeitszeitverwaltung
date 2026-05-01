@@ -1547,9 +1547,11 @@ def _show_arbeitszeitkonten_tab():
                     closed_count += 1
             except Exception:
                 pass
+        _cached_arbeitszeitkonten_rows.clear()
+        _cached_azk_closed_rows.clear()
         st.success("Arbeitszeitkonten synchronisiert.")
         if closed_count:
-            st.info(f"{closed_count} Konten stammen aus unveränderlichen Monatsabschlüssen.")
+            st.info(f"{closed_count} Konten stammen aus unveränderlichen Monatsabschlüssen — Monat zuerst entsperren.")
 
     if st.button("Monat abschließen (unveränderlich)", use_container_width=True):
         for ma in alle_ma:
