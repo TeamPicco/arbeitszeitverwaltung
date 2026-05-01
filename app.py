@@ -56,7 +56,7 @@ def _load_mitarbeiter_profile_for_user(user: Dict[str, Any], username: str) -> O
     except Exception:
         pass
 
-    # Legacy-Fallback: Zuordnung über email=username
+    # Legacy-Fallback 1: Zuordnung über email=username
     try:
         q = (
             supabase.table("mitarbeiter")
@@ -70,6 +70,24 @@ def _load_mitarbeiter_profile_for_user(user: Dict[str, Any], username: str) -> O
             return q.data[0]
     except Exception:
         pass
+
+    # Legacy-Fallback 2: Zuordnung über vorname ILIKE username
+    # (nötig wenn user_id UUID-Typ ist aber users.id Integer)
+    try:
+        q = (
+            supabase.table("mitarbeiter")
+            .select(base_select)
+            .eq("betrieb_id", user.get("betrieb_id"))
+            .ilike("vorname", username.strip())
+            .eq("aktiv", True)
+            .limit(1)
+            .execute()
+        )
+        if q.data:
+            return q.data[0]
+    except Exception:
+        pass
+
     return None
 
 
