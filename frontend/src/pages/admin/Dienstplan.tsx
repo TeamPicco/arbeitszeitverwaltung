@@ -13,7 +13,7 @@ import {
 } from '../../api/dienstplan'
 import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle, Printer } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string; position?: string }
 
@@ -156,6 +156,87 @@ export function AdminDienstplan() {
 
   const isLoading = maLoading || dpLoading
 
+  const handlePrint = () => {
+    const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+    const LABELS: Record<string, string> = { arbeit: 'Arbeit', urlaub: 'Urlaub', frei: 'Frei' }
+    const COLORS: Record<string, string> = { arbeit: '#f97316', urlaub: '#3b82f6', frei: '#64748b' }
+
+    const dayHeaders = weekDays.map((day, i) =>
+      `<th style="padding:10px 6px;text-align:center;font-size:11px;color:#666;font-weight:600;">
+        ${DAYS[i]}<br><span style="font-size:14px;font-weight:700;color:#111;">${day.getDate()}.${day.getMonth() + 1}.</span>
+      </th>`
+    ).join('')
+
+    const rows = (mitarbeiter ?? []).map((ma) => {
+      const cells = weekDays.map((day) => {
+        const e = getEintrag(ma.id, day)
+        const typ = e?.schichttyp
+        const col = typ ? COLORS[typ] : null
+        const cell = typ
+          ? `<span style="padding:3px 10px;border-radius:5px;background:${col}22;color:${col};border:1px solid ${col}55;font-size:11px;">${LABELS[typ]}</span>`
+          : `<span style="color:#bbb;font-size:11px;">—</span>`
+        const zeit = e?.start_zeit ? `<div style="font-size:10px;color:#888;margin-top:2px;">${e.start_zeit.slice(0,5)}${e.end_zeit ? ` – ${e.end_zeit.slice(0,5)}` : ''}</div>` : ''
+        return `<td style="padding:8px 6px;text-align:center;">${cell}${zeit}</td>`
+      }).join('')
+      return `<tr style="border-bottom:1px solid #e5e7eb;">
+        <td style="padding:8px 12px;font-size:13px;font-weight:500;">${ma.vorname} ${ma.nachname}${ma.position ? `<div style="font-size:10px;color:#888;">${ma.position}</div>` : ''}</td>
+        ${cells}
+      </tr>`
+    }).join('')
+
+    const logoSrc = `${window.location.origin}/complio-logo.png`
+    const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Dienstplan ${formatWeek(monday)}</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;padding:28px;background:#fff;color:#111;}
+  table{width:100%;border-collapse:collapse;}
+  @media print{body{padding:14px;}button{display:none;}}
+</style>
+</head><body>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:3px solid #f97316;">
+  <div style="background:#000;padding:8px 16px;border-radius:8px;">
+    <img src="${logoSrc}" style="height:32px;display:block;" alt="Complio">
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:18px;font-weight:700;">Dienstplan</div>
+    <div style="font-size:13px;color:#666;margin-top:2px;">${formatWeek(monday)}</div>
+  </div>
+</div>
+<table>
+  <thead><tr style="border-bottom:2px solid #e5e7eb;background:#f9f9f9;">
+    <th style="padding:10px 12px;text-align:left;font-size:11px;color:#666;font-weight:600;">Mitarbeiter</th>
+    ${dayHeaders}
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div style="margin-top:36px;padding:14px 18px;border:1.5px solid #f97316;border-radius:8px;background:#fff8f3;">
+  <p style="font-size:11px;color:#333;margin:0;line-height:1.7;">
+    <strong style="color:#f97316;">⚠ Wichtiger Hinweis:</strong>&nbsp;
+    Dieser Dienstplan gilt vorbehaltlich kurzfristiger Änderungen durch Krankheit, höhere Gewalt oder sonstige
+    unvorhergesehene Ereignisse. Die angegebenen Endzeiten können je nach wirtschaftlicher Auslastung und
+    betrieblichen Erfordernissen variieren. Änderungen werden so früh wie möglich kommuniziert.
+  </p>
+</div>
+<p style="font-size:10px;color:#aaa;text-align:center;margin-top:20px;">
+  Erstellt am ${heute} · Steakhouse Piccolo · Complio HR-Software
+</p>
+<div style="text-align:center;margin-top:12px;">
+  <button onclick="window.print()" style="background:#f97316;color:#fff;border:none;padding:10px 28px;border-radius:6px;font-size:13px;cursor:pointer;">
+    Drucken / Als PDF speichern
+  </button>
+</div>
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(html)
+      win.document.close()
+      win.focus()
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -168,6 +249,11 @@ export function AdminDienstplan() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* PDF drucken */}
+          <Button variant="secondary" onClick={handlePrint}>
+            <Printer size={14} /> PDF
+          </Button>
+
           {/* Email versenden */}
           <Button variant="secondary" onClick={sendEmail} loading={emailSending}>
             <Mail size={14} /> Dienstplan per E-Mail versenden

@@ -65,19 +65,12 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
       style={{ width: 'var(--sidebar-w)', background: '#0a0a0a', borderRight: '1px solid var(--border)' }}
     >
       {/* Logo */}
-      <div className="px-6 py-7" style={{ borderBottom: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold text-lg"
-            style={{ background: 'var(--accent)' }}>
-            C
-          </div>
-          <div>
-            <p className="font-bold text-xl leading-none">
-              comp<span style={{ color: 'var(--accent)' }}>lio</span>
-            </p>
-            <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>HR-Software</p>
-          </div>
-        </div>
+      <div className="px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
+        <img
+          src="/complio-logo.png"
+          alt="Complio"
+          style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
+        />
       </div>
 
       {/* Betrieb */}
