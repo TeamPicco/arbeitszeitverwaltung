@@ -7,14 +7,13 @@ interface CardProps {
   padding?: string
 }
 
-export function Card({ children, className = '', accent, padding = 'p-8' }: CardProps) {
+export function Card({ children, className = '', padding = 'p-6' }: CardProps) {
   return (
     <div
-      className={`rounded-2xl ${padding} ${className}`}
+      className={`rounded-lg ${padding} ${className}`}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        ...(accent ? { borderLeft: '4px solid var(--accent)' } : {}),
       }}
     >
       {children}
@@ -32,24 +31,30 @@ export function MetricCard({
 }) {
   return (
     <div
-      className="rounded-2xl p-7"
+      className="rounded-lg p-5"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderLeft: '4px solid var(--accent)',
       }}
     >
-      <div className="flex items-start justify-between mb-4">
-        <p className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
           {label}
         </p>
-        {icon && <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{icon}</span>}
+        {icon && (
+          <span
+            className="flex items-center justify-center w-7 h-7 rounded-md"
+            style={{ background: 'var(--accent-dim2)', color: 'var(--accent)' }}
+          >
+            {icon}
+          </span>
+        )}
       </div>
-      <p className="text-5xl font-bold" style={{ color: 'var(--accent)' }}>
+      <p className="text-3xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
         {value}
       </p>
       {sub && (
-        <p className="text-sm mt-3" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>
           {sub}
         </p>
       )}
@@ -59,9 +64,8 @@ export function MetricCard({
 
 export function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-6 pb-4"
-      style={{ borderBottom: '1px solid var(--border)' }}>
-      <h2 className="text-xl font-semibold">{title}</h2>
+    <div className="flex items-center justify-between mb-5">
+      <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{title}</h2>
       {action}
     </div>
   )
