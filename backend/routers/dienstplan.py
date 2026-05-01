@@ -98,6 +98,167 @@ def eintrag_loeschen(
         raise HTTPException(status_code=500, detail=f"Fehler beim Löschen: {exc}")
 
 
+@router.post("/email-versenden")
+def email_versenden(
+    monat_nr: int,
+    jahr: int,
+    betrieb_id: int = Depends(get_betrieb_id),
+    _user: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Dienstplan per E-Mail an alle Mitarbeiter mit hinterlegter E-Mail versenden."""
+    supabase = _sb()
+    ma_res = (
+        supabase.table("mitarbeiter")
+        .select("email,vorname,nachname")
+        .eq("betrieb_id", betrieb_id)
+        .eq("aktiv", True)
+        .execute()
+    )
+    mitarbeiter = ma_res.data or []
+
+    monate_de = [
+        "", "Januar", "Februar", "März", "April", "Mai", "Juni",
+        "Juli", "August", "September", "Oktober", "November", "Dezember",
+    ]
+    monat_name = monate_de[monat_nr] if 1 <= monat_nr <= 12 else str(monat_nr)
+
+    from utils.email_service import send_dienstplan_alle_mitarbeiter
+
+    return send_dienstplan_alle_mitarbeiter(mitarbeiter, monat_name, jahr)
+
+
+@router.get("/wuensche")
+def wuensche_liste(
+    betrieb_id: int = Depends(get_betrieb_id),
+    _user: Dict[str, Any] = Depends(require_admin),
+) -> List[Dict[str, Any]]:
+    """Alle Dienstplanwünsche für den Betrieb."""
+    supabase = _sb()
+    try:
+        res = (
+            supabase.table("dienstplanwuensche")
+            .select(
+                "id, mitarbeiter_id, von_datum, bis_datum, details, status, "
+                "erstellt_am, mitarbeiter(vorname, nachname)"
+            )
+            .eq("betrieb_id", betrieb_id)
+            .order("erstellt_am", desc=True)
+            .execute()
+        )
+        # Normalize column names to API contract (datum_von/datum_bis/wunsch_text)
+        rows = []
+        for r in res.data or []:
+            rows.append({
+                **r,
+                "datum_von": r.get("von_datum"),
+                "datum_bis": r.get("bis_datum"),
+                "wunsch_text": r.get("details"),
+            })
+        return rows
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Fehler beim Laden: {exc}")
+
+
+class WunschBody(BaseModel):
+    datum_von: date
+    datum_bis: date
+    wunsch_text: Optional[str] = None
+
+
+@router.post("/wunsch", status_code=201)
+def wunsch_einreichen(
+    body: WunschBody,
+    betrieb_id: int = Depends(get_betrieb_id),
+    user: Dict[str, Any] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Mitarbeiter reicht Dienstplanwunsch ein."""
+    supabase = _sb()
+    mitarbeiter_id = user.get("mitarbeiter_id")
+    if not mitarbeiter_id:
+        raise HTTPException(status_code=403, detail="Kein Mitarbeiter-Konto verknüpft.")
+    data = {
+        "betrieb_id": betrieb_id,
+        "mitarbeiter_id": mitarbeiter_id,
+        "von_datum": str(body.datum_von),
+        "bis_datum": str(body.datum_bis),
+        "details": body.wunsch_text or "",
+        "wunsch_typ": "allgemein",
+        "monat": body.datum_von.month,
+        "jahr": body.datum_von.year,
+        "status": "offen",
+    }
+    try:
+        res = supabase.table("dienstplanwuensche").insert(data).execute()
+        if not res.data:
+            raise HTTPException(status_code=500, detail="Wunsch konnte nicht gespeichert werden.")
+        return res.data[0]
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Fehler: {exc}")
+
+
+class WunschEntscheidBody(BaseModel):
+    status: str  # 'genehmigt' | 'abgelehnt'
+    ablehnungsgrund: Optional[str] = None
+
+
+@router.patch("/wunsch/{wunsch_id}")
+def wunsch_entscheiden(
+    wunsch_id: int,
+    body: WunschEntscheidBody,
+    betrieb_id: int = Depends(get_betrieb_id),
+    user: Dict[str, Any] = Depends(require_admin),
+) -> Dict[str, Any]:
+    """Admin genehmigt oder lehnt einen Dienstplanwunsch ab."""
+    if body.status not in ("genehmigt", "abgelehnt"):
+        raise HTTPException(status_code=400, detail="Status muss 'genehmigt' oder 'abgelehnt' sein.")
+    supabase = _sb()
+    chk = (
+        supabase.table("dienstplanwuensche")
+        .select("id, mitarbeiter_id, von_datum, bis_datum, details")
+        .eq("id", wunsch_id)
+        .eq("betrieb_id", betrieb_id)
+        .limit(1)
+        .execute()
+    )
+    if not chk.data:
+        raise HTTPException(status_code=404, detail="Wunsch nicht gefunden.")
+
+    wunsch = chk.data[0]
+    updates: Dict[str, Any] = {"status": body.status, "bearbeitet_am": "now()"}
+    if body.ablehnungsgrund:
+        updates["admin_kommentar"] = body.ablehnungsgrund
+
+    supabase.table("dienstplanwuensche").update(updates).eq("id", wunsch_id).execute()
+
+    # E-Mail-Benachrichtigung an Mitarbeiter
+    try:
+        ma_res = (
+            supabase.table("mitarbeiter")
+            .select("email, vorname, nachname")
+            .eq("id", wunsch["mitarbeiter_id"])
+            .limit(1)
+            .execute()
+        )
+        if ma_res.data:
+            ma = ma_res.data[0]
+            if ma.get("email"):
+                from utils.email_service import send_dienstplanwunsch_entscheidung
+                send_dienstplanwunsch_entscheidung(
+                    ma["email"],
+                    f"{ma['vorname']} {ma['nachname']}",
+                    body.status,
+                    str(wunsch.get("von_datum", "")),
+                    str(wunsch.get("bis_datum", "")),
+                    body.ablehnungsgrund,
+                )
+    except Exception:
+        pass  # E-Mail-Fehler blockieren die API-Antwort nicht
+
+    return {"ok": True, "status": body.status}
+
+
 @router.get("/monat")
 def monat(
     jahr: int,

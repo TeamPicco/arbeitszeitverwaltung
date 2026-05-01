@@ -805,6 +805,34 @@ def _load_month_ist_hours(
             contract_rows=contracts,
         )
 
+    # Urlaubstage aus abwesenheiten laden — für AZK-Neutralisation (BUrlG §11).
+    urlaubstage: set[str] = set()
+    try:
+        for cols in ("typ,start_datum,ende_datum,attest_pfad", "typ,start_datum,ende_datum"):
+            try:
+                abw_res = (
+                    supabase.table("abwesenheiten")
+                    .select(cols)
+                    .eq("mitarbeiter_id", mitarbeiter_id)
+                    .lte("start_datum", month_end.isoformat())
+                    .gte("ende_datum", month_start.isoformat())
+                    .execute()
+                )
+                for row in abw_res.data or []:
+                    if str(row.get("typ") or "").lower() != "urlaub":
+                        continue
+                    start = _safe_date(row.get("start_datum"))
+                    end = _safe_date(row.get("ende_datum"))
+                    if start and end:
+                        for d in _daterange(max(start, month_start), min(end, month_end)):
+                            if _is_workday(d):
+                                urlaubstage.add(d.isoformat())
+                break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
     total = 0.0
     for day in sorted(grouped.keys()):
         day_rows = grouped[day]
@@ -816,6 +844,16 @@ def _load_month_ist_hours(
         if any(_is_krank_row(r) for r in productive_rows):
             total += float(daily_target_cache.get(day, 0.0))
             continue
+
+        # Urlaubstag ohne echtes Stempeln → Soll-Stunden anrechnen (BUrlG §11 Entgeltfortzahlung).
+        if day in urlaubstage:
+            real_work = [
+                r for r in productive_rows
+                if str(r.get("quelle") or "").strip().lower() != "abwesenheit_system"
+            ]
+            if not real_work:
+                total += float(daily_target_cache.get(day, 0.0))
+                continue
 
         for row in productive_rows:
             start_zeit = _normalize_time_value(row.get("start_zeit"))
@@ -837,6 +875,12 @@ def _load_month_ist_hours(
                 except Exception:
                     pass
             total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
+
+    # Urlaubstage ohne jeden Zeiterfassung-Eintrag: ebenfalls neutralisieren.
+    for day_iso in urlaubstage:
+        if day_iso not in grouped:
+            total += float(daily_target_cache.get(day_iso, 0.0))
+
     return round(total, 2)
 
 

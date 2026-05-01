@@ -24,9 +24,10 @@ const ADMIN_BOTTOM_NAV: NavItem[] = [
 ]
 
 const MITARBEITER_NAV: NavItem[] = [
-  { to: '/dashboard',         icon: <LayoutDashboard size={22} />, label: 'Übersicht' },
-  { to: '/dashboard/zeiten',  icon: <Clock size={22} />,           label: 'Meine Zeiten' },
-  { to: '/dashboard/urlaub',  icon: <CalendarDays size={22} />,    label: 'Urlaub' },
+  { to: '/dashboard',              icon: <LayoutDashboard size={22} />, label: 'Übersicht' },
+  { to: '/dashboard/zeiten',       icon: <Clock size={22} />,           label: 'Meine Zeiten' },
+  { to: '/dashboard/urlaub',       icon: <CalendarDays size={22} />,    label: 'Urlaub' },
+  { to: '/dashboard/dienstplan',   icon: <CalendarRange size={22} />,   label: 'Mein Dienstplan' },
 ]
 
 const navClass = (isActive: boolean) =>

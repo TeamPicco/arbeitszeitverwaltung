@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import { Download } from 'lucide-react'
+import { Download, FileSpreadsheet } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string }
 
@@ -90,6 +90,19 @@ export function AdminLohn() {
     URL.revokeObjectURL(url)
   }
 
+  const downloadDatev = async () => {
+    const res = await api.get('/lohn/datev-export', {
+      params: { monat, jahr },
+      responseType: 'blob',
+    })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `DATEV_Lohn_${jahr}_${String(monat).padStart(2, '0')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold mb-6">Lohn</h1>
@@ -149,6 +162,10 @@ export function AdminLohn() {
             </Button>
           </>
         )}
+
+        <Button onClick={downloadDatev} variant="secondary">
+          <FileSpreadsheet size={14} /> DATEV-Export
+        </Button>
       </div>
 
       {error && (

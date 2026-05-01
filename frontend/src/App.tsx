@@ -14,6 +14,7 @@ import { KioskTerminal } from './pages/admin/KioskTerminal'
 import { MitarbeiterDashboard } from './pages/mitarbeiter/Dashboard'
 import { MeineZeiten } from './pages/mitarbeiter/MeineZeiten'
 import { MeinUrlaub } from './pages/mitarbeiter/MeinUrlaub'
+import { MeinDienstplan } from './pages/mitarbeiter/MeinDienstplan'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -76,6 +77,7 @@ export default function App() {
                 <Route index element={<MitarbeiterDashboard />} />
                 <Route path="zeiten" element={<MeineZeiten />} />
                 <Route path="urlaub" element={<MeinUrlaub />} />
+                <Route path="dienstplan" element={<MeinDienstplan />} />
               </Routes>
             </Layout>
           </RequireAuth>

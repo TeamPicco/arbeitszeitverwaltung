@@ -300,30 +300,46 @@ def send_dienstplan_email(
         logger.warning(f"Keine E-Mail-Adresse für {mitarbeiter_name} hinterlegt.")
         return False
     
-    app_link = app_url or os.getenv("APP_URL", "https://app.getcomplio.de")
-    
-    subject = f"📅 Ihr Dienstplan für {monat} {jahr} ist verfügbar"
-    
+    app_link = app_url or os.getenv("APP_URL", "https://complio-frontend-theta.vercel.app")
+    # Deadline for next month's wish submission: last day of current month
+    import calendar as _cal
+    from datetime import datetime as _dt
+    _monate = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
+    try:
+        _mnt_idx = _monate.index(monat) + 1  # 1-based
+        _last_day = _cal.monthrange(int(jahr), _mnt_idx)[1]
+        _wunsch_deadline = f"{_last_day}. {monat} {jahr}"
+    except Exception:
+        _wunsch_deadline = f"Ende {monat} {jahr}"
+
+    subject = f"Ihr Dienstplan für {monat} {jahr} ist verfügbar"
+
     body = (
         f"Hallo {mitarbeiter_name},\n\n"
-        f"Ihr Dienstplan für {monat} {jahr} wurde veröffentlicht und ist jetzt verfügbar.\n\n"
-        f"Bitte melden Sie sich in Complio an, um Ihren Dienstplan einzusehen:\n"
-        f"{app_link}\n\n"
+        f"Ihr Dienstplan für {monat} {jahr} wurde veröffentlicht und ist ab sofort dauerhaft "
+        f"in Ihrem Complio-Dashboard einsehbar:\n{app_link}\n\n"
+        f"Dienstplanwünsche für {_monate[_monate.index(monat) + 1] if _monate.index(monat) < 11 else _monate[0]} {int(jahr) + (1 if _monate.index(monat) == 11 else 0)} "
+        f"können Sie bis {_wunsch_deadline} über Ihr Dashboard einreichen.\n\n"
         f"Mit freundlichen Grüßen\nIhr Team"
     )
-    
+
     inhalt = f"""
         <p>Hallo <strong>{mitarbeiter_name}</strong>,</p>
-        <p>Ihr Dienstplan für <strong>{monat} {jahr}</strong> wurde veröffentlicht und ist jetzt verfügbar.</p>
+        <p>Ihr Dienstplan für <strong>{monat} {jahr}</strong> wurde veröffentlicht und ist ab sofort
+           dauerhaft in Ihrem Complio-Dashboard einsehbar.</p>
         <div style="text-align: center; margin: 25px 0;">
-            <a href="{app_link}" 
-               style="background-color: #1e3a5f; color: white; padding: 12px 24px; 
-                      text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
-                📅 Dienstplan ansehen
+            <a href="{app_link}"
+               style="background-color: #F97316; color: white; padding: 12px 24px;
+                      text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                Dienstplan ansehen
             </a>
         </div>
+        <p><strong>Dienstplanwünsche einreichen:</strong><br>
+           Falls Sie Wünsche für die Dienstplanung des nächsten Monats haben, können Sie diese
+           bis zum <strong>{_wunsch_deadline}</strong> direkt über Ihr Dashboard unter
+           <em>Mein Dienstplan → Wunsch einreichen</em> melden.</p>
         <p style="color: #6c757d; font-size: 0.9rem;">
-            Falls der Button nicht funktioniert, öffnen Sie bitte: <a href="{app_link}">{app_link}</a>
+            Falls der Button nicht funktioniert: <a href="{app_link}">{app_link}</a>
         </p>
     """
     
@@ -368,6 +384,62 @@ def send_dienstplan_alle_mitarbeiter(
             ergebnis['fehlgeschlagen'] += 1
     
     return ergebnis
+
+
+def send_dienstplanwunsch_entscheidung(
+    mitarbeiter_email: str,
+    mitarbeiter_name: str,
+    entscheidung: str,  # 'genehmigt' | 'abgelehnt'
+    datum_von: str,
+    datum_bis: str,
+    ablehnungsgrund: str = None,
+    app_url: str = None,
+) -> bool:
+    """
+    Sendet dem Mitarbeiter die Entscheidung über seinen Dienstplanwunsch.
+    """
+    if not mitarbeiter_email:
+        return False
+
+    app_link = app_url or os.getenv("APP_URL", "https://complio-frontend-theta.vercel.app")
+    genehmigt = entscheidung == "genehmigt"
+    emoji = "✅" if genehmigt else "❌"
+    entscheidung_de = "genehmigt" if genehmigt else "abgelehnt"
+    subject = f"{emoji} Ihr Dienstplanwunsch wurde {entscheidung_de}"
+
+    ablehnungs_block = ""
+    if not genehmigt and ablehnungsgrund:
+        ablehnungs_block = f"\n\nBegründung: {ablehnungsgrund}"
+
+    body = (
+        f"Hallo {mitarbeiter_name},\n\n"
+        f"Ihr Dienstplanwunsch ({datum_von} – {datum_bis}) wurde {entscheidung_de}."
+        f"{ablehnungs_block}\n\n"
+        f"Ihr Dashboard: {app_link}\n\n"
+        f"Mit freundlichen Grüßen\nIhr Team"
+    )
+
+    ablehnungs_html = (
+        f'<p><strong>Begründung:</strong> {ablehnungsgrund}</p>'
+        if not genehmigt and ablehnungsgrund
+        else ""
+    )
+    inhalt = f"""
+        <p>Hallo <strong>{mitarbeiter_name}</strong>,</p>
+        <p>Ihr Dienstplanwunsch für den Zeitraum <strong>{datum_von} – {datum_bis}</strong>
+           wurde <strong>{entscheidung_de}</strong>.</p>
+        {ablehnungs_html}
+        <div style="text-align: center; margin: 25px 0;">
+            <a href="{app_link}"
+               style="background-color: #F97316; color: white; padding: 12px 24px;
+                      text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+                Dashboard öffnen
+            </a>
+        </div>
+    """
+
+    html_body = _erstelle_html_template(f"Dienstplanwunsch {entscheidung_de}", inhalt)
+    return send_email(mitarbeiter_email, _brand_text(subject), _brand_text(body), _brand_text(html_body))
 
 
 # ============================================================

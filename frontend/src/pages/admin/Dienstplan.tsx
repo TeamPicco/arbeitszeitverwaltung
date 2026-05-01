@@ -5,10 +5,15 @@ import {
   dienstplanWoche,
   dienstplanEintragSetzen,
   dienstplanEintragLoeschen,
+  dienstplanWuenscheListe,
+  dienstplanWunschEntscheiden,
+  dienstplanEmailVersenden,
   type DienstplanEintrag,
+  type DienstplanWunsch,
 } from '../../api/dienstplan'
+import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import { ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string; position?: string }
 
@@ -47,10 +52,20 @@ function isToday(d: Date): boolean {
   return isoDate(d) === isoDate(today)
 }
 
+const WUNSCH_STATUS: Record<string, { label: string; color: string }> = {
+  offen:      { label: 'Offen',      color: '#F97316' },
+  ausstehend: { label: 'Ausstehend', color: '#F97316' },
+  genehmigt:  { label: 'Genehmigt',  color: '#22c55e' },
+  abgelehnt:  { label: 'Abgelehnt',  color: '#ef4444' },
+}
+
 export function AdminDienstplan() {
   const qc = useQueryClient()
   const [monday, setMonday] = useState<Date>(() => getMondayOfWeek(new Date()))
   const [saving, setSaving] = useState<string | null>(null)
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailResult, setEmailResult] = useState<string | null>(null)
+  const [ablehnungsgrund, setAblehnungsgrund] = useState<Record<number, string>>({})
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
@@ -67,6 +82,34 @@ export function AdminDienstplan() {
     queryKey: ['dienstplan', isoDate(monday)],
     queryFn: () => dienstplanWoche(isoDate(monday)),
   })
+
+  const { data: wuensche } = useQuery<DienstplanWunsch[]>({
+    queryKey: ['dienstplan-wuensche'],
+    queryFn: dienstplanWuenscheListe,
+  })
+
+  const offeneWuensche = (wuensche ?? []).filter((w) => w.status === 'offen' || w.status === 'ausstehend')
+
+  const sendEmail = async () => {
+    setEmailSending(true)
+    setEmailResult(null)
+    try {
+      const res = await dienstplanEmailVersenden(monday.getMonth() + 1, monday.getFullYear()) as {
+        gesendet: number; fehlgeschlagen: number; keine_email: number
+      }
+      setEmailResult(`Versendet: ${res.gesendet} · Fehler: ${res.fehlgeschlagen} · Keine E-Mail: ${res.keine_email}`)
+    } catch {
+      setEmailResult('Fehler beim Versenden.')
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
+  const entscheideWunsch = async (id: number, status: 'genehmigt' | 'abgelehnt') => {
+    await dienstplanWunschEntscheiden(id, status, ablehnungsgrund[id])
+    qc.invalidateQueries({ queryKey: ['dienstplan-wuensche'] })
+    setAblehnungsgrund((p) => { const c = { ...p }; delete c[id]; return c })
+  }
 
   const prevWeek = () => {
     const d = new Date(monday)
@@ -124,8 +167,14 @@ export function AdminDienstplan() {
           </p>
         </div>
 
-        {/* Week navigation */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* Email versenden */}
+          <Button variant="secondary" onClick={sendEmail} loading={emailSending}>
+            <Mail size={14} /> Dienstplan per E-Mail versenden
+          </Button>
+
+          {/* Week navigation */}
+          <div className="flex items-center gap-2">
           <button
             onClick={prevWeek}
             className="p-2 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
@@ -147,8 +196,13 @@ export function AdminDienstplan() {
           >
             <ChevronRight size={18} />
           </button>
+          </div>
         </div>
       </div>
+
+      {emailResult && (
+        <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{emailResult}</p>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 mb-5">
@@ -281,6 +335,92 @@ export function AdminDienstplan() {
           </div>
         </div>
       )}
+
+      {/* Dienstplanwünsche */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold">Dienstplanwünsche</h2>
+          {offeneWuensche.length > 0 && (
+            <span
+              className="text-xs font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+            >
+              {offeneWuensche.length} ausstehend
+            </span>
+          )}
+        </div>
+
+        {!wuensche ? (
+          <Spinner />
+        ) : wuensche.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Keine Dienstplanwünsche vorhanden.</p>
+        ) : (
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--border)' }}
+          >
+            {wuensche.map((w, idx) => {
+              const s = WUNSCH_STATUS[w.status] ?? { label: w.status, color: '#888' }
+              const ma = w.mitarbeiter
+              return (
+                <div
+                  key={w.id}
+                  className="px-5 py-4"
+                  style={{
+                    borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
+                    background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">
+                        {ma ? `${ma.vorname} ${ma.nachname}` : `MA ${w.mitarbeiter_id}`}
+                      </p>
+                      <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {w.datum_von} – {w.datum_bis}
+                        {w.wunsch_text && ` · „${w.wunsch_text}"`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-semibold" style={{ color: s.color }}>
+                        {s.label}
+                      </span>
+                      {(w.status === 'ausstehend' || w.status === 'offen') && (
+                        <>
+                          <button
+                            onClick={() => entscheideWunsch(w.id, 'genehmigt')}
+                            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-all"
+                            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}
+                          >
+                            <CheckCircle size={13} /> Genehmigen
+                          </button>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              placeholder="Begründung (optional)"
+                              value={ablehnungsgrund[w.id] ?? ''}
+                              onChange={(e) => setAblehnungsgrund((p) => ({ ...p, [w.id]: e.target.value }))}
+                              className="text-xs px-2 py-1.5 rounded-lg"
+                              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', width: 160 }}
+                            />
+                            <button
+                              onClick={() => entscheideWunsch(w.id, 'abgelehnt')}
+                              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-all"
+                              style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}
+                            >
+                              <XCircle size={13} /> Ablehnen
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
