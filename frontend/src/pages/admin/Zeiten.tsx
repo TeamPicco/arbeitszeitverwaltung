@@ -6,6 +6,7 @@ import { api } from '../../api/client'
 import { Spinner } from '../../components/Spinner'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
+import { PageHeader } from '../../components/PageHeader'
 import { Clock, TrendingUp, TrendingDown, Minus, Trash2, Plus } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string }
@@ -71,21 +72,17 @@ export function AdminZeiten() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Zeiterfassung</h1>
-          {selectedMa && (
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              {selectedMa.vorname} {selectedMa.nachname} · {MONATE[monat - 1]} {jahr}
-            </p>
-          )}
-        </div>
-        {selectedMaId && (
-          <Button variant="secondary" onClick={() => setShowManuell(!showManuell)}>
-            <Plus size={15} /> Manueller Eintrag
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Zeiterfassung"
+        sub={selectedMa ? `${selectedMa.vorname} ${selectedMa.nachname} · ${MONATE[monat - 1]} ${jahr}` : 'Mitarbeiter und Monat auswählen'}
+        action={
+          selectedMaId ? (
+            <Button variant="secondary" onClick={() => setShowManuell(!showManuell)}>
+              <Plus size={15} /> Manueller Eintrag
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Filter row */}
       <div className="flex gap-3 mb-6 flex-wrap items-center">

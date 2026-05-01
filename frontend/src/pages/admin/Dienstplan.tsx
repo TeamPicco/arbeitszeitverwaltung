@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { mitarbeiterListe } from '../../api/mitarbeiter'
+import { PageHeader } from '../../components/PageHeader'
 import {
   dienstplanWoche,
   dienstplanEintragSetzen,
@@ -239,52 +240,43 @@ export function AdminDienstplan() {
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Dienstplan</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Wöchentliche Schichtplanung — Zelle anklicken zum Wechseln
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* PDF drucken */}
-          <Button variant="secondary" onClick={handlePrint}>
-            <Printer size={14} /> PDF
-          </Button>
-
-          {/* Email versenden */}
-          <Button variant="secondary" onClick={sendEmail} loading={emailSending}>
-            <Mail size={14} /> Dienstplan per E-Mail versenden
-          </Button>
-
-          {/* Week navigation */}
+      <PageHeader
+        title="Dienstplan"
+        sub="Wöchentliche Schichtplanung — Zelle anklicken zum Wechseln"
+        action={
           <div className="flex items-center gap-2">
-          <button
-            onClick={prevWeek}
-            className="p-2 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
-            style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <button
-            onClick={thisWeek}
-            className="px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#1a1a1a] transition-colors cursor-pointer"
-            style={{ border: '1px solid var(--border)', color: 'var(--text)', minWidth: 220, textAlign: 'center' }}
-          >
-            {formatWeek(monday)}
-          </button>
-          <button
-            onClick={nextWeek}
-            className="p-2 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
-            style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
-          >
-            <ChevronRight size={18} />
-          </button>
+            <Button variant="secondary" onClick={handlePrint}>
+              <Printer size={14} /> PDF
+            </Button>
+            <Button variant="secondary" onClick={sendEmail} loading={emailSending}>
+              <Mail size={14} /> Per E-Mail senden
+            </Button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={prevWeek}
+                className="p-1.5 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                onClick={thisWeek}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                style={{ border: '1px solid var(--border)', color: 'var(--text)', minWidth: 200, textAlign: 'center' }}
+              >
+                {formatWeek(monday)}
+              </button>
+              <button
+                onClick={nextWeek}
+                className="p-1.5 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
           </div>
-        </div>
-      </div>
+        }
+      />
 
       {emailResult && (
         <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{emailResult}</p>
@@ -437,7 +429,9 @@ export function AdminDienstplan() {
         </div>
 
         {!wuensche ? (
-          <Spinner />
+          <div className="flex items-center gap-2 py-3" style={{ color: 'var(--text-muted)' }}>
+            <Spinner size={14} /> <span className="text-sm">Lade Wünsche …</span>
+          </div>
         ) : wuensche.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Keine Dienstplanwünsche vorhanden.</p>
         ) : (

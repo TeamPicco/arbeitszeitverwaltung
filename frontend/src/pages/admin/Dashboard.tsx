@@ -35,14 +35,14 @@ export function AdminDashboard() {
     <div>
       {/* Header */}
       <div className="mb-8">
-        <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
           {DAYS_DE[now.getDay()]}, {now.getDate()}. {MONTHS_DE[now.getMonth()]} {now.getFullYear()}
         </p>
-        <h1 className="font-bold tracking-tight" style={{ fontSize: '1.75rem', lineHeight: 1.2 }}>
+        <h1 className="text-[22px] font-bold tracking-tight leading-snug">
           Guten {now.getHours() < 12 ? 'Morgen' : now.getHours() < 18 ? 'Tag' : 'Abend'}
           {betriebName ? `, ${betriebName}` : ''}
         </h1>
-        <p className="text-sm mt-1.5" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
           Tagesaktuelle Übersicht
         </p>
       </div>
