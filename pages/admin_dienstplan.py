@@ -59,10 +59,10 @@ SCHICHTTYPEN = {
 
 try:
     locale.setlocale(locale.LC_TIME, 'de_DE.UTF-8')
-except (ValueError, OSError):
+except (locale.Error, ValueError, OSError):
     try:
         locale.setlocale(locale.LC_TIME, 'de_DE')
-    except (ValueError, OSError):
+    except (locale.Error, ValueError, OSError):
         pass
 
 
