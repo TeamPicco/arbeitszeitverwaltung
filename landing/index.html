@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Complio – Zeiterfassung & Lohnabrechnung für die Gastronomie</title>
+  <meta name="description" content="Schluss mit Papierlisten und Excel-Chaos. Complio ist die einfachste Zeiterfassung für Restaurants, Cafés und Bars – DSGVO-konform, minutengenau, automatisch." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --brand:       #F97316;
+      --brand-dark:  #EA6C0A;
+      --bg:          #0a0a0a;
+      --surface:     #111111;
+      --surface2:    #1a1a1a;
+      --border:      #222222;
+      --text:        #ffffff;
+      --muted:       #a3a3a3;
+      --green:       #22c55e;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    a { color: inherit; text-decoration: none; }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(10,10,10,0.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 5%;
+      display: flex; align-items: center; justify-content: space-between;
+      height: 64px;
+    }
+    .logo { font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }
+    .logo span { color: var(--brand); }
+    nav ul { list-style: none; display: flex; gap: 2rem; }
+    nav ul a { font-size: 0.9rem; font-weight: 500; color: var(--muted); transition: color .2s; }
+    nav ul a:hover { color: var(--text); }
+    .nav-cta {
+      background: var(--brand); color: #fff;
+      padding: 0.5rem 1.25rem; border-radius: 8px;
+      font-size: 0.9rem; font-weight: 700;
+      transition: background .2s;
+    }
+    .nav-cta:hover { background: var(--brand-dark); }
+
+    /* ── HERO ── */
+    .hero {
+      padding: 7rem 5% 5rem;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: -200px; left: 50%; transform: translateX(-50%);
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(249,115,22,0.12) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--brand);
+      font-size: 0.78rem; font-weight: 700;
+      padding: 0.3rem 0.9rem; border-radius: 100px;
+      margin-bottom: 1.75rem;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.6rem);
+      font-weight: 800;
+      line-height: 1.12;
+      max-width: 820px;
+      margin: 0 auto 1.25rem;
+      letter-spacing: -1.5px;
+    }
+    .hero h1 em { font-style: normal; color: var(--brand); }
+    .hero p {
+      font-size: 1.1rem;
+      color: var(--muted);
+      max-width: 520px;
+      margin: 0 auto 2.5rem;
+    }
+    .hero-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .btn-primary {
+      background: var(--brand); color: #fff;
+      padding: 0.9rem 2rem; border-radius: 10px;
+      font-size: 1rem; font-weight: 700;
+      transition: background .2s, transform .15s;
+      box-shadow: 0 0 30px rgba(249,115,22,0.3);
+    }
+    .btn-primary:hover { background: var(--brand-dark); transform: translateY(-2px); }
+    .btn-ghost {
+      border: 1px solid var(--border); color: var(--muted);
+      padding: 0.9rem 2rem; border-radius: 10px;
+      font-size: 1rem; font-weight: 600;
+      transition: border-color .2s, color .2s;
+    }
+    .btn-ghost:hover { border-color: var(--muted); color: var(--text); }
+    .hero-note { margin-top: 1.25rem; font-size: 0.8rem; color: #333; }
+
+    /* ── PROOF BAR ── */
+    .proof-bar {
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      padding: 1rem 5%;
+      display: flex; align-items: center; justify-content: center;
+      gap: 2.5rem; flex-wrap: wrap;
+      font-size: 0.82rem; color: var(--muted); font-weight: 500;
+    }
+    .proof-bar span { display: flex; align-items: center; gap: 0.4rem; }
+    .proof-bar em { color: var(--brand); font-style: normal; }
+
+    /* ── SECTIONS ── */
+    section { padding: 5rem 5%; }
+    .section-label {
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 2px;
+      text-transform: uppercase; color: var(--brand);
+      margin-bottom: 0.75rem;
+    }
+    h2 {
+      font-size: clamp(1.6rem, 3.5vw, 2.4rem);
+      font-weight: 800; line-height: 1.2;
+      letter-spacing: -0.5px;
+      margin-bottom: 1rem;
+    }
+    .subtitle { font-size: 1rem; color: var(--muted); max-width: 520px; }
+    .center { text-align: center; }
+    .center .subtitle { margin: 0 auto; }
+
+    /* ── PAIN ── */
+    .pain { background: var(--surface); }
+    .pain-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1px;
+      margin-top: 3rem;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .pain-card {
+      background: var(--bg);
+      padding: 1.75rem;
+      transition: background .2s;
+    }
+    .pain-card:hover { background: var(--surface2); }
+    .pain-card .icon { font-size: 1.5rem; margin-bottom: 0.75rem; }
+    .pain-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .pain-card p { font-size: 0.85rem; color: var(--muted); }
+    .pain-bottom {
+      margin-top: 2rem;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--brand);
+      border-radius: 12px;
+      padding: 1.5rem 2rem;
+      font-size: 1rem; font-weight: 600; color: var(--text);
+    }
+
+    /* ── FEATURES ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1px;
+      margin-top: 3rem;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .feature-card {
+      background: var(--surface);
+      padding: 1.75rem;
+      transition: background .2s;
+    }
+    .feature-card:hover { background: var(--surface2); }
+    .feature-icon {
+      font-size: 1.5rem; margin-bottom: 1rem;
+    }
+    .feature-card h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .feature-card p { font-size: 0.85rem; color: var(--muted); }
+    .feature-tag {
+      display: inline-block; margin-top: 0.75rem;
+      font-size: 0.72rem; font-weight: 700;
+      background: rgba(249,115,22,0.1); color: var(--brand);
+      padding: 0.2rem 0.65rem; border-radius: 100px;
+      border: 1px solid rgba(249,115,22,0.2);
+    }
+
+    /* ── HOW IT WORKS ── */
+    .how { background: var(--surface); }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 2rem; margin-top: 3rem;
+      position: relative;
+    }
+    .step { text-align: center; }
+    .step-num {
+      width: 52px; height: 52px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--brand);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.2rem; font-weight: 800;
+      margin: 0 auto 1rem;
+    }
+    .step h3 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.4rem; }
+    .step p { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── PRICING ── */
+    .pricing-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem; margin-top: 3rem;
+      max-width: 900px; margin-left: auto; margin-right: auto;
+    }
+    .price-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px; padding: 2rem;
+      position: relative;
+    }
+    .price-card.featured {
+      border-color: var(--brand);
+      background: var(--surface2);
+    }
+    .price-badge {
+      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
+      background: var(--brand); color: #fff;
+      font-size: 0.72rem; font-weight: 700; letter-spacing: 0.5px;
+      padding: 0.2rem 0.9rem; border-radius: 100px; white-space: nowrap;
+    }
+    .price-name { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom: 0.5rem; }
+    .price-amount { font-size: 2.6rem; font-weight: 800; line-height: 1; margin-bottom: 0.3rem; }
+    .price-amount span { font-size: 1rem; font-weight: 500; color: var(--muted); }
+    .price-desc { font-size: 0.82rem; color: var(--muted); margin-bottom: 1.5rem; }
+    .price-features { list-style: none; margin-bottom: 1.75rem; }
+    .price-features li {
+      font-size: 0.85rem; padding: 0.45rem 0;
+      display: flex; gap: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+    }
+    .price-features li:last-child { border: none; }
+    .check { color: var(--brand); font-weight: 700; flex-shrink: 0; }
+    .btn-price {
+      display: block; text-align: center;
+      padding: 0.8rem; border-radius: 10px;
+      font-size: 0.9rem; font-weight: 700;
+      transition: background .2s;
+    }
+    .btn-price.primary { background: var(--brand); color: #fff; }
+    .btn-price.primary:hover { background: var(--brand-dark); }
+    .btn-price.outline { border: 1px solid var(--border); color: var(--muted); }
+    .btn-price.outline:hover { border-color: var(--brand); color: var(--brand); }
+
+    /* ── COMPLIANCE ── */
+    .compliance { background: var(--surface); }
+    .compliance-badges {
+      display: flex; flex-wrap: wrap; gap: 0.75rem;
+      justify-content: center; margin-top: 2rem;
+    }
+    .cbadge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.5rem 1rem;
+      font-size: 0.82rem; font-weight: 600; color: var(--muted);
+    }
+
+    /* ── FAQ ── */
+    .faq-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1px; margin-top: 3rem;
+      border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
+    }
+    .faq-item {
+      background: var(--surface); padding: 1.5rem;
+      transition: background .2s;
+    }
+    .faq-item:hover { background: var(--surface2); }
+    .faq-item h3 { font-size: 0.9rem; font-weight: 700; margin-bottom: 0.5rem; }
+    .faq-item p { font-size: 0.85rem; color: var(--muted); }
+
+    /* ── FINAL CTA ── */
+    .final-cta {
+      text-align: center; padding: 7rem 5%;
+      position: relative; overflow: hidden;
+    }
+    .final-cta::before {
+      content: '';
+      position: absolute;
+      bottom: -100px; left: 50%; transform: translateX(-50%);
+      width: 500px; height: 500px;
+      background: radial-gradient(circle, rgba(249,115,22,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+    .final-cta h2 { font-size: clamp(1.8rem, 4vw, 2.8rem); margin-bottom: 1rem; }
+    .final-cta p { color: var(--muted); font-size: 1rem; max-width: 460px; margin: 0 auto 2.5rem; }
+    .final-note { margin-top: 1.25rem; font-size: 0.78rem; color: #333; }
+
+    /* ── FOOTER ── */
+    footer {
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding: 2rem 5%;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 1rem;
+      font-size: 0.8rem; color: #333;
+    }
+    footer a { color: #333; margin-left: 1.5rem; transition: color .2s; }
+    footer a:hover { color: var(--muted); }
+
+    @media (max-width: 640px) {
+      nav ul { display: none; }
+      .proof-bar { gap: 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo">Complio<span>.</span></div>
+  <ul>
+    <li><a href="#features">Funktionen</a></li>
+    <li><a href="#preise">Preise</a></li>
+    <li><a href="#faq">FAQ</a></li>
+  </ul>
+  <a href="https://app.getcomplio.de" class="nav-cta">Kostenlos starten →</a>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-badge">🍽️ Speziell für die Gastronomie</div>
+  <h1>Schluss mit dem täglichen <em>Zettelchaos</em> —<br>dein Betrieb läuft, auch wenn du gerade nicht schaust.</h1>
+  <p>Zeiterfassung, Dienstplan und Lohnabrechnung in einem. Minutengenau. Gesetzeskonform. Ohne Excel-Hölle.</p>
+  <div class="hero-actions">
+    <a href="https://app.getcomplio.de" class="btn-primary">30 Tage kostenlos testen →</a>
+    <a href="#features" class="btn-ghost">Wie es funktioniert</a>
+  </div>
+  <p class="hero-note">Keine Kreditkarte · Keine Mindestlaufzeit · Einrichtung in 15 Minuten</p>
+</section>
+
+<!-- PROOF BAR -->
+<div class="proof-bar">
+  <span><em>✓</em> DSGVO-konform</span>
+  <span><em>✓</em> Server in Deutschland 🇩🇪</span>
+  <span><em>✓</em> Kiosk, Handy & Desktop</span>
+  <span><em>✓</em> ArbZG · NachwG · BUrlG</span>
+  <span><em>✓</em> Einrichtung in 15 Minuten</span>
+</div>
+
+<!-- PAIN -->
+<section class="pain" id="probleme">
+  <div class="section-label">Kommt dir das bekannt vor?</div>
+  <h2>Der normale Wahnsinn in der Gastronomie</h2>
+  <p class="subtitle">Du führst einen Betrieb — und verlierst Stunden für Verwaltung, die Minuten kosten sollte.</p>
+
+  <div class="pain-grid">
+    <div class="pain-card">
+      <div class="icon">📋</div>
+      <h3>Stundenlisten auf Papier</h3>
+      <p>Am Monatsende tippst du alles ab, suchst unleserliche Zettel und hoffst, dass nichts fehlt.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">😤</div>
+      <h3>Dienstplan per WhatsApp</h3>
+      <p>Dreimal angerufen, zweimal nachgeschrieben, einmal falsch verstanden — und am Samstag steht die Hälfte nicht.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">😰</div>
+      <h3>Angst vor dem Prüfer</h3>
+      <p>Betriebsprüfung? Ohne lückenlose Dokumentation wird's teuer. Bußgelder bis 30.000 € sind möglich.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">💸</div>
+      <h3>Lohnabrechnung kostet Nerven</h3>
+      <p>Sonntags-, Feiertags- und Nachtzuschläge manuell ausrechnen — wer soll das noch ohne Fehler schaffen?</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">🕐</div>
+      <h3>3–5 Stunden Verwaltung pro Monat</h3>
+      <p>Jede Stunde die du tippst, rechnest und suchst ist eine Stunde weniger für deine Gäste.</p>
+    </div>
+    <div class="pain-card">
+      <div class="icon">🔒</div>
+      <h3>DSGVO? Irgendwie</h3>
+      <p>Mitarbeiterdaten in Excel, Urlaubslisten auf dem Desktop — eigentlich weiß jeder, dass das so nicht bleiben kann.</p>
+    </div>
+  </div>
+
+  <div class="pain-bottom">
+    Complio übernimmt das alles automatisch — rechtssicher, ohne dass du dich um Technik kümmern musst.
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="center">
+    <div class="section-label">Was Complio macht</div>
+    <h2>Alles, was dein Betrieb braucht</h2>
+    <p class="subtitle">Entwickelt mit und für Gastronomen. Kein Schnickschnack, keine unnötigen Features.</p>
+  </div>
+
+  <div class="features-grid">
+    <div class="feature-card">
+      <div class="feature-icon">⏱️</div>
+      <h3>Digitale Zeiterfassung</h3>
+      <p>Mitarbeiter stempeln per PIN am Kiosk, per Handy oder Tablet. Alles minutengenau, kein Papier mehr.</p>
+      <span class="feature-tag">Kiosk-Modus inklusive</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📅</div>
+      <h3>Dienstplan in Minuten</h3>
+      <p>Schichten mit wenigen Klicks planen. Mitarbeiter sehen ihren Plan sofort — keine WhatsApp-Gruppe mehr.</p>
+      <span class="feature-tag">Push-Benachrichtigungen</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">💰</div>
+      <h3>Lohnabrechnung auf Knopfdruck</h3>
+      <p>Sonntags-, Feiertags- und Nachtzuschläge automatisch berechnet. DATEV-Export für deinen Steuerberater.</p>
+      <span class="feature-tag">DATEV-Export</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🏖️</div>
+      <h3>Urlaubsverwaltung</h3>
+      <p>Anträge direkt in der App. Du genehmigst per Klick. Resturlaub wird automatisch berechnet.</p>
+      <span class="feature-tag">Keine E-Mail-Flut</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📄</div>
+      <h3>Digitale Arbeitsverträge</h3>
+      <p>Vollzeit, Teilzeit, Minijob — Verträge in Sekunden erstellt, AES-256-verschlüsselt gespeichert.</p>
+      <span class="feature-tag">AES-256 verschlüsselt</span>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">🛡️</div>
+      <h3>Immer auf der sicheren Seite</h3>
+      <p>§ 4 ArbZG, NachwG, BUrlG — Complio hält dich automatisch konform. Prüfungssichere Dokumentation.</p>
+      <span class="feature-tag">Prüfungssicher</span>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="how">
+  <div class="center">
+    <div class="section-label">So einfach geht's</div>
+    <h2>In 3 Schritten startklar</h2>
+    <p class="subtitle">Keine IT-Kenntnisse nötig. Kein Techniker vor Ort. Einfach anmelden und loslegen.</p>
+  </div>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Konto anlegen</h3>
+      <p>Betriebsname eingeben, Mitarbeiter anlegen — fertig. Unter 15 Minuten.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Mitarbeiter einladen</h3>
+      <p>Jeder bekommt sein Login. Wer möchte, installiert die App aufs Handy.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Nie wieder Zettel</h3>
+      <p>Stempeluhr, Dienstplan, Lohnzettel — ab jetzt alles automatisch.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="preise">
+  <div class="center">
+    <div class="section-label">Preise</div>
+    <h2>Transparent. Ohne Überraschungen.</h2>
+    <p class="subtitle">Kein Jahresabo-Zwang. Kündige jederzeit. Starte kostenlos.</p>
+  </div>
+
+  <div class="pricing-grid">
+    <div class="price-card">
+      <div class="price-name">Starter</div>
+      <div class="price-amount">Kostenlos</div>
+      <div class="price-desc">30 Tage. Alle Funktionen. Kein Haken.</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> Bis zu 5 Mitarbeiter</li>
+        <li><span class="check">✓</span> Zeiterfassung & Dienstplan</li>
+        <li><span class="check">✓</span> Urlaubsverwaltung</li>
+        <li><span class="check">✓</span> Kiosk-Modus</li>
+      </ul>
+      <a href="https://app.getcomplio.de" class="btn-price outline">Jetzt kostenlos starten</a>
+    </div>
+
+    <div class="price-card featured">
+      <div class="price-badge">Beliebt in der Gastronomie</div>
+      <div class="price-name">Gastronomie Pro</div>
+      <div class="price-amount">39 € <span>/ Monat</span></div>
+      <div class="price-desc">Für Betriebe bis 25 Mitarbeiter. Alles inklusive.</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> Bis zu 25 Mitarbeiter</li>
+        <li><span class="check">✓</span> Lohnabrechnung + DATEV</li>
+        <li><span class="check">✓</span> Digitale Arbeitsverträge</li>
+        <li><span class="check">✓</span> DSGVO-Dokumentation</li>
+        <li><span class="check">✓</span> E-Mail-Support</li>
+      </ul>
+      <a href="https://app.getcomplio.de" class="btn-price primary">30 Tage kostenlos testen</a>
+    </div>
+
+    <div class="price-card">
+      <div class="price-name">Multi-Betrieb</div>
+      <div class="price-amount">79 € <span>/ Monat</span></div>
+      <div class="price-desc">Für mehrere Standorte und Franchise.</div>
+      <ul class="price-features">
+        <li><span class="check">✓</span> Bis zu 5 Standorte</li>
+        <li><span class="check">✓</span> Zentrale Verwaltung</li>
+        <li><span class="check">✓</span> Alle Pro-Funktionen</li>
+        <li><span class="check">✓</span> Prioritäts-Support</li>
+      </ul>
+      <a href="mailto:hallo@getcomplio.de" class="btn-price outline">Gespräch vereinbaren</a>
+    </div>
+  </div>
+</section>
+
+<!-- COMPLIANCE -->
+<section class="compliance">
+  <div class="center">
+    <div class="section-label">Rechtssicherheit</div>
+    <h2>Von Anfang an auf der sicheren Seite</h2>
+    <p class="subtitle">Complio wurde für den deutschen Markt gebaut — alle gesetzlichen Anforderungen sind eingebaut, nicht nachgerüstet.</p>
+    <div class="compliance-badges">
+      <span class="cbadge">§ 4 ArbZG Pausenregelung</span>
+      <span class="cbadge">NachwG Dokumentationspflicht</span>
+      <span class="cbadge">BUrlG Urlaubsanspruch</span>
+      <span class="cbadge">DSGVO Art. 17 Löschpflicht</span>
+      <span class="cbadge">Mindestlohn-Dokumentation</span>
+      <span class="cbadge">Server in Deutschland 🇩🇪</span>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+  <div class="center">
+    <div class="section-label">FAQ</div>
+    <h2>Was Gastronomen uns fragen</h2>
+  </div>
+  <div class="faq-grid">
+    <div class="faq-item">
+      <h3>Brauche ich technisches Wissen?</h3>
+      <p>Nein. Wenn du ein Smartphone bedienen kannst, kannst du Complio einrichten. Schritt-für-Schritt geführt.</p>
+    </div>
+    <div class="faq-item">
+      <h3>Was passiert nach den 30 Tagen?</h3>
+      <p>Du entscheidest. Keine automatische Abbuchung, kein verstecktes Abo. Deine Daten bleiben erhalten.</p>
+    </div>
+    <div class="faq-item">
+      <h3>Funktioniert das mit Minijobbern?</h3>
+      <p>Ja. Vollzeit, Teilzeit, Minijob — Complio kennt alle Beschäftigungsarten und rechnet korrekt ab.</p>
+    </div>
+    <div class="faq-item">
+      <h3>Kann ich Complio am Handy nutzen?</h3>
+      <p>Vollständig. Auf Android und iPhone installierbar — direkt aus dem Browser, ohne App Store.</p>
+    </div>
+    <div class="faq-item">
+      <h3>Ohne Smartphone für Mitarbeiter?</h3>
+      <p>Kein Problem. Kiosk-Modus: festes Tablet oder PC, einstempeln per PIN.</p>
+    </div>
+    <div class="faq-item">
+      <h3>Sind meine Daten sicher?</h3>
+      <p>Server in Deutschland, AES-256-verschlüsselt, DSGVO-konform. Kein Zugriff durch Dritte.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <h2>Bereit für Ordnung im Betrieb?</h2>
+  <p>Starte heute kostenlos — ohne Kreditkarte, ohne Mindestlaufzeit.</p>
+  <a href="https://app.getcomplio.de" class="btn-primary">Jetzt kostenlos starten →</a>
+  <p class="final-note">Einrichtung 15 Minuten · Keine Kreditkarte · Jederzeit kündbar</p>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <span>© 2026 Complio · Zeiterfassung für die Gastronomie</span>
+  <div>
+    <a href="mailto:hallo@getcomplio.de">Kontakt</a>
+    <a href="#">Impressum</a>
+    <a href="#">Datenschutz</a>
+  </div>
+</footer>
+
+</body>
+</html>
