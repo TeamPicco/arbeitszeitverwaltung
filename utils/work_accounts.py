@@ -837,6 +837,50 @@ def _load_month_ist_hours(
                 except Exception:
                     pass
             total += _to_float(row.get("arbeitsstunden") or row.get("stunden"))
+
+    # BUrlG §11: Urlaubsneutralisierung
+    # Urlaubstage dürfen das AZK nicht belasten. Für jeden Urlaubsarbeitstag ohne
+    # produktive Zeiterfassung wird das Tagessoll gutgeschrieben.
+    try:
+        vac_res = (
+            supabase.table("abwesenheiten")
+            .select("start_datum, ende_datum")
+            .eq("mitarbeiter_id", mitarbeiter_id)
+            .eq("typ", "urlaub")
+            .lte("start_datum", month_end.isoformat())
+            .gte("ende_datum", month_start.isoformat())
+            .execute()
+        )
+        for vac_row in vac_res.data or []:
+            vstart = _safe_date(vac_row.get("start_datum"))
+            vend = _safe_date(vac_row.get("ende_datum"))
+            if vstart is None or vend is None:
+                continue
+            overlap_start = max(vstart, month_start)
+            overlap_end = min(vend, month_end)
+            for d in _daterange(overlap_start, overlap_end):
+                if not _is_workday(d):
+                    continue
+                day_key = d.isoformat()
+                day_rows = grouped.get(day_key, [])
+                productive = [
+                    r for r in day_rows
+                    if str(r.get("quelle") or "").strip().lower() != "historischer_saldo"
+                    and not _is_krank_row(r)
+                ]
+                has_real_hours = any(
+                    _to_float(r.get("arbeitsstunden") or r.get("stunden")) > 0
+                    or (
+                        _normalize_time_value(r.get("start_zeit")) not in ("", "00:00:00")
+                        and _normalize_time_value(r.get("ende_zeit")) not in ("", "00:00:00")
+                    )
+                    for r in productive
+                )
+                if not has_real_hours:
+                    total += float(daily_target_cache.get(day_key, 0.0))
+    except Exception:
+        pass
+
     return round(total, 2)
 
 
