@@ -43,9 +43,10 @@ def get_service_role_client() -> Client:
         service_key = (
             os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             or os.getenv("SUPABASE_SERVICE_KEY")
+            or os.getenv("SUPABASE_KEY")
         )
         if not service_key:
-            raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY/SUPABASE_SERVICE_KEY fehlt")
+            raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY / SUPABASE_KEY fehlt")
         _service_client = create_client(url, service_key)
     return _service_client
 
