@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 from datetime import date
 import base64
@@ -197,9 +198,15 @@ def _render_login_branding() -> None:
     div[data-testid="stAlert"] p{color:#888!important;font-size:13px!important}
     </style>
     """, unsafe_allow_html=True)
+    if BRAND_LOGO_IMAGE and os.path.exists(BRAND_LOGO_IMAGE):
+        st.image(BRAND_LOGO_IMAGE, width=180)
+    else:
+        st.markdown(
+            '<div style="font-size:20px;font-weight:700;color:#fff;letter-spacing:-0.5px;padding:16px 0 8px 0">Complio<span style="color:#F97316">.</span></div>',
+            unsafe_allow_html=True,
+        )
     st.markdown("""
-    <div style="background:#0a0a0a;padding:16px 0 20px 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #1a1a1a;margin-bottom:28px">
-        <div style="font-size:20px;font-weight:700;color:#fff;letter-spacing:-0.5px">Complio<span style="color:#F97316">.</span></div>
+    <div style="border-bottom:1px solid #1a1a1a;margin-bottom:28px;padding-bottom:16px">
         <div style="font-size:9px;color:#333;letter-spacing:1.5px;text-transform:uppercase">Rechtssicher · Organisiert · Geschützt</div>
     </div>
     <div style="margin-bottom:20px">
