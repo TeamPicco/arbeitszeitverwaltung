@@ -44,13 +44,12 @@ export function LoginPage() {
       style={{ background: 'var(--bg)' }}>
       <div className="w-full max-w-sm">
         {/* Logo */}
-        <div className="text-center mb-8">
-          <span className="text-2xl font-bold tracking-tight" style={{ color: 'var(--text)' }}>
-            comp<span style={{ color: 'var(--accent)' }}>lio</span>
-          </span>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
-            HR-Software für Gastronomie
-          </p>
+        <div className="flex justify-center mb-8">
+          <img
+            src="/complio-logo.png"
+            alt="Complio"
+            style={{ height: '56px', width: 'auto', objectFit: 'contain' }}
+          />
         </div>
 
         <form

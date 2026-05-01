@@ -69,7 +69,7 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
         <img
           src="/complio-logo.png"
           alt="Complio"
-          style={{ height: '38px', width: 'auto', objectFit: 'contain' }}
+          style={{ height: '32px', width: 'auto', objectFit: 'contain' }}
         />
       </div>
 
