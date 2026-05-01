@@ -290,18 +290,24 @@ def berechne_azk_kumuliert(mitarbeiter_id: int, bis_monat: int, bis_jahr: int) -
 # ─────────────────────────────────────────────────────────────────────────────
 
 def berechne_urlaubskonto(mitarbeiter_id: int, jahr: int) -> Dict[str, Any]:
-    """
-    Berechnet den Urlaubsstand für ein Jahr.
-
-    Returns:
-        {
-            'gesamt_anspruch': int,   # Resturlaub Vorjahr + Jahresanspruch
-            'genommen': int,          # Bisher genommene Urlaubstage
-            'offen': int,             # Verbleibende Urlaubstage
-            'resturlaub_vorjahr': int,
-            'jahresanspruch': int,
+    """Berechnet den Urlaubsstand für ein Jahr aus allen verfügbaren Quellen."""
+    def _result(gesamt: int, genommen: int, resturlaub: int, jahresanspruch: int, fehler: str = "") -> Dict[str, Any]:
+        offen = max(0, gesamt - genommen)
+        base = {
+            'gesamt_anspruch': gesamt,
+            'genommen': genommen,
+            'offen': offen,
+            'resturlaub_vorjahr': resturlaub,
+            'jahresanspruch': jahresanspruch,
+            # Frontend-kompatible Feldnamen
+            'anspruch_tage': gesamt,
+            'genommene_tage': genommen,
+            'rest_tage': offen,
         }
-    """
+        if fehler:
+            base['fehler'] = fehler
+        return base
+
     try:
         supabase = get_supabase_client()
 
@@ -310,55 +316,79 @@ def berechne_urlaubskonto(mitarbeiter_id: int, jahr: int) -> Dict[str, Any]:
         ).eq('id', mitarbeiter_id).single().execute()
 
         if not ma_resp.data:
-            return {'gesamt_anspruch': 0, 'genommen': 0, 'offen': 0,
-                    'resturlaub_vorjahr': 0, 'jahresanspruch': 0}
+            return _result(0, 0, 0, 0)
 
         ma = ma_resp.data
-        # jahres_urlaubstage ist das bestehende Feld, urlaubsanspruch_jahrestage das neue
         jahresanspruch = int(ma.get('urlaubsanspruch_jahrestage') or ma.get('jahres_urlaubstage') or 0)
         resturlaub = int(ma.get('resturlaub_vorjahr') or 0)
         gesamt = jahresanspruch + resturlaub
 
-        # Genommene Urlaubstage aus Zeiterfassung zählen
         von = date(jahr, 1, 1).isoformat()
         bis = date(jahr + 1, 1, 1).isoformat()
 
-        ze_resp = supabase.table('zeiterfassung').select('datum, abwesenheitstyp').eq(
-            'mitarbeiter_id', mitarbeiter_id
-        ).gte('datum', von).lt('datum', bis).execute()
+        # 1) abwesenheiten-Tabelle (primäre Quelle im FastAPI-System)
+        genommen_abw = 0
+        try:
+            abw_resp = supabase.table('abwesenheiten').select(
+                'typ, start_datum, ende_datum'
+            ).eq('mitarbeiter_id', mitarbeiter_id).eq('typ', 'urlaub').execute()
+            for row in (abw_resp.data or []):
+                try:
+                    start = date.fromisoformat(str(row['start_datum']))
+                    end = date.fromisoformat(str(row['ende_datum']))
+                    cur = max(start, date(jahr, 1, 1))
+                    end = min(end, date(jahr, 12, 31))
+                    while cur <= end:
+                        if not ist_ruhetag(cur):
+                            genommen_abw += 1
+                        cur += timedelta(days=1)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
-        genommen = 0
-        for e in (ze_resp.data or []):
-            abwtyp = (e.get('abwesenheitstyp') or '').lower()
-            if abwtyp in ('urlaub', 'vacation', 'u'):
-                d = date.fromisoformat(e['datum'])
-                if not ist_ruhetag(d):
-                    genommen += 1
+        # 2) Zeiterfassung (Fallback / zusätzliche Quelle)
+        genommen_ze = 0
+        try:
+            ze_resp = supabase.table('zeiterfassung').select('datum, abwesenheitstyp').eq(
+                'mitarbeiter_id', mitarbeiter_id
+            ).gte('datum', von).lt('datum', bis).execute()
+            for e in (ze_resp.data or []):
+                if (e.get('abwesenheitstyp') or '').lower() in ('urlaub', 'vacation', 'u'):
+                    try:
+                        if not ist_ruhetag(date.fromisoformat(e['datum'])):
+                            genommen_ze += 1
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
-        # Auch aus urlaubsantraege zählen (genehmigte)
-        ua_resp = supabase.table('urlaubsantraege').select('anzahl_tage').eq(
-            'mitarbeiter_id', mitarbeiter_id
-        ).eq('status', 'genehmigt').gte('von_datum', von).lt('von_datum', bis).execute()
+        # 3) Urlaubsanträge (genehmigt) als weiterer Fallback
+        genommen_ua = 0
+        try:
+            ua_resp = supabase.table('urlaubsantraege').select('anzahl_tage').eq(
+                'mitarbeiter_id', mitarbeiter_id
+            ).eq('status', 'genehmigt').gte('datum_von', von).lt('datum_von', bis).execute()
+            if ua_resp.data:
+                genommen_ua = sum(int(u.get('anzahl_tage') or 0) for u in ua_resp.data)
+        except Exception:
+            # Fallback: von_datum statt datum_von
+            try:
+                ua_resp2 = supabase.table('urlaubsantraege').select('anzahl_tage').eq(
+                    'mitarbeiter_id', mitarbeiter_id
+                ).eq('status', 'genehmigt').gte('von_datum', von).lt('von_datum', bis).execute()
+                if ua_resp2.data:
+                    genommen_ua = sum(int(u.get('anzahl_tage') or 0) for u in ua_resp2.data)
+            except Exception:
+                pass
 
-        # Nur zählen wenn nicht bereits in Zeiterfassung
-        # (Zeiterfassung ist die führende Quelle)
-        if not ze_resp.data and ua_resp.data:
-            genommen = sum(int(u.get('anzahl_tage') or 0) for u in ua_resp.data)
+        # Beste verfügbare Zahl: abwesenheiten hat Vorrang, dann ze, dann ua
+        genommen = genommen_abw or genommen_ze or genommen_ua
 
-        offen = max(0, gesamt - genommen)
-
-        return {
-            'gesamt_anspruch': gesamt,
-            'genommen': genommen,
-            'offen': offen,
-            'resturlaub_vorjahr': resturlaub,
-            'jahresanspruch': jahresanspruch,
-        }
+        return _result(gesamt, genommen, resturlaub, jahresanspruch)
 
     except Exception as ex:
-        return {'gesamt_anspruch': 0, 'genommen': 0, 'offen': 0,
-                'resturlaub_vorjahr': 0, 'jahresanspruch': 0,
-                'fehler': str(ex)}
+        return _result(0, 0, 0, 0, fehler=str(ex))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -120,3 +120,64 @@ def lohn_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/datev-export")
+def datev_export_herunterladen(
+    monat: int,
+    jahr: int,
+    betrieb_id: int = Depends(get_betrieb_id),
+    user: Dict[str, Any] = Depends(require_admin),
+):
+    """DATEV-Lohnexport als CSV (UTF-8 BOM, Semikolon) für den Steuerberater."""
+    supabase = _get_supabase()
+
+    ma_res = (
+        supabase.table("mitarbeiter")
+        .select(
+            "id,vorname,nachname,monatliche_soll_stunden,monatliche_brutto_verguetung"
+        )
+        .eq("betrieb_id", betrieb_id)
+        .eq("aktiv", True)
+        .execute()
+    )
+    mitarbeiter = ma_res.data or []
+
+    ma_ids = [m["id"] for m in mitarbeiter]
+    if not ma_ids:
+        raise HTTPException(status_code=404, detail="Keine aktiven Mitarbeiter gefunden.")
+
+    la_res = (
+        supabase.table("lohnabrechnungen")
+        .select("*")
+        .in_("mitarbeiter_id", ma_ids)
+        .eq("monat", monat)
+        .eq("jahr", jahr)
+        .execute()
+    )
+    abrechnungen = la_res.data or []
+
+    betrieb_res = (
+        supabase.table("betriebe")
+        .select("*")
+        .eq("id", betrieb_id)
+        .limit(1)
+        .execute()
+    )
+    betrieb_info = betrieb_res.data[0] if betrieb_res.data else {}
+
+    from utils.datev_export import erstelle_datev_lohnexport
+
+    try:
+        csv_bytes = erstelle_datev_lohnexport(
+            mitarbeiter, abrechnungen, monat, jahr, betrieb_info
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DATEV-Export fehlgeschlagen: {e}")
+
+    filename = f"DATEV_Lohn_{jahr}_{monat:02d}.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8-sig",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

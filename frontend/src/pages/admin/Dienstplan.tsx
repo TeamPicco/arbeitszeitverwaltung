@@ -5,10 +5,15 @@ import {
   dienstplanWoche,
   dienstplanEintragSetzen,
   dienstplanEintragLoeschen,
+  dienstplanWuenscheListe,
+  dienstplanWunschEntscheiden,
+  dienstplanEmailVersenden,
   type DienstplanEintrag,
+  type DienstplanWunsch,
 } from '../../api/dienstplan'
+import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import { ChevronLeft, ChevronRight, Info } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle, Printer } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string; position?: string }
 
@@ -47,10 +52,20 @@ function isToday(d: Date): boolean {
   return isoDate(d) === isoDate(today)
 }
 
+const WUNSCH_STATUS: Record<string, { label: string; color: string }> = {
+  offen:      { label: 'Offen',      color: '#F97316' },
+  ausstehend: { label: 'Ausstehend', color: '#F97316' },
+  genehmigt:  { label: 'Genehmigt',  color: '#22c55e' },
+  abgelehnt:  { label: 'Abgelehnt',  color: '#ef4444' },
+}
+
 export function AdminDienstplan() {
   const qc = useQueryClient()
   const [monday, setMonday] = useState<Date>(() => getMondayOfWeek(new Date()))
   const [saving, setSaving] = useState<string | null>(null)
+  const [emailSending, setEmailSending] = useState(false)
+  const [emailResult, setEmailResult] = useState<string | null>(null)
+  const [ablehnungsgrund, setAblehnungsgrund] = useState<Record<number, string>>({})
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
@@ -67,6 +82,34 @@ export function AdminDienstplan() {
     queryKey: ['dienstplan', isoDate(monday)],
     queryFn: () => dienstplanWoche(isoDate(monday)),
   })
+
+  const { data: wuensche } = useQuery<DienstplanWunsch[]>({
+    queryKey: ['dienstplan-wuensche'],
+    queryFn: dienstplanWuenscheListe,
+  })
+
+  const offeneWuensche = (wuensche ?? []).filter((w) => w.status === 'offen' || w.status === 'ausstehend')
+
+  const sendEmail = async () => {
+    setEmailSending(true)
+    setEmailResult(null)
+    try {
+      const res = await dienstplanEmailVersenden(monday.getMonth() + 1, monday.getFullYear()) as {
+        gesendet: number; fehlgeschlagen: number; keine_email: number
+      }
+      setEmailResult(`Versendet: ${res.gesendet} · Fehler: ${res.fehlgeschlagen} · Keine E-Mail: ${res.keine_email}`)
+    } catch {
+      setEmailResult('Fehler beim Versenden.')
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
+  const entscheideWunsch = async (id: number, status: 'genehmigt' | 'abgelehnt') => {
+    await dienstplanWunschEntscheiden(id, status, ablehnungsgrund[id])
+    qc.invalidateQueries({ queryKey: ['dienstplan-wuensche'] })
+    setAblehnungsgrund((p) => { const c = { ...p }; delete c[id]; return c })
+  }
 
   const prevWeek = () => {
     const d = new Date(monday)
@@ -113,6 +156,87 @@ export function AdminDienstplan() {
 
   const isLoading = maLoading || dpLoading
 
+  const handlePrint = () => {
+    const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+    const LABELS: Record<string, string> = { arbeit: 'Arbeit', urlaub: 'Urlaub', frei: 'Frei' }
+    const COLORS: Record<string, string> = { arbeit: '#f97316', urlaub: '#3b82f6', frei: '#64748b' }
+
+    const dayHeaders = weekDays.map((day, i) =>
+      `<th style="padding:10px 6px;text-align:center;font-size:11px;color:#666;font-weight:600;">
+        ${DAYS[i]}<br><span style="font-size:14px;font-weight:700;color:#111;">${day.getDate()}.${day.getMonth() + 1}.</span>
+      </th>`
+    ).join('')
+
+    const rows = (mitarbeiter ?? []).map((ma) => {
+      const cells = weekDays.map((day) => {
+        const e = getEintrag(ma.id, day)
+        const typ = e?.schichttyp
+        const col = typ ? COLORS[typ] : null
+        const cell = typ
+          ? `<span style="padding:3px 10px;border-radius:5px;background:${col}22;color:${col};border:1px solid ${col}55;font-size:11px;">${LABELS[typ]}</span>`
+          : `<span style="color:#bbb;font-size:11px;">—</span>`
+        const zeit = e?.start_zeit ? `<div style="font-size:10px;color:#888;margin-top:2px;">${e.start_zeit.slice(0,5)}${e.end_zeit ? ` – ${e.end_zeit.slice(0,5)}` : ''}</div>` : ''
+        return `<td style="padding:8px 6px;text-align:center;">${cell}${zeit}</td>`
+      }).join('')
+      return `<tr style="border-bottom:1px solid #e5e7eb;">
+        <td style="padding:8px 12px;font-size:13px;font-weight:500;">${ma.vorname} ${ma.nachname}${ma.position ? `<div style="font-size:10px;color:#888;">${ma.position}</div>` : ''}</td>
+        ${cells}
+      </tr>`
+    }).join('')
+
+    const logoSrc = `${window.location.origin}/complio-logo.png`
+    const heute = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>Dienstplan ${formatWeek(monday)}</title>
+<style>
+  body{font-family:Arial,sans-serif;margin:0;padding:28px;background:#fff;color:#111;}
+  table{width:100%;border-collapse:collapse;}
+  @media print{body{padding:14px;}button{display:none;}}
+</style>
+</head><body>
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:14px;border-bottom:3px solid #f97316;">
+  <div style="background:#000;padding:8px 16px;border-radius:8px;">
+    <img src="${logoSrc}" style="height:32px;display:block;" alt="Complio">
+  </div>
+  <div style="text-align:right;">
+    <div style="font-size:18px;font-weight:700;">Dienstplan</div>
+    <div style="font-size:13px;color:#666;margin-top:2px;">${formatWeek(monday)}</div>
+  </div>
+</div>
+<table>
+  <thead><tr style="border-bottom:2px solid #e5e7eb;background:#f9f9f9;">
+    <th style="padding:10px 12px;text-align:left;font-size:11px;color:#666;font-weight:600;">Mitarbeiter</th>
+    ${dayHeaders}
+  </tr></thead>
+  <tbody>${rows}</tbody>
+</table>
+<div style="margin-top:36px;padding:14px 18px;border:1.5px solid #f97316;border-radius:8px;background:#fff8f3;">
+  <p style="font-size:11px;color:#333;margin:0;line-height:1.7;">
+    <strong style="color:#f97316;">⚠ Wichtiger Hinweis:</strong>&nbsp;
+    Dieser Dienstplan gilt vorbehaltlich kurzfristiger Änderungen durch Krankheit, höhere Gewalt oder sonstige
+    unvorhergesehene Ereignisse. Die angegebenen Endzeiten können je nach wirtschaftlicher Auslastung und
+    betrieblichen Erfordernissen variieren. Änderungen werden so früh wie möglich kommuniziert.
+  </p>
+</div>
+<p style="font-size:10px;color:#aaa;text-align:center;margin-top:20px;">
+  Erstellt am ${heute} · Steakhouse Piccolo · Complio HR-Software
+</p>
+<div style="text-align:center;margin-top:12px;">
+  <button onclick="window.print()" style="background:#f97316;color:#fff;border:none;padding:10px 28px;border-radius:6px;font-size:13px;cursor:pointer;">
+    Drucken / Als PDF speichern
+  </button>
+</div>
+</body></html>`
+
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(html)
+      win.document.close()
+      win.focus()
+    }
+  }
+
   return (
     <div>
       {/* Header */}
@@ -124,8 +248,19 @@ export function AdminDienstplan() {
           </p>
         </div>
 
-        {/* Week navigation */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* PDF drucken */}
+          <Button variant="secondary" onClick={handlePrint}>
+            <Printer size={14} /> PDF
+          </Button>
+
+          {/* Email versenden */}
+          <Button variant="secondary" onClick={sendEmail} loading={emailSending}>
+            <Mail size={14} /> Dienstplan per E-Mail versenden
+          </Button>
+
+          {/* Week navigation */}
+          <div className="flex items-center gap-2">
           <button
             onClick={prevWeek}
             className="p-2 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
@@ -147,8 +282,13 @@ export function AdminDienstplan() {
           >
             <ChevronRight size={18} />
           </button>
+          </div>
         </div>
       </div>
+
+      {emailResult && (
+        <p className="text-sm mb-4" style={{ color: 'var(--text-muted)' }}>{emailResult}</p>
+      )}
 
       {/* Legend */}
       <div className="flex items-center gap-4 mb-5">
@@ -281,6 +421,92 @@ export function AdminDienstplan() {
           </div>
         </div>
       )}
+
+      {/* Dienstplanwünsche */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold">Dienstplanwünsche</h2>
+          {offeneWuensche.length > 0 && (
+            <span
+              className="text-xs font-semibold px-2.5 py-1 rounded-full"
+              style={{ background: 'var(--accent-dim)', color: 'var(--accent)' }}
+            >
+              {offeneWuensche.length} ausstehend
+            </span>
+          )}
+        </div>
+
+        {!wuensche ? (
+          <Spinner />
+        ) : wuensche.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Keine Dienstplanwünsche vorhanden.</p>
+        ) : (
+          <div
+            className="rounded-xl overflow-hidden"
+            style={{ border: '1px solid var(--border)' }}
+          >
+            {wuensche.map((w, idx) => {
+              const s = WUNSCH_STATUS[w.status] ?? { label: w.status, color: '#888' }
+              const ma = w.mitarbeiter
+              return (
+                <div
+                  key={w.id}
+                  className="px-5 py-4"
+                  style={{
+                    borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
+                    background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">
+                        {ma ? `${ma.vorname} ${ma.nachname}` : `MA ${w.mitarbeiter_id}`}
+                      </p>
+                      <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {w.datum_von} – {w.datum_bis}
+                        {w.wunsch_text && ` · „${w.wunsch_text}"`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs font-semibold" style={{ color: s.color }}>
+                        {s.label}
+                      </span>
+                      {(w.status === 'ausstehend' || w.status === 'offen') && (
+                        <>
+                          <button
+                            onClick={() => entscheideWunsch(w.id, 'genehmigt')}
+                            className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-all"
+                            style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e' }}
+                          >
+                            <CheckCircle size={13} /> Genehmigen
+                          </button>
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              placeholder="Begründung (optional)"
+                              value={ablehnungsgrund[w.id] ?? ''}
+                              onChange={(e) => setAblehnungsgrund((p) => ({ ...p, [w.id]: e.target.value }))}
+                              className="text-xs px-2 py-1.5 rounded-lg"
+                              style={{ background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)', width: 160 }}
+                            />
+                            <button
+                              onClick={() => entscheideWunsch(w.id, 'abgelehnt')}
+                              className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg font-medium cursor-pointer transition-all"
+                              style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}
+                            >
+                              <XCircle size={13} /> Ablehnen
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
