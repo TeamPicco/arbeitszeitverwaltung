@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { urlaubListe, urlaubEntscheiden } from '../../api/urlaub'
 import { Spinner } from '../../components/Spinner'
+import { PageHeader } from '../../components/PageHeader'
 import { CheckCircle, XCircle, CalendarDays, Filter } from 'lucide-react'
 
 type StatusFilter = 'alle' | 'ausstehend' | 'genehmigt' | 'abgelehnt'
@@ -32,33 +33,29 @@ export function AdminUrlaub() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="font-extrabold tracking-tight" style={{ fontSize: '2.8rem', lineHeight: 1.15 }}>Urlaubsanträge</h1>
-          <p className="text-base mt-2" style={{ color: 'var(--text-muted)' }}>
-            {items.length} {filter === 'alle' ? 'Anträge gesamt' : `Anträge (${STATUS_CONFIG[filter]?.label ?? filter})`}
-          </p>
-        </div>
-
-        {/* Filter tabs */}
-        <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <Filter size={14} className="ml-2" style={{ color: 'var(--text-muted)' }} />
-          {(['alle', 'ausstehend', 'genehmigt', 'abgelehnt'] as StatusFilter[]).map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className="px-3 py-1.5 rounded-md text-sm font-medium transition-all cursor-pointer capitalize"
-              style={
-                filter === s
-                  ? { background: 'var(--accent)', color: '#fff' }
-                  : { color: 'var(--text-muted)' }
-              }
-            >
-              {s === 'alle' ? 'Alle' : STATUS_CONFIG[s]?.label ?? s}
-            </button>
-          ))}
-        </div>
-      </div>
+      <PageHeader
+        title="Urlaubsanträge"
+        sub={`${items.length} ${filter === 'alle' ? 'Anträge gesamt' : `Anträge (${STATUS_CONFIG[filter]?.label ?? filter})`}`}
+        action={
+          <div className="flex items-center gap-1 p-1 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <Filter size={13} className="ml-2" style={{ color: 'var(--text-muted)' }} />
+            {(['alle', 'ausstehend', 'genehmigt', 'abgelehnt'] as StatusFilter[]).map((s) => (
+              <button
+                key={s}
+                onClick={() => setFilter(s)}
+                className="px-3 py-1.5 rounded-md text-sm font-medium transition-all cursor-pointer capitalize"
+                style={
+                  filter === s
+                    ? { background: 'var(--accent)', color: '#fff' }
+                    : { color: 'var(--text-muted)' }
+                }
+              >
+                {s === 'alle' ? 'Alle' : STATUS_CONFIG[s]?.label ?? s}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {isLoading ? (
         <div className="flex justify-center h-40 items-center"><Spinner /></div>
@@ -79,10 +76,10 @@ export function AdminUrlaub() {
             return (
               <div
                 key={a.id as number}
-                className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#141414]"
+                className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#F5F5F5]"
                 style={{
                   borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                  background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                  background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                 }}
               >
                 <div className="flex items-center gap-4">

@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { dashboardStats } from '../../api/admin'
 import { urlaubListe, urlaubEntscheiden } from '../../api/urlaub'
 import { MetricCard, SectionHeader } from '../../components/Card'
-import { Spinner } from '../../components/Spinner'
+import { SkeletonMetrics } from '../../components/Skeleton'
 import { useAuthStore } from '../../store/auth'
-import { CheckCircle, XCircle, Users, Clock, CalendarDays, TrendingUp } from 'lucide-react'
+import { CheckCircle, XCircle, Users, Clock, CalendarDays } from 'lucide-react'
 
 const MONTHS_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember']
 const DAYS_DE = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag']
@@ -26,32 +27,35 @@ export function AdminDashboard() {
   })
 
   const decide = async (id: number, status: 'genehmigt' | 'abgelehnt') => {
-    await urlaubEntscheiden(id, status)
-    qc.invalidateQueries({ queryKey: ['urlaub-offen'] })
-    qc.invalidateQueries({ queryKey: ['admin-stats'] })
+    try {
+      await urlaubEntscheiden(id, status)
+      qc.invalidateQueries({ queryKey: ['urlaub-offen'] })
+      qc.invalidateQueries({ queryKey: ['admin-stats'] })
+      toast.success(status === 'genehmigt' ? 'Antrag genehmigt' : 'Antrag abgelehnt')
+    } catch {
+      toast.error('Fehler beim Bearbeiten des Antrags')
+    }
   }
 
   return (
     <div>
       {/* Header */}
       <div className="mb-8">
-        <p className="text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
           {DAYS_DE[now.getDay()]}, {now.getDate()}. {MONTHS_DE[now.getMonth()]} {now.getFullYear()}
         </p>
-        <h1 className="font-bold tracking-tight" style={{ fontSize: '1.75rem', lineHeight: 1.2 }}>
+        <h1 className="text-[22px] font-bold tracking-tight leading-snug">
           Guten {now.getHours() < 12 ? 'Morgen' : now.getHours() < 18 ? 'Tag' : 'Abend'}
           {betriebName ? `, ${betriebName}` : ''}
         </h1>
-        <p className="text-sm mt-1.5" style={{ color: 'var(--text-muted)' }}>
+        <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
           Tagesaktuelle Übersicht
         </p>
       </div>
 
       {/* Metrics */}
       {isLoading ? (
-        <div className="flex items-center justify-center h-28">
-          <Spinner />
-        </div>
+        <div className="mb-6"><SkeletonMetrics count={3} /></div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           <MetricCard

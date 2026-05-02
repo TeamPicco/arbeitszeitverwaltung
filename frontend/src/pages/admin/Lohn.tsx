@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { mitarbeiterListe } from '../../api/mitarbeiter'
 import { api } from '../../api/client'
 import { Card } from '../../components/Card'
@@ -18,7 +19,6 @@ export function AdminLohn() {
   const [berechnung, setBerechnung] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
   const qc = useQueryClient()
 
   const { data: mitarbeiter } = useQuery<MA[]>({
@@ -36,17 +36,12 @@ export function AdminLohn() {
   const berechnen = async () => {
     if (!selectedMaId) return
     setLoading(true)
-    setError('')
     setBerechnung(null)
     try {
-      const res = await api.post('/lohn/berechnen', {
-        mitarbeiter_id: selectedMaId,
-        monat,
-        jahr,
-      })
+      const res = await api.post('/lohn/berechnen', { mitarbeiter_id: selectedMaId, monat, jahr })
       setBerechnung(res.data)
     } catch (err: unknown) {
-      setError(
+      toast.error(
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
           'Fehler beim Berechnen.'
       )
@@ -59,15 +54,12 @@ export function AdminLohn() {
     if (!selectedMaId) return
     setSaving(true)
     try {
-      await api.post('/lohn/speichern', {
-        mitarbeiter_id: selectedMaId,
-        monat,
-        jahr,
-      })
+      await api.post('/lohn/speichern', { mitarbeiter_id: selectedMaId, monat, jahr })
       qc.invalidateQueries({ queryKey: ['lohn-liste', selectedMaId] })
       setBerechnung(null)
+      toast.success('Abrechnung gespeichert')
     } catch (err: unknown) {
-      setError(
+      toast.error(
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
           'Fehler beim Speichern.'
       )
@@ -168,10 +160,6 @@ export function AdminLohn() {
         </Button>
       </div>
 
-      {error && (
-        <p className="text-sm text-red-400 mb-4">{error}</p>
-      )}
-
       {/* Berechnungsergebnis */}
       {berechnung && (
         <Card className="mb-6">
@@ -237,7 +225,7 @@ export function AdminLohn() {
                             setJahr(a.jahr as number)
                             downloadPdf()
                           }}
-                          className="text-xs px-2 py-1 rounded hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                          className="text-xs px-2 py-1 rounded hover:bg-[#F5F5F5] transition-colors cursor-pointer"
                           style={{ color: 'var(--accent)' }}
                         >
                           PDF

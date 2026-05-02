@@ -3,9 +3,10 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { mitarbeiterListe } from '../../api/mitarbeiter'
 import { zeitenMonat, azkMonat } from '../../api/zeiten'
 import { api } from '../../api/client'
-import { Spinner } from '../../components/Spinner'
+import { SkeletonTable, SkeletonMetrics } from '../../components/Skeleton'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
+import { PageHeader } from '../../components/PageHeader'
 import { Clock, TrendingUp, TrendingDown, Minus, Trash2, Plus } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string }
@@ -71,21 +72,17 @@ export function AdminZeiten() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Zeiterfassung</h1>
-          {selectedMa && (
-            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              {selectedMa.vorname} {selectedMa.nachname} · {MONATE[monat - 1]} {jahr}
-            </p>
-          )}
-        </div>
-        {selectedMaId && (
-          <Button variant="secondary" onClick={() => setShowManuell(!showManuell)}>
-            <Plus size={15} /> Manueller Eintrag
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Zeiterfassung"
+        sub={selectedMa ? `${selectedMa.vorname} ${selectedMa.nachname} · ${MONATE[monat - 1]} ${jahr}` : 'Mitarbeiter und Monat auswählen'}
+        action={
+          selectedMaId ? (
+            <Button variant="secondary" onClick={() => setShowManuell(!showManuell)}>
+              <Plus size={15} /> Manueller Eintrag
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* Filter row */}
       <div className="flex gap-3 mb-6 flex-wrap items-center">
@@ -134,7 +131,10 @@ export function AdminZeiten() {
       )}
 
       {selectedMaId && zeitenLoading && (
-        <div className="flex justify-center h-20 items-center"><Spinner /></div>
+        <div className="flex flex-col gap-4">
+          <SkeletonMetrics count={4} />
+          <SkeletonTable rows={5} cols={5} />
+        </div>
       )}
 
       {selectedMaId && !zeitenLoading && (
@@ -188,7 +188,7 @@ export function AdminZeiten() {
           >
             <table className="w-full">
               <thead>
-                <tr style={{ background: '#0d0d0d', borderBottom: '1px solid var(--border)' }}>
+                <tr style={{ background: '#FFFFFF', borderBottom: '1px solid var(--border)' }}>
                   {['Datum', 'Start', 'Ende', 'Pause', 'Stunden', 'Quelle', ''].map((h) => (
                     <th
                       key={h}
@@ -204,10 +204,10 @@ export function AdminZeiten() {
                 {((zeiten ?? []) as Eintrag[]).map((e, idx) => (
                   <tr
                     key={e.id}
-                    className="hover:bg-[#141414] transition-colors"
+                    className="hover:bg-[#F5F5F5] transition-colors"
                     style={{
                       borderTop: '1px solid var(--border)',
-                      background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                      background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                     }}
                   >
                     <td className="px-4 py-3 font-medium">{e.datum}</td>

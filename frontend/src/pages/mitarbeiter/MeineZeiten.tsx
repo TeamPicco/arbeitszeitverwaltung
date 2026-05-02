@@ -86,7 +86,7 @@ export function MeineZeiten() {
                   <tr
                     key={e.id}
                     style={{ borderBottom: '1px solid var(--border)' }}
-                    className="hover:bg-[#111] transition-colors"
+                    className="hover:bg-[#F5F5F5] transition-colors"
                   >
                     <td className="py-2 pr-4">{e.datum}</td>
                     <td className="py-2 pr-4 font-mono text-xs">{e.start_zeit ?? '–'}</td>

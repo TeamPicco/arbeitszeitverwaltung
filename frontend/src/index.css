@@ -1,57 +1,92 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&display=swap');
 
 @import "tailwindcss";
 
 :root {
-  --bg:           #0a0a0f;
-  --surface:      #111118;
-  --surface2:     #17171f;
-  --surface3:     #1c1c26;
-  --border:       #1f1f2e;
-  --border-hover: #2d2d42;
-  --text:         #ededf0;
-  --text-muted:   #6c6c80;
-  --text-subtle:  #3d3d52;
-  --accent:       #F97316;
-  --accent-hover: #ea6a0a;
-  --accent-dim:   rgba(249, 115, 22, 0.12);
-  --accent-dim2:  rgba(249, 115, 22, 0.07);
-  --danger:       #f87171;
-  --danger-dim:   rgba(248, 113, 113, 0.12);
-  --success:      #4ade80;
-  --success-dim:  rgba(74, 222, 128, 0.12);
-  --warning:      #fbbf24;
-  --info:         #60a5fa;
-  --info-dim:     rgba(96, 165, 250, 0.12);
-  --sidebar-w:    240px;
-  --radius:       8px;
-  --radius-sm:    6px;
-  --radius-lg:    12px;
+  /* Brand Orange */
+  --accent:         #FF6B00;
+  --accent-hover:   #FF8C33;
+  --accent-dark:    #CC5500;
+  --accent-dim:     rgba(255, 107, 0, 0.12);
+  --accent-dim2:    rgba(255, 107, 0, 0.07);
+
+  /* Content area (LIGHT) */
+  --bg:             #F8F8F8;
+  --surface:        #FFFFFF;
+  --surface2:       #F2F2F2;
+  --surface3:       #E8E8E8;
+  --border:         #E5E5E5;
+  --border-hover:   #CCCCCC;
+
+  /* Text on light bg */
+  --text:           #2D2D2D;
+  --text-muted:     #5A5A5A;
+  --text-subtle:    #9A9A9A;
+
+  /* Sidebar (stays dark) */
+  --sidebar-bg:     #0A0A0A;
+  --sidebar-border: #1A1A1A;
+  --sidebar-text:   #9A9A9A;
+  --sidebar-active: #FFFFFF;
+
+  /* Semantic */
+  --danger:         #DC2626;
+  --danger-dim:     rgba(220, 38, 38, 0.10);
+  --success:        #16A34A;
+  --success-dim:    rgba(22, 163, 74, 0.10);
+  --warning:        #D97706;
+  --info:           #2563EB;
+  --info-dim:       rgba(37, 99, 235, 0.10);
+
+  --sidebar-w:      252px;
+  --radius:         10px;
+  --radius-sm:      6px;
+  --radius-lg:      16px;
+  --shadow-card:    0 2px 12px rgba(0,0,0,0.06);
+  --shadow-hover:   0 8px 24px rgba(255,107,0,0.15);
+}
+
+/* Dark-Mode-Overrides – wird via data-theme="dark" auf <html> aktiviert */
+[data-theme="dark"] {
+  --bg:           #0F0F0F;
+  --surface:      #1A1A1A;
+  --surface2:     #222222;
+  --surface3:     #2A2A2A;
+  --border:       #2A2A2A;
+  --border-hover: #3A3A3A;
+  --text:         #EDEDEE;
+  --text-muted:   #888888;
+  --text-subtle:  #555555;
+  --shadow-card:  0 2px 12px rgba(0,0,0,0.30);
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { font-size: 14px; }
+html { font-size: 15px; }
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Barlow', system-ui, sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
 }
 
 #root { min-height: 100svh; display: flex; flex-direction: column; }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 10px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
 
 select {
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%236c6c80' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%235A5A5A' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   padding-right: 30px !important;
@@ -65,4 +100,4 @@ table { border-collapse: collapse; width: 100%; }
   border-radius: var(--radius-sm);
 }
 
-button, a, input, select { transition: all 0.12s ease; }
+button, a, input, select { transition: all 0.15s ease; }

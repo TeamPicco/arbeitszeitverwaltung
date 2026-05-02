@@ -3,17 +3,17 @@ import { type ReactNode } from 'react'
 interface CardProps {
   children: ReactNode
   className?: string
-  accent?: boolean
   padding?: string
 }
 
 export function Card({ children, className = '', padding = 'p-6' }: CardProps) {
   return (
     <div
-      className={`rounded-lg ${padding} ${className}`}
+      className={`rounded-xl ${padding} ${className}`}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-card)',
       }}
     >
       {children}
@@ -31,19 +31,21 @@ export function MetricCard({
 }) {
   return (
     <div
-      className="rounded-lg p-5"
+      className="rounded-xl p-5"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-card)',
+        borderLeft: '4px solid var(--accent)',
       }}
     >
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
           {label}
         </p>
         {icon && (
           <span
-            className="flex items-center justify-center w-7 h-7 rounded-md"
+            className="flex items-center justify-center w-8 h-8 rounded-lg"
             style={{ background: 'var(--accent-dim2)', color: 'var(--accent)' }}
           >
             {icon}
@@ -65,7 +67,7 @@ export function MetricCard({
 export function SectionHeader({ title, action }: { title: string; action?: ReactNode }) {
   return (
     <div className="flex items-center justify-between mb-5">
-      <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{title}</h2>
+      <h2 className="font-semibold" style={{ fontSize: 15, color: 'var(--text)' }}>{title}</h2>
       {action}
     </div>
   )

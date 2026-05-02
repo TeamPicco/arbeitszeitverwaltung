@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import {
   dienstplanMonat,
   dienstplanWunschEinreichen,
@@ -10,7 +11,7 @@ import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
 import { Input } from '../../components/Input'
 import { Spinner } from '../../components/Spinner'
-import { CalendarDays, Send, CheckCircle } from 'lucide-react'
+import { CalendarDays, Send } from 'lucide-react'
 
 const SCHICHT_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   arbeit:  { label: 'Arbeit',  color: '#F97316', bg: 'rgba(249,115,22,0.12)' },
@@ -74,8 +75,6 @@ export function MeinDienstplan() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ datum_von: '', datum_bis: '', wunsch_text: '' })
   const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState(false)
-  const [error, setError] = useState('')
 
   const thisMonat = now.getMonth() + 1
   const thisJahr = now.getFullYear()
@@ -99,9 +98,8 @@ export function MeinDienstplan() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
     if (!form.datum_von || !form.datum_bis) {
-      setError('Bitte Zeitraum angeben.')
+      toast.error('Bitte Zeitraum angeben.')
       return
     }
     setLoading(true)
@@ -112,11 +110,11 @@ export function MeinDienstplan() {
         wunsch_text: form.wunsch_text || undefined,
       })
       qc.invalidateQueries({ queryKey: ['dienstplan-wunsch'] })
-      setSuccess(true)
+      toast.success('Wunsch eingereicht')
       setShowForm(false)
       setForm({ datum_von: '', datum_bis: '', wunsch_text: '' })
     } catch (err: unknown) {
-      setError(
+      toast.error(
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
           'Fehler beim Einreichen.'
       )
@@ -129,19 +127,10 @@ export function MeinDienstplan() {
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Mein Dienstplan</h1>
-        <Button onClick={() => { setShowForm((v) => !v); setSuccess(false) }}>
+        <Button onClick={() => setShowForm((v) => !v)}>
           <Send size={14} /> {showForm ? 'Abbrechen' : 'Wunsch einreichen'}
         </Button>
       </div>
-
-      {success && (
-        <div
-          className="flex items-center gap-2 px-4 py-3 rounded-xl mb-6 text-sm font-medium"
-          style={{ background: 'rgba(34,197,94,0.12)', color: '#22c55e', border: '1px solid rgba(34,197,94,0.3)' }}
-        >
-          <CheckCircle size={16} /> Ihr Wunsch wurde eingereicht und wird geprüft.
-        </div>
-      )}
 
       {showForm && (
         <Card className="mb-6">
@@ -169,7 +158,6 @@ export function MeinDienstplan() {
               onChange={(e) => setForm((p) => ({ ...p, wunsch_text: e.target.value }))}
               placeholder="z.B. Urlaub, Arzttermin, bevorzugte Schicht …"
             />
-            {error && <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>}
             <Button type="submit" loading={loading}>Wunsch einreichen</Button>
           </form>
         </Card>

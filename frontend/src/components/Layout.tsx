@@ -11,7 +11,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <Sidebar isAdmin={isAdmin} />
       <main
         className="flex-1 overflow-y-auto"
-        style={{ background: 'var(--bg)', padding: '40px 48px' }}
+        style={{ background: 'var(--bg)', padding: '36px 44px' }}
       >
         {children}
       </main>

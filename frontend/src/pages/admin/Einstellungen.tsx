@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { betriebInfo } from '../../api/admin'
 import { changePassword } from '../../api/auth'
 import { Card } from '../../components/Card'
@@ -42,7 +43,6 @@ function BetriebCard({
     email: (betrieb?.email as string) ?? '',
   })
   const [loading, setLoading] = useState(false)
-  const [saved, setSaved] = useState(false)
 
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((p) => ({ ...p, [k]: e.target.value }))
@@ -50,11 +50,15 @@ function BetriebCard({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    await api.patch('/admin/betrieb', form)
-    onSaved()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
-    setLoading(false)
+    try {
+      await api.patch('/admin/betrieb', form)
+      onSaved()
+      toast.success('Betriebsdaten gespeichert')
+    } catch {
+      toast.error('Fehler beim Speichern')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -65,9 +69,8 @@ function BetriebCard({
         <Input label="Adresse" value={form.adresse} onChange={f('adresse')} />
         <Input label="Telefon" value={form.telefon} onChange={f('telefon')} />
         <Input label="E-Mail" type="email" value={form.email} onChange={f('email')} />
-        <div className="flex gap-2 items-center mt-1">
+        <div className="mt-1">
           <Button type="submit" loading={loading}>Speichern</Button>
-          {saved && <span className="text-sm text-green-400">Gespeichert</span>}
         </div>
       </form>
     </Card>
@@ -77,7 +80,6 @@ function BetriebCard({
 function PasswordCard() {
   const [form, setForm] = useState({ old_password: '', new_password: '', confirm: '' })
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const f = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -93,14 +95,13 @@ function PasswordCard() {
     setLoading(true)
     try {
       await changePassword({ old_password: form.old_password, new_password: form.new_password })
-      setSuccess(true)
+      toast.success('Passwort erfolgreich geändert')
       setForm({ old_password: '', new_password: '', confirm: '' })
-      setTimeout(() => setSuccess(false), 3000)
     } catch (err: unknown) {
-      setError(
+      const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-          'Fehler beim Ändern.'
-      )
+        'Fehler beim Ändern.'
+      toast.error(msg)
     } finally {
       setLoading(false)
     }
@@ -132,9 +133,8 @@ function PasswordCard() {
           required
           error={error}
         />
-        <div className="flex gap-2 items-center mt-1">
+        <div className="mt-1">
           <Button type="submit" loading={loading}>Ändern</Button>
-          {success && <span className="text-sm text-green-400">Passwort geändert</span>}
         </div>
       </form>
     </Card>
