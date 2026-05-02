@@ -249,7 +249,7 @@ function RechtsstandTab() {
             className="flex items-center justify-between px-6 py-4"
             style={{
               borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-              background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+              background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
             }}
           >
             <div>

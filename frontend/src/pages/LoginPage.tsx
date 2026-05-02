@@ -1,201 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuthStore } from '../store/auth'
 import { login } from '../api/auth'
 import { kioskStatus, kioskAction } from '../api/stempel'
-import { useAuthStore } from '../store/auth'
-import { Clock, LogIn, LogOut, Coffee, Ban, Fingerprint } from 'lucide-react'
+import { Fingerprint } from 'lucide-react'
 
-type Tab = 'stempeluhr' | 'login'
-
-function CompLogo() {
-  return (
-    <svg viewBox="0 0 220 56" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ height: '40px', width: 'auto' }}>
-      <path
-        d="M28 6C15.85 6 6 15.85 6 28C6 40.15 15.85 50 28 50C34.6 50 40.54 47.22 44.8 42.8"
-        stroke="white" strokeWidth="6.5" strokeLinecap="round" fill="none"
-      />
-      <polygon points="36,19 36,37 52,28" fill="#F97316" />
-      <text x="60" y="38" fontFamily="Inter,system-ui,sans-serif" fontWeight="700" fontSize="30" fill="white" letterSpacing="-0.5">omplio</text>
-    </svg>
-  )
-}
-
-export function LoginPage() {
-  const [tab, setTab] = useState<Tab>('stempeluhr')
-
-  return (
-    <div
-      className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden"
-      style={{ background: '#05050a' }}
-    >
-      {/* Radial accent glow */}
-      <div
-        className="absolute pointer-events-none"
-        style={{
-          top: '50%', left: '50%',
-          transform: 'translate(-50%, -60%)',
-          width: '900px', height: '600px',
-          background: 'radial-gradient(ellipse at center, rgba(249,115,22,0.07) 0%, transparent 65%)',
-        }}
-      />
-      {/* Subtle grid */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px)',
-          backgroundSize: '48px 48px',
-          maskImage: 'radial-gradient(ellipse 70% 60% at 50% 40%, black 0%, transparent 100%)',
-        }}
-      />
-
-      <div className="relative w-full" style={{ maxWidth: '400px' }}>
-        {/* Logo */}
-        <div className="flex justify-center mb-10">
-          <CompLogo />
-        </div>
-
-        {/* Tab switcher */}
-        <div
-          style={{
-            display: 'flex',
-            gap: '4px',
-            padding: '4px',
-            borderRadius: '12px',
-            background: 'rgba(14,14,20,0.9)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            marginBottom: '8px',
-          }}
-        >
-          {([['stempeluhr', 'Stempeluhr'], ['login', 'Admin Login']] as [Tab, string][]).map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '8px',
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                transition: 'background 0.15s, color 0.15s',
-                background: tab === t ? '#F97316' : 'transparent',
-                color: tab === t ? '#fff' : '#6c6c80',
-              }}
-            >
-              {t === 'stempeluhr' ? <Clock size={13} /> : <LogIn size={13} />}
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Card */}
-        <div
-          className="rounded-2xl"
-          style={{
-            background: 'rgba(14,14,20,0.9)',
-            border: '1px solid rgba(255,255,255,0.07)',
-            boxShadow: '0 0 0 1px rgba(255,255,255,0.02), 0 24px 48px rgba(0,0,0,0.5)',
-            backdropFilter: 'blur(16px)',
-            padding: '32px',
-          }}
-        >
-          {tab === 'login' ? <LoginForm /> : <KioskForm />}
-        </div>
-
-        {/* Footer */}
-        <p className="text-center mt-6" style={{ fontSize: '12px', color: '#3d3d52' }}>
-          © 2026 Complio · HR-Software für Gastronomie
-        </p>
-      </div>
-    </div>
-  )
-}
-
-function LoginForm() {
-  const navigate = useNavigate()
-  const setAuth = useAuthStore((s) => s.setAuth)
-  const [form, setForm] = useState({ betriebsnummer: '', username: '', password: '' })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setLoading(true)
-    try {
-      const data = await login(form)
-      setAuth({ ...data, token: data.access_token })
-      if (data.role === 'admin' || data.role === 'superadmin') {
-        navigate('/admin')
-      } else {
-        navigate('/dashboard')
-      }
-    } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
-        'Login fehlgeschlagen.'
-      setError(msg)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '18px', fontWeight: 600, color: '#ededf0', marginBottom: '4px' }}>Anmelden</h1>
-        <p style={{ fontSize: '13px', color: '#6c6c80' }}>Gib deine Betriebsdaten ein um fortzufahren</p>
-      </div>
-
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        <LoginField label="Betriebsnummer" placeholder="z. B. 1001" value={form.betriebsnummer}
-          onChange={(v) => setForm({ ...form, betriebsnummer: v })} autoFocus />
-        <LoginField label="Benutzername" placeholder="username" value={form.username}
-          onChange={(v) => setForm({ ...form, username: v })} />
-        <LoginField label="Passwort" type="password" placeholder="••••••••" value={form.password}
-          onChange={(v) => setForm({ ...form, password: v })} />
-
-        {error && (
-          <div style={{
-            background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)',
-            borderRadius: '8px', padding: '10px 14px', fontSize: '13px', color: '#f87171',
-          }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            marginTop: '4px', width: '100%', padding: '11px', borderRadius: '9px', border: 'none',
-            background: loading ? '#7c3a0a' : '#F97316', color: '#fff', fontSize: '14px', fontWeight: 600,
-            cursor: loading ? 'not-allowed' : 'pointer', transition: 'background 0.15s, opacity 0.15s',
-            opacity: loading ? 0.7 : 1, letterSpacing: '0.01em',
-          }}
-        >
-          {loading ? 'Wird angemeldet…' : 'Anmelden'}
-        </button>
-      </form>
-    </>
-  )
-}
-
-type KioskMa = { id: number; vorname: string; nachname: string }
-type KioskStatusData = { eingestempelt: boolean; pause_aktiv: boolean }
-
+// ── Kiosk Tab ──────────────────────────────────────────────────────────────
 function KioskForm() {
-  const [betriebsnummer, setBetriebsnummer] = useState('')
+  const [betrieb, setBetrieb] = useState('')
   const [pin, setPin] = useState('')
-  const [mitarbeiter, setMitarbeiter] = useState<KioskMa | null>(null)
-  const [stempelSt, setStempelSt] = useState<KioskStatusData | null>(null)
+  const [stempelData, setStempelData] = useState<null | {
+    mitarbeiter: { id: number; vorname: string; nachname: string }
+    status: { eingestempelt: boolean; pause_aktiv: boolean }
+  }>(null)
   const [loading, setLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [error, setError] = useState('')
   const [message, setMessage] = useState<{ text: string; ok: boolean } | null>(null)
   const [time, setTime] = useState(new Date())
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -208,9 +28,9 @@ function KioskForm() {
 
   const resetKiosk = () => {
     setPin('')
-    setMitarbeiter(null)
-    setStempelSt(null)
+    setStempelData(null)
     setMessage(null)
+    setError('')
     pinRef.current?.focus()
   }
 
@@ -219,18 +39,16 @@ function KioskForm() {
     resetTimer.current = setTimeout(resetKiosk, ms)
   }
 
-  const handlePinSubmit = async (e: React.FormEvent) => {
+  const handleIdentify = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!betriebsnummer || !pin) return
     setLoading(true)
-    setMessage(null)
+    setError('')
     try {
-      const res = await kioskStatus(betriebsnummer, pin)
-      setMitarbeiter(res.mitarbeiter)
-      setStempelSt(res.status)
+      const res = await kioskStatus(betrieb, pin)
+      setStempelData(res)
       scheduleReset(30_000)
     } catch {
-      setMessage({ text: 'PIN nicht gefunden.', ok: false })
+      setError('PIN oder Betriebsnummer ungültig.')
       setPin('')
       scheduleReset(3000)
     } finally {
@@ -238,48 +56,56 @@ function KioskForm() {
     }
   }
 
-  const doAction = async (action: string) => {
-    if (!mitarbeiter) return
-    setLoading(true)
+  const handleAction = async (action: string) => {
+    if (!stempelData) return
+    setActionLoading(true)
     try {
-      const res = await kioskAction(betriebsnummer, pin, action)
-      setStempelSt(res.status)
+      const res = await kioskAction(betrieb, pin, action)
+      setStempelData((prev) => prev ? { ...prev, status: res.status } : null)
       const labels: Record<string, string> = {
         clock_in: 'Eingestempelt!', clock_out: 'Ausgestempelt!',
         break_start: 'Pause gestartet', break_end: 'Pause beendet',
       }
       setMessage({ text: labels[action] ?? 'Gebucht', ok: true })
       scheduleReset(4000)
-    } catch (err: unknown) {
-      const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Fehler beim Stempeln.'
-      setMessage({ text: detail, ok: false })
+    } catch {
+      setMessage({ text: 'Fehler beim Stempeln.', ok: false })
       scheduleReset(4000)
     } finally {
-      setLoading(false)
+      setActionLoading(false)
     }
   }
 
   const timeStr = time.toLocaleTimeString('de', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
       {/* Clock */}
       <div style={{ textAlign: 'center' }}>
-        <p style={{ fontSize: '36px', fontWeight: 700, fontFamily: 'monospace', color: '#F97316', letterSpacing: '-0.02em' }}>
+        <p style={{ fontSize: 36, fontWeight: 700, fontFamily: 'monospace', color: '#FF6B00', letterSpacing: '-0.02em' }}>
           {timeStr}
         </p>
-        <p style={{ fontSize: '12px', color: '#6c6c80', marginTop: '4px', textTransform: 'capitalize' }}>
+        <p style={{ fontSize: 12, color: '#9A9A9A', marginTop: 4, textTransform: 'capitalize' }}>
           {time.toLocaleDateString('de', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
 
-      {!mitarbeiter ? (
-        <form onSubmit={handlePinSubmit} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <LoginField label="Betriebsnummer" placeholder="z. B. 1001" value={betriebsnummer}
-            onChange={setBetriebsnummer} />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{ fontSize: '11px', fontWeight: 600, color: '#6c6c80', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '6px' }}>
+      {!stempelData ? (
+        <form onSubmit={handleIdentify} style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={labelStyle}>Betriebsnummer</label>
+            <input
+              value={betrieb}
+              onChange={(e) => setBetrieb(e.target.value)}
+              placeholder="z. B. 1001"
+              required
+              style={inputStyle()}
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#FF6B00' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E5E5' }}
+            />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Fingerprint size={13} /> PIN
             </label>
             <input
@@ -291,80 +117,86 @@ function KioskForm() {
               value={pin}
               autoComplete="off"
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-              style={{
-                background: '#0e0e16', border: '1px solid #1f1f2e', borderRadius: '8px',
-                padding: '10px 14px', fontSize: '22px', fontFamily: 'monospace', letterSpacing: '0.2em',
-                color: '#ededf0', outline: 'none', textAlign: 'center', width: '100%',
-              }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = '#F97316' }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = '#1f1f2e' }}
+              style={{ ...inputStyle(), fontSize: 22, fontFamily: 'monospace', letterSpacing: '0.2em', textAlign: 'center' }}
+              onFocus={(e) => { e.currentTarget.style.borderColor = '#FF6B00' }}
+              onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E5E5' }}
             />
           </div>
-
-          {message && (
-            <div style={{
-              background: message.ok ? 'rgba(34,197,94,0.08)' : 'rgba(248,113,113,0.08)',
-              border: `1px solid ${message.ok ? 'rgba(34,197,94,0.2)' : 'rgba(248,113,113,0.2)'}`,
-              borderRadius: '8px', padding: '10px 14px', fontSize: '13px',
-              color: message.ok ? '#22c55e' : '#f87171', textAlign: 'center',
-            }}>
-              {message.text}
-            </div>
+          {error && (
+            <p style={{ color: '#DC2626', fontSize: 13, padding: '10px 14px', background: 'rgba(220,38,38,0.08)', borderRadius: 8 }}>
+              {error}
+            </p>
           )}
-
           <button
             type="submit"
-            disabled={loading || !betriebsnummer || pin.length < 4}
-            style={{
-              width: '100%', padding: '11px', borderRadius: '9px', border: 'none',
-              background: '#F97316', color: '#fff', fontSize: '14px', fontWeight: 600,
-              cursor: 'pointer', opacity: (loading || !betriebsnummer || pin.length < 4) ? 0.4 : 1,
-              transition: 'opacity 0.15s',
-            }}
+            disabled={loading || !betrieb || pin.length < 4}
+            style={{ ...btnStyle('#FF6B00'), opacity: (loading || !betrieb || pin.length < 4) ? 0.4 : 1 }}
           >
-            {loading ? '…' : 'Stempeln'}
+            {loading ? '…' : 'Identifizieren'}
           </button>
         </form>
       ) : (
-        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
           <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: '20px', fontWeight: 700, color: '#ededf0' }}>
-              {mitarbeiter.vorname} {mitarbeiter.nachname}
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%',
+              background: 'rgba(255,107,0,0.1)', border: '2px solid rgba(255,107,0,0.3)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 16px', fontSize: 24, fontWeight: 700, color: '#FF6B00',
+            }}>
+              {stempelData.mitarbeiter.vorname[0]}
+            </div>
+            <p style={{ fontSize: 20, fontWeight: 700, color: '#2D2D2D' }}>
+              {stempelData.mitarbeiter.vorname} {stempelData.mitarbeiter.nachname}
             </p>
-            <p style={{ fontSize: '13px', color: '#6c6c80', marginTop: '4px' }}>
-              {stempelSt?.eingestempelt
-                ? stempelSt.pause_aktiv ? 'Pause aktiv' : 'Eingestempelt'
+            <p style={{
+              fontSize: 13, marginTop: 4,
+              color: stempelData.status.eingestempelt
+                ? stempelData.status.pause_aktiv ? '#D97706' : '#16A34A'
+                : '#5A5A5A',
+              fontWeight: 600,
+            }}>
+              {stempelData.status.eingestempelt
+                ? stempelData.status.pause_aktiv ? 'Pause aktiv' : 'Eingestempelt'
                 : 'Ausgestempelt'}
             </p>
           </div>
 
           {message && (
             <div style={{
-              background: message.ok ? 'rgba(34,197,94,0.08)' : 'rgba(248,113,113,0.08)',
-              border: `1px solid ${message.ok ? 'rgba(34,197,94,0.2)' : 'rgba(248,113,113,0.2)'}`,
-              borderRadius: '8px', padding: '10px 14px', fontSize: '13px',
-              color: message.ok ? '#22c55e' : '#f87171', textAlign: 'center', width: '100%',
+              background: message.ok ? 'rgba(22,163,74,0.08)' : 'rgba(220,38,38,0.08)',
+              border: `1px solid ${message.ok ? 'rgba(22,163,74,0.2)' : 'rgba(220,38,38,0.2)'}`,
+              borderRadius: 8, padding: '10px 14px', fontSize: 13,
+              color: message.ok ? '#16A34A' : '#DC2626', textAlign: 'center', width: '100%',
             }}>
               {message.text}
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
-            {!stempelSt?.eingestempelt && (
-              <KioskBtn icon={<LogIn size={16} />} label="KOMMEN" color="#22c55e" onClick={() => doAction('clock_in')} disabled={loading} />
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center', width: '100%' }}>
+            {!stempelData.status.eingestempelt && (
+              <button onClick={() => handleAction('clock_in')} disabled={actionLoading} style={btnStyle('#16A34A')}>
+                {actionLoading ? '...' : '✓ KOMMEN'}
+              </button>
             )}
-            {stempelSt?.eingestempelt && !stempelSt.pause_aktiv && (
+            {stempelData.status.eingestempelt && !stempelData.status.pause_aktiv && (
               <>
-                <KioskBtn icon={<Coffee size={16} />} label="PAUSE" color="#F97316" onClick={() => doAction('break_start')} disabled={loading} />
-                <KioskBtn icon={<LogOut size={16} />} label="GEHEN" color="#ef4444" onClick={() => doAction('clock_out')} disabled={loading} />
+                <button onClick={() => handleAction('break_start')} disabled={actionLoading} style={btnStyle('#D97706')}>
+                  {actionLoading ? '...' : '⏸ PAUSE'}
+                </button>
+                <button onClick={() => handleAction('clock_out')} disabled={actionLoading} style={btnStyle('#DC2626')}>
+                  {actionLoading ? '...' : '✕ GEHEN'}
+                </button>
               </>
             )}
-            {stempelSt?.eingestempelt && stempelSt.pause_aktiv && (
-              <KioskBtn icon={<Ban size={16} />} label="PAUSE ENDE" color="#F97316" onClick={() => doAction('break_end')} disabled={loading} />
+            {stempelData.status.eingestempelt && stempelData.status.pause_aktiv && (
+              <button onClick={() => handleAction('break_end')} disabled={actionLoading} style={btnStyle('#FF6B00')}>
+                {actionLoading ? '...' : '▶ WEITER'}
+              </button>
             )}
           </div>
 
-          <button onClick={resetKiosk} style={{ fontSize: '12px', color: '#6c6c80', background: 'none', border: 'none', cursor: 'pointer' }}>
+          <button onClick={resetKiosk} style={{ fontSize: 12, color: '#9A9A9A', background: 'none', border: 'none', cursor: 'pointer', marginTop: 4 }}>
             Abbrechen
           </button>
         </div>
@@ -373,53 +205,154 @@ function KioskForm() {
   )
 }
 
-function KioskBtn({ icon, label, color, onClick, disabled }: {
-  icon: React.ReactNode; label: string; color: string; onClick: () => void; disabled?: boolean
-}) {
+// ── Login Tab ──────────────────────────────────────────────────────────────
+function LoginForm() {
+  const navigate = useNavigate()
+  const setAuth = useAuthStore((s) => s.setAuth)
+  const [form, setForm] = useState({ betriebsnummer: '', username: '', password: '' })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+    setError('')
+    try {
+      const data = await login(form)
+      setAuth({ ...data, token: data.access_token })
+      if (data.role === 'admin' || data.role === 'superadmin') {
+        navigate('/admin')
+      } else {
+        navigate('/dashboard')
+      }
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        'Ungültige Anmeldedaten. Bitte prüfe Betriebsnummer, Benutzername und Passwort.'
+      setError(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px',
-        padding: '12px 20px', borderRadius: '10px', border: 'none',
-        background: color, color: '#fff', fontSize: '11px', fontWeight: 700,
-        cursor: 'pointer', opacity: disabled ? 0.4 : 1, minWidth: '90px',
-        transition: 'opacity 0.15s',
-      }}
-    >
-      {icon}
-      {label}
-    </button>
+    <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <label style={labelStyle}>Betriebsnummer</label>
+        <input
+          value={form.betriebsnummer}
+          onChange={(e) => setForm({ ...form, betriebsnummer: e.target.value })}
+          placeholder="z. B. B-12345"
+          required
+          style={inputStyle()}
+          onFocus={(e) => { e.currentTarget.style.borderColor = '#FF6B00' }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E5E5' }}
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Benutzername</label>
+        <input
+          value={form.username}
+          onChange={(e) => setForm({ ...form, username: e.target.value })}
+          placeholder="Benutzername"
+          required
+          style={inputStyle()}
+          onFocus={(e) => { e.currentTarget.style.borderColor = '#FF6B00' }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E5E5' }}
+        />
+      </div>
+      <div>
+        <label style={labelStyle}>Passwort</label>
+        <input
+          type="password"
+          value={form.password}
+          onChange={(e) => setForm({ ...form, password: e.target.value })}
+          placeholder="••••••••"
+          required
+          style={inputStyle()}
+          onFocus={(e) => { e.currentTarget.style.borderColor = '#FF6B00' }}
+          onBlur={(e) => { e.currentTarget.style.borderColor = '#E5E5E5' }}
+        />
+      </div>
+      {error && (
+        <p style={{ color: '#DC2626', fontSize: 13, padding: '10px 14px', background: 'rgba(220,38,38,0.08)', borderRadius: 8, borderLeft: '3px solid #DC2626' }}>
+          {error}
+        </p>
+      )}
+      <button type="submit" disabled={loading} style={{ ...btnStyle('#FF6B00'), marginTop: 4 }}>
+        {loading ? 'Anmelden...' : 'Anmelden'}
+      </button>
+    </form>
   )
 }
 
-function LoginField({
-  label, type = 'text', placeholder, value, onChange, autoFocus,
-}: {
-  label: string; type?: string; placeholder?: string;
-  value: string; onChange: (v: string) => void; autoFocus?: boolean
-}) {
+// ── Shared styles ──────────────────────────────────────────────────────────
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: 13, fontWeight: 500, color: '#5A5A5A', marginBottom: 6,
+}
+const inputStyle = (): React.CSSProperties => ({
+  width: '100%', padding: '11px 14px', borderRadius: 8, fontSize: 14,
+  fontFamily: 'inherit', outline: 'none',
+  border: '1.5px solid #E5E5E5', background: '#FFFFFF', color: '#2D2D2D',
+  transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+})
+const btnStyle = (bg: string): React.CSSProperties => ({
+  width: '100%', padding: '12px', borderRadius: 8, fontSize: 15,
+  fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+  background: bg, color: '#FFFFFF',
+  border: 'none', transition: 'all 0.15s ease',
+})
+
+// ── Main LoginPage ──────────────────────────────────────────────────────────
+export function LoginPage() {
+  const [tab, setTab] = useState<'login' | 'kiosk'>('login')
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-      <label style={{ fontSize: '11px', fontWeight: 600, color: '#6c6c80', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-        {label}
-      </label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoFocus={autoFocus}
-        required
-        style={{
-          background: '#0e0e16', border: '1px solid #1f1f2e', borderRadius: '8px',
-          padding: '10px 14px', fontSize: '14px', color: '#ededf0', outline: 'none',
-          transition: 'border-color 0.15s', width: '100%',
-        }}
-        onFocus={(e) => { e.currentTarget.style.borderColor = '#F97316' }}
-        onBlur={(e) => { e.currentTarget.style.borderColor = '#1f1f2e' }}
-      />
+    <div style={{
+      minHeight: '100svh',
+      background: '#F8F8F8',
+      backgroundImage: 'radial-gradient(#E0E0E0 1px, transparent 1px)',
+      backgroundSize: '24px 24px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: '24px',
+    }}>
+      <div style={{
+        width: '100%', maxWidth: 400,
+        background: '#FFFFFF',
+        borderRadius: 16,
+        boxShadow: '0 4px 40px rgba(0,0,0,0.10)',
+        overflow: 'hidden',
+      }}>
+        {/* Logo header */}
+        <div style={{ padding: '32px 36px 24px', textAlign: 'center', borderBottom: '1px solid #F0F0F0' }}>
+          <img src="/complio-logo.png" alt="Complio" style={{ height: 44, width: 'auto', objectFit: 'contain' }} />
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #F0F0F0' }}>
+          {(['login', 'kiosk'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              style={{
+                flex: 1, padding: '14px', fontSize: 14, fontWeight: 600,
+                fontFamily: 'inherit', cursor: 'pointer', border: 'none',
+                background: 'transparent',
+                color: tab === t ? '#FF6B00' : '#9A9A9A',
+                borderBottom: tab === t ? '2px solid #FF6B00' : '2px solid transparent',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              {t === 'login' ? 'Anmelden' : '⏱ Stempeluhr'}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ padding: '28px 36px 32px' }}>
+          {tab === 'login' ? <LoginForm /> : <KioskForm />}
+        </div>
+      </div>
     </div>
   )
 }

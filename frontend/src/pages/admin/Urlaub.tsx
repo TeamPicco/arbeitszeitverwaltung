@@ -76,10 +76,10 @@ export function AdminUrlaub() {
             return (
               <div
                 key={a.id as number}
-                className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#141414]"
+                className="flex items-center justify-between px-5 py-4 transition-colors hover:bg-[#F5F5F5]"
                 style={{
                   borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                  background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                  background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                 }}
               >
                 <div className="flex items-center gap-4">

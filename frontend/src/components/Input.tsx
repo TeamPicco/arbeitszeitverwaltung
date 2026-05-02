@@ -6,24 +6,41 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, className = '', ...rest }, ref) => (
+  ({ label, error, className = '', style, ...rest }, ref) => (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>
           {label}
         </label>
       )}
       <input
         ref={ref}
         {...rest}
-        className={`w-full px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-[#F97316] transition ${className}`}
         style={{
-          background: 'var(--surface2)',
-          border: `1px solid ${error ? 'var(--danger)' : 'var(--border)'}`,
+          width: '100%',
+          padding: '10px 14px',
+          borderRadius: 8,
+          fontSize: 14,
+          fontFamily: 'inherit',
+          outline: 'none',
+          background: 'var(--surface)',
+          border: `1.5px solid ${error ? 'var(--danger)' : 'var(--border)'}`,
           color: 'var(--text)',
+          transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+          ...style,
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.borderColor = '#FF6B00'
+          e.currentTarget.style.boxShadow = '0 0 0 3px rgba(255,107,0,0.12)'
+          rest.onFocus?.(e)
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.borderColor = error ? 'var(--danger)' : 'var(--border)'
+          e.currentTarget.style.boxShadow = 'none'
+          rest.onBlur?.(e)
         }}
       />
-      {error && <p className="text-xs" style={{ color: 'var(--danger)' }}>{error}</p>}
+      {error && <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
     </div>
   )
 )
@@ -34,26 +51,32 @@ interface SelectInputProps extends SelectHTMLAttributes<HTMLSelectElement> {
   error?: string
 }
 
-export function SelectInput({ label, error, className = '', children, ...rest }: SelectInputProps) {
+export function SelectInput({ label, error, className = '', children, style, ...rest }: SelectInputProps) {
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label className="text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+        <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-muted)' }}>
           {label}
         </label>
       )}
       <select
-        className={`w-full px-3 py-2 rounded-md text-sm outline-none focus:ring-1 focus:ring-[#F97316] transition ${className}`}
         style={{
-          background: 'var(--surface2)',
-          border: `1px solid ${error ? 'var(--danger)' : 'var(--border)'}`,
+          width: '100%',
+          padding: '10px 14px',
+          borderRadius: 8,
+          fontSize: 14,
+          fontFamily: 'inherit',
+          outline: 'none',
+          background: 'var(--surface)',
+          border: `1.5px solid ${error ? 'var(--danger)' : 'var(--border)'}`,
           color: 'var(--text)',
+          ...style,
         }}
         {...rest}
       >
         {children}
       </select>
-      {error && <p className="text-xs" style={{ color: 'var(--danger)' }}>{error}</p>}
+      {error && <p style={{ fontSize: 12, color: 'var(--danger)' }}>{error}</p>}
     </div>
   )
 }

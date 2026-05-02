@@ -6,69 +6,83 @@ import {
   DollarSign, Settings, LogOut, Timer, CalendarRange, Building2, Shield,
 } from 'lucide-react'
 
-const ICON = 18
-
-interface NavItem { to: string; icon: ReactNode; label: string }
+interface NavItem { to: string; icon: ReactNode; label: string; badge?: string }
 
 const ADMIN_NAV: NavItem[] = [
-  { to: '/admin',               icon: <LayoutDashboard size={ICON} />, label: 'Übersicht' },
-  { to: '/admin/mitarbeiter',   icon: <Users size={ICON} />,           label: 'Mitarbeiter' },
-  { to: '/admin/dienstplan',    icon: <CalendarRange size={ICON} />,   label: 'Dienstplan' },
-  { to: '/admin/zeiten',        icon: <Clock size={ICON} />,           label: 'Zeiterfassung' },
-  { to: '/admin/urlaub',        icon: <CalendarDays size={ICON} />,    label: 'Urlaub' },
-  { to: '/admin/lohn',          icon: <DollarSign size={ICON} />,      label: 'Lohn' },
-  { to: '/admin/dokumente',     icon: <FileText size={ICON} />,        label: 'Dokumente' },
-  { to: '/admin/premium',       icon: <Shield size={ICON} />,          label: 'Premium' },
-  { to: '/admin/kiosk',         icon: <Timer size={ICON} />,           label: 'Kiosk' },
+  { to: '/admin',               icon: <LayoutDashboard size={17} />, label: 'Übersicht' },
+  { to: '/admin/mitarbeiter',   icon: <Users size={17} />,           label: 'Mitarbeiter' },
+  { to: '/admin/dienstplan',    icon: <CalendarRange size={17} />,   label: 'Dienstplan' },
+  { to: '/admin/zeiten',        icon: <Clock size={17} />,           label: 'Zeiterfassung' },
+  { to: '/admin/urlaub',        icon: <CalendarDays size={17} />,    label: 'Urlaub' },
+  { to: '/admin/lohn',          icon: <DollarSign size={17} />,      label: 'Lohn' },
+  { to: '/admin/dokumente',     icon: <FileText size={17} />,        label: 'Dokumente' },
+  { to: '/admin/premium',       icon: <Shield size={17} />,          label: 'Premium', badge: 'PRO' },
+  { to: '/admin/kiosk',         icon: <Timer size={17} />,           label: 'Kiosk' },
 ]
 
 const ADMIN_BOTTOM_NAV: NavItem[] = [
-  { to: '/admin/einstellungen', icon: <Settings size={ICON} />, label: 'Einstellungen' },
+  { to: '/admin/einstellungen', icon: <Settings size={17} />, label: 'Einstellungen' },
 ]
 
 const MITARBEITER_NAV: NavItem[] = [
-  { to: '/dashboard',              icon: <LayoutDashboard size={ICON} />, label: 'Übersicht' },
-  { to: '/dashboard/zeiten',       icon: <Clock size={ICON} />,           label: 'Meine Zeiten' },
-  { to: '/dashboard/urlaub',       icon: <CalendarDays size={ICON} />,    label: 'Urlaub' },
-  { to: '/dashboard/dienstplan',   icon: <CalendarRange size={ICON} />,   label: 'Mein Dienstplan' },
+  { to: '/dashboard',            icon: <LayoutDashboard size={17} />, label: 'Übersicht' },
+  { to: '/dashboard/zeiten',     icon: <Clock size={17} />,           label: 'Meine Zeiten' },
+  { to: '/dashboard/urlaub',     icon: <CalendarDays size={17} />,    label: 'Urlaub' },
+  { to: '/dashboard/dienstplan', icon: <CalendarRange size={17} />,   label: 'Mein Dienstplan' },
 ]
 
-const navClass = (isActive: boolean) =>
-  `flex items-center gap-3 px-3.5 py-2.5 mx-2 rounded-lg font-medium transition-all ${
-    isActive
-      ? 'bg-[rgba(249,115,22,0.12)] text-[#ededf0]'
-      : 'text-[#7a7a90] hover:text-[#c0c0d0] hover:bg-white/5'
-  }`
+function NavItemLink({ item }: { item: NavItem }) {
+  return (
+    <NavLink
+      to={item.to}
+      end={item.to === '/admin' || item.to === '/dashboard'}
+      style={({ isActive }) => ({
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '9px 14px',
+        margin: '1px 10px',
+        borderRadius: 8,
+        fontSize: 14,
+        fontWeight: 500,
+        textDecoration: 'none',
+        borderLeft: isActive ? '3px solid #FF6B00' : '3px solid transparent',
+        background: isActive ? 'rgba(255,107,0,0.09)' : 'transparent',
+        color: isActive ? '#FFFFFF' : '#9A9A9A',
+        transition: 'all 0.15s ease',
+      })}
+      className="sidebar-link"
+    >
+      {({ isActive }) => (
+        <>
+          <span style={{ color: isActive ? '#FF6B00' : '#9A9A9A', flexShrink: 0 }}>
+            {item.icon}
+          </span>
+          <span style={{ flex: 1 }}>{item.label}</span>
+          {item.badge && (
+            <span style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '2px 6px',
+              borderRadius: 4,
+              background: 'rgba(255,107,0,0.2)',
+              color: '#FF6B00',
+              letterSpacing: '0.05em',
+            }}>
+              {item.badge}
+            </span>
+          )}
+        </>
+      )}
+    </NavLink>
+  )
+}
 
 function NavGroup({ items }: { items: NavItem[] }) {
   return (
     <>
       {items.map((item) => (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          end={item.to === '/admin' || item.to === '/dashboard'}
-          className={({ isActive }) => navClass(isActive)}
-          style={({ isActive }) => isActive ? { fontSize: 15 } : { fontSize: 15 }}
-        >
-          {({ isActive }) => (
-            <>
-              <span
-                className="shrink-0"
-                style={{ color: isActive ? 'var(--accent)' : undefined }}
-              >
-                {item.icon}
-              </span>
-              <span>{item.label}</span>
-              {isActive && (
-                <span
-                  className="ml-auto w-1.5 h-1.5 rounded-full shrink-0"
-                  style={{ background: 'var(--accent)' }}
-                />
-              )}
-            </>
-          )}
-        </NavLink>
+        <NavItemLink key={item.to} item={item} />
       ))}
     </>
   )
@@ -79,67 +93,81 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
   const { betriebName, logout } = useAuthStore()
 
   return (
-    <aside
-      className="flex flex-col shrink-0 h-screen sticky top-0"
-      style={{ width: 'var(--sidebar-w)', background: '#09090e', borderRight: '1px solid var(--border)' }}
-    >
-      {/* Logo */}
-      <div className="px-5 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
-        <img
-          src="/complio-logo.png"
-          alt="Complio"
-          style={{ height: '30px', width: 'auto', objectFit: 'contain' }}
-        />
-      </div>
-
-      {/* Betrieb */}
-      {betriebName && (
-        <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div className="flex items-center gap-2.5 px-1">
-            <div
-              className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
-              style={{ background: 'var(--surface2)', border: '1px solid var(--border)' }}
-            >
-              <Building2 size={14} style={{ color: 'var(--text-muted)' }} />
-            </div>
-            <span className="text-sm font-medium truncate" style={{ color: 'var(--text-muted)' }}>
-              {betriebName}
-            </span>
-          </div>
+    <>
+      <style>{`
+        .sidebar-link:hover { color: #FFFFFF !important; background: rgba(255,255,255,0.06) !important; }
+        .sidebar-link:hover span:first-child { color: #FFFFFF !important; }
+      `}</style>
+      <aside
+        className="flex flex-col shrink-0 h-screen sticky top-0"
+        style={{ width: 'var(--sidebar-w)', background: '#0A0A0A', borderRight: '1px solid #1A1A1A' }}
+      >
+        {/* Logo */}
+        <div style={{ padding: '20px 20px 18px', borderBottom: '1px solid #1A1A1A' }}>
+          <img
+            src="/complio-logo.png"
+            alt="Complio"
+            style={{ height: 30, width: 'auto', objectFit: 'contain' }}
+          />
         </div>
-      )}
 
-      {/* Nav */}
-      <nav className="flex-1 overflow-y-auto py-3 flex flex-col gap-0.5">
-        {isAdmin ? (
-          <>
-            <p className="text-xs font-semibold uppercase tracking-widest px-5 pt-2 pb-2.5"
-              style={{ color: 'var(--text-subtle)' }}>
-              Admin
-            </p>
-            <NavGroup items={ADMIN_NAV} />
-          </>
-        ) : (
-          <NavGroup items={MITARBEITER_NAV} />
-        )}
-      </nav>
-
-      {/* Bottom */}
-      <div className="py-2" style={{ borderTop: '1px solid var(--border)' }}>
-        {isAdmin && (
-          <div className="flex flex-col gap-0.5 mb-0.5">
-            <NavGroup items={ADMIN_BOTTOM_NAV} />
+        {/* Betrieb */}
+        {betriebName && (
+          <div style={{ padding: '10px 20px', borderBottom: '1px solid #1A1A1A' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: 6,
+                background: '#1A1A1A', border: '1px solid #2A2A2A',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <Building2 size={13} color="#FF6B00" />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#CCCCCC', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {betriebName}
+              </span>
+            </div>
           </div>
         )}
-        <button
-          onClick={() => { logout(); navigate('/login') }}
-          className="flex items-center gap-3 font-medium mx-2 px-3.5 py-2.5 rounded-lg w-[calc(100%-16px)] transition-all cursor-pointer hover:bg-red-950/25 hover:text-red-400"
-          style={{ color: 'var(--text-muted)', fontSize: 15 }}
-        >
-          <LogOut size={ICON} />
-          <span>Abmelden</span>
-        </button>
-      </div>
-    </aside>
+
+        {/* Nav */}
+        <nav style={{ flex: 1, overflowY: 'auto', padding: '10px 0' }}>
+          {isAdmin ? (
+            <>
+              <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#444', padding: '12px 24px 8px' }}>
+                Verwaltung
+              </p>
+              <NavGroup items={ADMIN_NAV} />
+            </>
+          ) : (
+            <NavGroup items={MITARBEITER_NAV} />
+          )}
+        </nav>
+
+        {/* Bottom */}
+        <div style={{ borderTop: '1px solid #1A1A1A', padding: '8px 0' }}>
+          {isAdmin && (
+            <div style={{ marginBottom: 4 }}>
+              <NavGroup items={ADMIN_BOTTOM_NAV} />
+            </div>
+          )}
+          <button
+            onClick={() => { logout(); navigate('/login') }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '9px 14px', margin: '1px 10px',
+              borderRadius: 8, fontSize: 14, fontWeight: 500,
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: '#9A9A9A', width: 'calc(100% - 20px)',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(220,38,38,0.1)'; e.currentTarget.style.color = '#F87171' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9A9A9A' }}
+          >
+            <LogOut size={17} />
+            <span>Abmelden</span>
+          </button>
+        </div>
+      </aside>
+    </>
   )
 }

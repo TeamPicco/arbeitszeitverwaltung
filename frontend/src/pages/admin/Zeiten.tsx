@@ -185,7 +185,7 @@ export function AdminZeiten() {
           >
             <table className="w-full">
               <thead>
-                <tr style={{ background: '#0d0d0d', borderBottom: '1px solid var(--border)' }}>
+                <tr style={{ background: '#FFFFFF', borderBottom: '1px solid var(--border)' }}>
                   {['Datum', 'Start', 'Ende', 'Pause', 'Stunden', 'Quelle', ''].map((h) => (
                     <th
                       key={h}
@@ -201,10 +201,10 @@ export function AdminZeiten() {
                 {((zeiten ?? []) as Eintrag[]).map((e, idx) => (
                   <tr
                     key={e.id}
-                    className="hover:bg-[#141414] transition-colors"
+                    className="hover:bg-[#F5F5F5] transition-colors"
                     style={{
                       borderTop: '1px solid var(--border)',
-                      background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                      background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                     }}
                   >
                     <td className="px-4 py-3 font-medium">{e.datum}</td>

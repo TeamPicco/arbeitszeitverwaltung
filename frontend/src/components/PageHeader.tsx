@@ -10,18 +10,18 @@ export function PageHeader({
   action?: ReactNode
 }) {
   return (
-    <div className="flex items-start justify-between mb-7 gap-4">
+    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, gap: 16 }}>
       <div>
-        <h1 className="text-[22px] font-bold tracking-tight leading-tight" style={{ color: 'var(--text)' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2, color: 'var(--text)' }}>
           {title}
         </h1>
         {sub && (
-          <p className="text-sm mt-1" style={{ color: 'var(--text-muted)' }}>
+          <p style={{ fontSize: 14, marginTop: 4, color: 'var(--text-muted)' }}>
             {sub}
           </p>
         )}
       </div>
-      {action && <div className="shrink-0 mt-0.5">{action}</div>}
+      {action && <div style={{ flexShrink: 0, marginTop: 2 }}>{action}</div>}
     </div>
   )
 }

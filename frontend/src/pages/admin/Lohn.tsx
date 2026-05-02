@@ -237,7 +237,7 @@ export function AdminLohn() {
                             setJahr(a.jahr as number)
                             downloadPdf()
                           }}
-                          className="text-xs px-2 py-1 rounded hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                          className="text-xs px-2 py-1 rounded hover:bg-[#F5F5F5] transition-colors cursor-pointer"
                           style={{ color: 'var(--accent)' }}
                         >
                           PDF

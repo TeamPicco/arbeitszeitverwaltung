@@ -275,21 +275,21 @@ export function AdminDienstplan() {
             <div className="flex items-center gap-1">
               <button
                 onClick={prevWeek}
-                className="p-1.5 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-[#F5F5F5] transition-colors cursor-pointer"
                 style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
               >
                 <ChevronLeft size={16} />
               </button>
               <button
                 onClick={thisWeek}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                className="px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-[#F5F5F5] transition-colors cursor-pointer"
                 style={{ border: '1px solid var(--border)', color: 'var(--text)', minWidth: 200, textAlign: 'center' }}
               >
                 {formatWeek(monday)}
               </button>
               <button
                 onClick={nextWeek}
-                className="p-1.5 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-[#F5F5F5] transition-colors cursor-pointer"
                 style={{ border: '1px solid var(--border)', color: 'var(--text)' }}
               >
                 <ChevronRight size={16} />
@@ -329,7 +329,7 @@ export function AdminDienstplan() {
           <div className="overflow-x-auto">
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: '#0d0d0d', borderBottom: '1px solid var(--border)' }}>
+                <tr style={{ background: '#FFFFFF', borderBottom: '1px solid var(--border)' }}>
                   <th
                     className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider"
                     style={{ color: 'var(--text-muted)', width: 180 }}
@@ -377,7 +377,7 @@ export function AdminDienstplan() {
                     key={ma.id}
                     style={{
                       borderTop: maIdx > 0 ? '1px solid var(--border)' : undefined,
-                      background: maIdx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                      background: maIdx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                     }}
                   >
                     {/* Employee name */}
@@ -475,7 +475,7 @@ export function AdminDienstplan() {
                   className="px-5 py-4"
                   style={{
                     borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                    background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                    background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                   }}
                 >
                   <div className="flex items-start justify-between gap-4">
@@ -596,7 +596,7 @@ function SchichtDialog({
               {ma.vorname} {ma.nachname} · {formatDateFull(day)}
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer" style={{ color: 'var(--text-muted)' }}>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[#F5F5F5] transition-colors cursor-pointer" style={{ color: 'var(--text-muted)' }}>
             <X size={18} />
           </button>
         </div>

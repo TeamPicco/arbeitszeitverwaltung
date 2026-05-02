@@ -141,10 +141,10 @@ export function AdminMitarbeiter() {
           filtered.map((ma, idx) => (
             <div
               key={ma.id}
-              className="flex items-center justify-between px-6 py-5 transition-colors hover:bg-[#141414]"
+              className="flex items-center justify-between px-6 py-5 transition-colors hover:bg-[#F5F5F5]"
               style={{
                 borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                background: idx % 2 === 0 ? 'var(--surface)' : '#0d0d0d',
+                background: idx % 2 === 0 ? 'var(--surface)' : '#F5F5F5',
               }}
             >
               <div className="flex items-center gap-5">
@@ -400,7 +400,7 @@ function CsvImport({ onImported, onCancel }: { onImported: () => void; onCancel:
               </thead>
               <tbody>
                 {rows.slice(0, 10).map((r, i) => (
-                  <tr key={i} style={{ borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--surface)' : '#0f0f0f' }}>
+                  <tr key={i} style={{ borderTop: '1px solid var(--border)', background: i % 2 === 0 ? 'var(--surface)' : '#F2F2F2' }}>
                     <td className="px-3 py-2 font-medium">{r.vorname}</td>
                     <td className="px-3 py-2 font-medium">{r.nachname}</td>
                     <td className="px-3 py-2" style={{ color: 'var(--text-muted)' }}>{r.position || '—'}</td>

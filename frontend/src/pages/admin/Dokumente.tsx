@@ -175,10 +175,10 @@ export function AdminDokumente() {
                 {dokumente.map((d, idx) => (
                   <tr
                     key={d.id}
-                    className="hover:bg-[#141414] transition-colors"
+                    className="hover:bg-[#F5F5F5] transition-colors"
                     style={{
                       borderTop: idx > 0 ? '1px solid var(--border)' : undefined,
-                      background: idx % 2 === 0 ? 'var(--surface)' : '#0f0f0f',
+                      background: idx % 2 === 0 ? 'var(--surface)' : '#F2F2F2',
                     }}
                   >
                     <td className="px-6 py-4">
@@ -219,7 +219,7 @@ export function AdminDokumente() {
                             href={d.file_url}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[#1a1a1a] transition-colors"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium hover:bg-[#F5F5F5] transition-colors"
                             style={{ color: 'var(--accent)' }}
                           >
                             <ExternalLink size={13} />
