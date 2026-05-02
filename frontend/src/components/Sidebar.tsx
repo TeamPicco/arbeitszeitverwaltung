@@ -1,9 +1,9 @@
-import { type ReactNode } from 'react'
+import { type ReactNode, useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import {
   LayoutDashboard, Users, Clock, CalendarDays, FileText,
-  DollarSign, Settings, LogOut, Timer, CalendarRange, Building2, Shield,
+  DollarSign, Settings, LogOut, Timer, CalendarRange, Building2, Shield, Sun, Moon,
 } from 'lucide-react'
 
 interface NavItem { to: string; icon: ReactNode; label: string; badge?: string }
@@ -88,9 +88,21 @@ function NavGroup({ items }: { items: NavItem[] }) {
   )
 }
 
+function useDarkMode() {
+  const [dark, setDark] = useState(() => localStorage.getItem('complio-theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('complio-theme', dark ? 'dark' : 'light')
+  }, [dark])
+
+  return [dark, () => setDark((v) => !v)] as const
+}
+
 export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
   const navigate = useNavigate()
   const { betriebName, logout } = useAuthStore()
+  const [isDark, toggleDark] = useDarkMode()
 
   return (
     <>
@@ -150,6 +162,23 @@ export function Sidebar({ isAdmin }: { isAdmin: boolean }) {
               <NavGroup items={ADMIN_BOTTOM_NAV} />
             </div>
           )}
+          {/* Dark/Light Toggle */}
+          <button
+            onClick={toggleDark}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '9px 14px', margin: '1px 10px',
+              borderRadius: 8, fontSize: 14, fontWeight: 500,
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: '#9A9A9A', width: 'calc(100% - 20px)',
+              transition: 'all 0.15s ease',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = '#FFFFFF' }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = '#9A9A9A' }}
+          >
+            {isDark ? <Sun size={17} /> : <Moon size={17} />}
+            <span>{isDark ? 'Hell' : 'Dunkel'}</span>
+          </button>
           <button
             onClick={() => { logout(); navigate('/login') }}
             style={{

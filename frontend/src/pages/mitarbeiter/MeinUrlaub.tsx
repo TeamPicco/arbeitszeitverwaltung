@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { urlaubMitarbeiter, urlaubSaldo, urlaubBeantragen } from '../../api/urlaub'
 import { useAuthStore } from '../../store/auth'
 import { Card, MetricCard } from '../../components/Card'
@@ -20,7 +21,6 @@ export function MeinUrlaub() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ datum_von: '', datum_bis: '', kommentar: '' })
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
   const { data: saldo } = useQuery({
     queryKey: ['urlaub-saldo', mitarbeiterId, jahr],
@@ -49,10 +49,9 @@ export function MeinUrlaub() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setError('')
     const anzahl_tage = berechneArbeitstage(form.datum_von, form.datum_bis)
     if (anzahl_tage <= 0) {
-      setError('Ungültige Datumsauswahl.')
+      toast.error('Ungültige Datumsauswahl.')
       return
     }
     setLoading(true)
@@ -66,10 +65,11 @@ export function MeinUrlaub() {
       })
       qc.invalidateQueries({ queryKey: ['urlaub-liste', mitarbeiterId] })
       qc.invalidateQueries({ queryKey: ['urlaub-saldo', mitarbeiterId, jahr] })
+      toast.success('Urlaubsantrag eingereicht')
       setForm({ datum_von: '', datum_bis: '', kommentar: '' })
       setShowForm(false)
     } catch (err: unknown) {
-      setError(
+      toast.error(
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
           'Fehler beim Antrag.'
       )
@@ -125,7 +125,6 @@ export function MeinUrlaub() {
               value={form.kommentar}
               onChange={(e) => setForm((p) => ({ ...p, kommentar: e.target.value }))}
             />
-            {error && <p className="text-sm text-red-400">{error}</p>}
             <Button type="submit" loading={loading}>Antrag einreichen</Button>
           </form>
         </Card>

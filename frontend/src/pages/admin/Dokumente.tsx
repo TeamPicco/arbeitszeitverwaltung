@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import toast from 'react-hot-toast'
 import { mitarbeiterListe } from '../../api/mitarbeiter'
 import { api } from '../../api/client'
 import { Button } from '../../components/Button'
@@ -262,13 +263,11 @@ function UploadPanel({
   const [typ, setTyp] = useState('sonstig')
   const [gueltigBis, setGueltigBis] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  const [error, setError] = useState('')
   const [dragging, setDragging] = useState(false)
 
   const applyFile = (f: File) => {
     setFile(f)
     setName(f.name.replace(/\.[^.]+$/, ''))
-    setError('')
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -285,9 +284,8 @@ function UploadPanel({
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!file) { setError('Bitte eine Datei auswählen.'); return }
+    if (!file) { toast.error('Bitte eine Datei auswählen.'); return }
     setLoading(true)
-    setError('')
     try {
       const fd = new FormData()
       fd.append('file', file)
@@ -295,9 +293,10 @@ function UploadPanel({
       fd.append('typ', typ)
       if (gueltigBis) fd.append('gueltig_bis', gueltigBis)
       await api.post(`/dokumente/mitarbeiter/${mitarbeiterId}`, fd)
+      toast.success('Dokument hochgeladen')
       onUploaded()
     } catch {
-      setError('Upload fehlgeschlagen. Bitte erneut versuchen.')
+      toast.error('Upload fehlgeschlagen. Bitte erneut versuchen.')
     } finally {
       setLoading(false)
     }
@@ -393,10 +392,6 @@ function UploadPanel({
             />
           </div>
         </div>
-
-        {error && (
-          <p className="text-sm mb-4" style={{ color: 'var(--danger)' }}>{error}</p>
-        )}
 
         <div className="flex gap-3">
           <Button type="submit" loading={loading}>
