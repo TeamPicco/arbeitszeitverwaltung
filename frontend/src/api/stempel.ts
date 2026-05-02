@@ -11,3 +11,9 @@ export const stempelEvent = (data: {
 
 export const stempelStatus = (mitarbeiter_id: number) =>
   api.get(`/stempel/status/${mitarbeiter_id}`).then((r) => r.data)
+
+export const kioskStatus = (betriebsnummer: string, pin: string) =>
+  api.post('/stempel/kiosk-status', { betriebsnummer, pin }).then((r) => r.data)
+
+export const kioskAction = (betriebsnummer: string, pin: string, action: string) =>
+  api.post('/stempel/kiosk-action', { betriebsnummer, pin, action }).then((r) => r.data)

@@ -14,20 +14,25 @@ import {
 } from '../../api/dienstplan'
 import { Button } from '../../components/Button'
 import { Spinner } from '../../components/Spinner'
-import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle, Printer } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Mail, CheckCircle, XCircle, Printer, X, Trash2 } from 'lucide-react'
 
 type MA = { id: number; vorname: string; nachname: string; position?: string }
 
-type Schichttyp = 'arbeit' | 'urlaub' | 'frei' | null
-
 const SCHICHT_CONFIG: Record<string, { label: string; bg: string; text: string; border: string }> = {
-  arbeit:  { label: 'Arbeit',  bg: 'rgba(249,115,22,0.15)', text: '#F97316', border: 'rgba(249,115,22,0.4)' },
-  urlaub:  { label: 'Urlaub',  bg: 'rgba(59,130,246,0.15)', text: '#60a5fa', border: 'rgba(59,130,246,0.4)' },
-  frei:    { label: 'Frei',    bg: 'rgba(100,116,139,0.15)', text: '#94a3b8', border: 'rgba(100,116,139,0.4)' },
+  arbeit:    { label: 'Arbeit',    bg: 'rgba(249,115,22,0.15)', text: '#F97316', border: 'rgba(249,115,22,0.4)' },
+  urlaub:    { label: 'Urlaub',    bg: 'rgba(59,130,246,0.15)', text: '#60a5fa', border: 'rgba(59,130,246,0.4)' },
+  krank:     { label: 'Krank',     bg: 'rgba(239,68,68,0.15)',  text: '#f87171', border: 'rgba(239,68,68,0.4)' },
+  frei:      { label: 'Frei',      bg: 'rgba(100,116,139,0.15)', text: '#94a3b8', border: 'rgba(100,116,139,0.4)' },
+  unbezahlt: { label: 'Unbezahlt', bg: 'rgba(168,85,247,0.15)', text: '#c084fc', border: 'rgba(168,85,247,0.4)' },
 }
 
+const SCHICHT_TYPEN = ['arbeit', 'urlaub', 'krank', 'frei', 'unbezahlt'] as const
+type Schichttyp = typeof SCHICHT_TYPEN[number]
+
 const DAYS_DE = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
+const DAYS_FULL = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag']
 const MONTHS_DE = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
+const MONTHS_FULL = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
 
 function getMondayOfWeek(d: Date): Date {
   const day = d.getDay()
@@ -53,6 +58,12 @@ function isToday(d: Date): boolean {
   return isoDate(d) === isoDate(today)
 }
 
+function formatDateFull(d: Date): string {
+  return `${DAYS_FULL[d.getDay() === 0 ? 6 : d.getDay() - 1]}, ${d.getDate()}. ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`
+}
+
+type DialogState = { ma: MA; day: Date; eintrag: DienstplanEintrag | undefined }
+
 const WUNSCH_STATUS: Record<string, { label: string; color: string }> = {
   offen:      { label: 'Offen',      color: '#F97316' },
   ausstehend: { label: 'Ausstehend', color: '#F97316' },
@@ -67,6 +78,7 @@ export function AdminDienstplan() {
   const [emailSending, setEmailSending] = useState(false)
   const [emailResult, setEmailResult] = useState<string | null>(null)
   const [ablehnungsgrund, setAblehnungsgrund] = useState<Record<number, string>>({})
+  const [dialog, setDialog] = useState<DialogState | null>(null)
 
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday)
@@ -127,29 +139,38 @@ export function AdminDienstplan() {
   const getEintrag = (maId: number, day: Date): DienstplanEintrag | undefined =>
     (eintraege ?? []).find((e) => e.mitarbeiter_id === maId && e.datum === isoDate(day))
 
-  const CYCLE: Schichttyp[] = ['arbeit', 'urlaub', 'frei', null]
+  const handleCellClick = (ma: MA, day: Date) => {
+    setDialog({ ma, day, eintrag: getEintrag(ma.id, day) })
+  }
 
-  const handleCellClick = async (ma: MA, day: Date) => {
-    const key = `${ma.id}-${isoDate(day)}`
-    setSaving(key)
-    const current = getEintrag(ma.id, day)
-    const currentType = current?.schichttyp ?? null
-    const idx = CYCLE.indexOf(currentType as Schichttyp)
-    const next = CYCLE[(idx + 1) % CYCLE.length]
-
+  const handleSave = async (data: {
+    schichttyp: string
+    start_zeit?: string
+    end_zeit?: string
+    pause_minuten?: number
+  }) => {
+    if (!dialog) return
+    setSaving(`${dialog.ma.id}-${isoDate(dialog.day)}`)
     try {
-      if (next === null) {
-        if (current?.id) {
-          await dienstplanEintragLoeschen(current.id)
-        }
-      } else {
-        await dienstplanEintragSetzen({
-          mitarbeiter_id: ma.id,
-          datum: isoDate(day),
-          schichttyp: next,
-        })
-      }
+      await dienstplanEintragSetzen({
+        mitarbeiter_id: dialog.ma.id,
+        datum: isoDate(dialog.day),
+        ...data,
+      })
       qc.invalidateQueries({ queryKey: ['dienstplan', isoDate(monday)] })
+      setDialog(null)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!dialog?.eintrag?.id) return
+    setSaving(`${dialog.ma.id}-${isoDate(dialog.day)}`)
+    try {
+      await dienstplanEintragLoeschen(dialog.eintrag.id)
+      qc.invalidateQueries({ queryKey: ['dienstplan', isoDate(monday)] })
+      setDialog(null)
     } finally {
       setSaving(null)
     }
@@ -159,8 +180,8 @@ export function AdminDienstplan() {
 
   const handlePrint = () => {
     const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So']
-    const LABELS: Record<string, string> = { arbeit: 'Arbeit', urlaub: 'Urlaub', frei: 'Frei' }
-    const COLORS: Record<string, string> = { arbeit: '#f97316', urlaub: '#3b82f6', frei: '#64748b' }
+    const LABELS: Record<string, string> = { arbeit: 'Arbeit', urlaub: 'Urlaub', krank: 'Krank', frei: 'Frei', unbezahlt: 'Unbez.' }
+    const COLORS: Record<string, string> = { arbeit: '#f97316', urlaub: '#3b82f6', krank: '#ef4444', frei: '#64748b', unbezahlt: '#a855f7' }
 
     const dayHeaders = weekDays.map((day, i) =>
       `<th style="padding:10px 6px;text-align:center;font-size:11px;color:#666;font-weight:600;">
@@ -174,7 +195,7 @@ export function AdminDienstplan() {
         const typ = e?.schichttyp
         const col = typ ? COLORS[typ] : null
         const cell = typ
-          ? `<span style="padding:3px 10px;border-radius:5px;background:${col}22;color:${col};border:1px solid ${col}55;font-size:11px;">${LABELS[typ]}</span>`
+          ? `<span style="padding:3px 10px;border-radius:5px;background:${col}22;color:${col};border:1px solid ${col}55;font-size:11px;">${LABELS[typ] ?? typ}</span>`
           : `<span style="color:#bbb;font-size:11px;">—</span>`
         const zeit = e?.start_zeit ? `<div style="font-size:10px;color:#888;margin-top:2px;">${e.start_zeit.slice(0,5)}${e.end_zeit ? ` – ${e.end_zeit.slice(0,5)}` : ''}</div>` : ''
         return `<td style="padding:8px 6px;text-align:center;">${cell}${zeit}</td>`
@@ -242,7 +263,7 @@ export function AdminDienstplan() {
     <div>
       <PageHeader
         title="Dienstplan"
-        sub="Wöchentliche Schichtplanung — Zelle anklicken zum Wechseln"
+        sub="Wöchentliche Schichtplanung — Zelle anklicken zum Bearbeiten"
         action={
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={handlePrint}>
@@ -283,19 +304,16 @@ export function AdminDienstplan() {
       )}
 
       {/* Legend */}
-      <div className="flex items-center gap-4 mb-5">
+      <div className="flex items-center gap-4 mb-5 flex-wrap">
         {Object.entries(SCHICHT_CONFIG).map(([k, v]) => (
           <div key={k} className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded-sm"
-              style={{ background: v.bg, border: `1px solid ${v.border}` }}
-            />
+            <div className="w-3 h-3 rounded-sm" style={{ background: v.bg, border: `1px solid ${v.border}` }} />
             <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{v.label}</span>
           </div>
         ))}
         <div className="flex items-center gap-1 ml-2" style={{ color: 'var(--text-muted)' }}>
           <Info size={12} />
-          <span className="text-xs">Klicken zum Wechseln: Arbeit → Urlaub → Frei → Leer</span>
+          <span className="text-xs">Zelle anklicken zum Bearbeiten</span>
         </div>
       </div>
 
@@ -392,7 +410,7 @@ export function AdminDienstplan() {
                           <button
                             onClick={() => handleCellClick(ma, day)}
                             disabled={isSaving}
-                            className="w-full rounded-lg py-1.5 px-1 text-xs font-medium transition-all cursor-pointer"
+                            className="w-full rounded-lg py-1.5 px-1 text-xs font-medium transition-all cursor-pointer hover:opacity-80"
                             style={{
                               minWidth: 70,
                               background: cfg ? cfg.bg : 'transparent',
@@ -401,7 +419,16 @@ export function AdminDienstplan() {
                               opacity: isSaving ? 0.5 : 1,
                             }}
                           >
-                            {isSaving ? '…' : cfg ? cfg.label : '—'}
+                            {isSaving ? '…' : cfg ? (
+                              <>
+                                <div>{cfg.label}</div>
+                                {eintrag?.start_zeit && (
+                                  <div className="text-xs mt-0.5 opacity-80">
+                                    {eintrag.start_zeit.slice(0, 5)}{eintrag.end_zeit ? `–${eintrag.end_zeit.slice(0, 5)}` : ''}
+                                  </div>
+                                )}
+                              </>
+                            ) : '—'}
                           </button>
                         </td>
                       )
@@ -500,6 +527,157 @@ export function AdminDienstplan() {
             })}
           </div>
         )}
+      </div>
+
+      {/* Schicht-Dialog */}
+      {dialog && (
+        <SchichtDialog
+          ma={dialog.ma}
+          day={dialog.day}
+          eintrag={dialog.eintrag}
+          saving={saving === `${dialog.ma.id}-${isoDate(dialog.day)}`}
+          onSave={handleSave}
+          onDelete={handleDelete}
+          onClose={() => setDialog(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function SchichtDialog({
+  ma,
+  day,
+  eintrag,
+  saving,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  ma: MA
+  day: Date
+  eintrag: DienstplanEintrag | undefined
+  saving: boolean
+  onSave: (data: { schichttyp: string; start_zeit?: string; end_zeit?: string; pause_minuten?: number }) => Promise<void>
+  onDelete: () => Promise<void>
+  onClose: () => void
+}) {
+  const [typ, setTyp] = useState<Schichttyp>((eintrag?.schichttyp as Schichttyp) ?? 'arbeit')
+  const [start, setStart] = useState(eintrag?.start_zeit?.slice(0, 5) ?? '09:00')
+  const [ende, setEnde] = useState(eintrag?.end_zeit?.slice(0, 5) ?? '17:00')
+  const [pause, setPause] = useState(String(eintrag?.pause_minuten ?? 30))
+
+  const needsZeiten = typ === 'arbeit' || typ === 'unbezahlt'
+  const cfg = SCHICHT_CONFIG[typ]
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await onSave({
+      schichttyp: typ,
+      start_zeit: needsZeiten ? start : undefined,
+      end_zeit: needsZeiten ? ende : undefined,
+      pause_minuten: needsZeiten ? (Number(pause) || 0) : undefined,
+    })
+  }
+
+  const inputStyle = { background: 'var(--surface2)', border: '1px solid var(--border)', color: 'var(--text)' }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.7)' }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-md rounded-2xl p-6" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+        <div className="flex items-start justify-between mb-5">
+          <div>
+            <h2 className="font-semibold text-base">Dienst bearbeiten</h2>
+            <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              {ma.vorname} {ma.nachname} · {formatDateFull(day)}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-[#1a1a1a] transition-colors cursor-pointer" style={{ color: 'var(--text-muted)' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-medium">Schichttyp</label>
+            <div className="flex gap-2 flex-wrap">
+              {SCHICHT_TYPEN.map((t) => {
+                const c = SCHICHT_CONFIG[t]
+                const active = typ === t
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTyp(t)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                    style={{
+                      background: active ? c.bg : 'var(--surface2)',
+                      color: active ? c.text : 'var(--text-muted)',
+                      border: active ? `1px solid ${c.border}` : '1px solid var(--border)',
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {needsZeiten && (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Start</label>
+                <input type="time" value={start} onChange={(e) => setStart(e.target.value)}
+                  className="px-3 py-2.5 rounded-lg text-sm outline-none focus:ring-1 focus:ring-[#F97316]" style={inputStyle} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Ende</label>
+                <input type="time" value={ende} onChange={(e) => setEnde(e.target.value)}
+                  className="px-3 py-2.5 rounded-lg text-sm outline-none focus:ring-1 focus:ring-[#F97316]" style={inputStyle} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium">Pause (Min)</label>
+                <input type="number" value={pause} onChange={(e) => setPause(e.target.value)} min="0"
+                  className="px-3 py-2.5 rounded-lg text-sm outline-none focus:ring-1 focus:ring-[#F97316]" style={inputStyle} />
+              </div>
+            </div>
+          )}
+
+          {!needsZeiten && (
+            <div className="text-sm px-4 py-3 rounded-lg" style={{ background: cfg.bg, color: cfg.text, border: `1px solid ${cfg.border}` }}>
+              {typ === 'urlaub' && 'Urlaubstag — Arbeitszeit wird nicht erfasst.'}
+              {typ === 'krank' && 'Krankheitstag — Lohnfortzahlung nach BUrlG.'}
+              {typ === 'frei' && 'Freier Tag — kein Arbeitseinsatz geplant.'}
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-1">
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-2.5 rounded-xl font-semibold text-white text-sm transition-opacity disabled:opacity-50 cursor-pointer"
+              style={{ background: cfg.text }}
+            >
+              {saving ? '…' : eintrag ? 'Änderungen speichern' : 'Eintrag erstellen'}
+            </button>
+            {eintrag && (
+              <button
+                type="button"
+                onClick={onDelete}
+                disabled={saving}
+                className="p-2.5 rounded-xl transition-colors cursor-pointer hover:bg-red-900/20"
+                style={{ border: '1px solid var(--border)', color: '#ef4444' }}
+                title="Eintrag löschen"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+        </form>
       </div>
     </div>
   )
