@@ -4,7 +4,7 @@ import { mitarbeiterListe, mitarbeiterAnlegen, mitarbeiterAktualisieren } from '
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
 import { Input, SelectInput } from '../../components/Input'
-import { Spinner } from '../../components/Spinner'
+import { SkeletonTable } from '../../components/Skeleton'
 import { PageHeader } from '../../components/PageHeader'
 import { UserPlus, Pencil, UserX, Mail, Clock, Briefcase, Search, UserCheck, Upload, AlertCircle, CheckCircle2, X } from 'lucide-react'
 
@@ -63,7 +63,7 @@ export function AdminMitarbeiter() {
   }
 
   if (isLoading)
-    return <div className="flex justify-center h-40 items-center"><Spinner /></div>
+    return <div className="mt-4"><SkeletonTable rows={6} cols={5} /></div>
 
   return (
     <div>

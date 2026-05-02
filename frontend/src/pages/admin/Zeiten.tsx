@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { mitarbeiterListe } from '../../api/mitarbeiter'
 import { zeitenMonat, azkMonat } from '../../api/zeiten'
 import { api } from '../../api/client'
-import { Spinner } from '../../components/Spinner'
+import { SkeletonTable, SkeletonMetrics } from '../../components/Skeleton'
 import { Card } from '../../components/Card'
 import { Button } from '../../components/Button'
 import { PageHeader } from '../../components/PageHeader'
@@ -131,7 +131,10 @@ export function AdminZeiten() {
       )}
 
       {selectedMaId && zeitenLoading && (
-        <div className="flex justify-center h-20 items-center"><Spinner /></div>
+        <div className="flex flex-col gap-4">
+          <SkeletonMetrics count={4} />
+          <SkeletonTable rows={5} cols={5} />
+        </div>
       )}
 
       {selectedMaId && !zeitenLoading && (

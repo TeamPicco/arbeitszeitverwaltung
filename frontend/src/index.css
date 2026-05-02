@@ -60,6 +60,11 @@
   --shadow-card:  0 2px 12px rgba(0,0,0,0.30);
 }
 
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 html { font-size: 15px; }
