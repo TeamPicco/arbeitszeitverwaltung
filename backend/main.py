@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, stempel, zeiten, urlaub, mitarbeiter, admin, lohn, dokumente, dienstplan
+from routers import auth, stempel, zeiten, urlaub, mitarbeiter, admin, lohn, dokumente, dienstplan, leads
 
 app = FastAPI(title="Complio API", version="2.0.0")
 
@@ -32,6 +32,7 @@ for router, prefix, tag in [
     (lohn.router,        "/lohn",        "Lohn"),
     (dokumente.router,   "/dokumente",   "Dokumente"),
     (dienstplan.router,  "/dienstplan",  "Dienstplan"),
+    (leads.router,       "/leads",       "Leads"),
 ]:
     app.include_router(router, prefix=prefix, tags=[tag])
 

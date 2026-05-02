@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/auth'
 import {
   LayoutDashboard, Users, Clock, CalendarDays, FileText,
-  DollarSign, Settings, LogOut, Timer, CalendarRange, Building2, Shield, Sun, Moon,
+  DollarSign, Settings, LogOut, Timer, CalendarRange, Building2, Shield, Sun, Moon, TrendingUp,
 } from 'lucide-react'
 
 interface NavItem { to: string; icon: ReactNode; label: string; badge?: string }
@@ -18,6 +18,7 @@ const ADMIN_NAV: NavItem[] = [
   { to: '/admin/dokumente',     icon: <FileText size={17} />,        label: 'Dokumente' },
   { to: '/admin/premium',       icon: <Shield size={17} />,          label: 'Premium', badge: 'PRO' },
   { to: '/admin/kiosk',         icon: <Timer size={17} />,           label: 'Kiosk' },
+  { to: '/admin/leads',         icon: <TrendingUp size={17} />,      label: 'Leads' },
 ]
 
 const ADMIN_BOTTOM_NAV: NavItem[] = [
