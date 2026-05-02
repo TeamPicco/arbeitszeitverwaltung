@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import auth, stempel, zeiten, urlaub, mitarbeiter, admin, lohn, dokumente, dienstplan
+from routers import auth, stempel, zeiten, urlaub, mitarbeiter, admin, lohn, dokumente, dienstplan, leads
 
 app = FastAPI(title="Complio API", version="2.0.0")
 
@@ -14,8 +14,9 @@ app.add_middleware(
         "https://app.getcomplio.de",
         "https://complio-frontend.vercel.app",
         "https://complio-fro-teampicccos-projects.vercel.app",
+        "https://arbeitszeitverwaltung.vercel.app",
     ],
-    allow_origin_regex=r"https://complio-.*\.vercel\.app",
+    allow_origin_regex=r"https://(complio-.*|arbeitszeitverwaltung)\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -31,6 +32,7 @@ for router, prefix, tag in [
     (lohn.router,        "/lohn",        "Lohn"),
     (dokumente.router,   "/dokumente",   "Dokumente"),
     (dienstplan.router,  "/dienstplan",  "Dienstplan"),
+    (leads.router,       "/leads",       "Leads"),
 ]:
     app.include_router(router, prefix=prefix, tags=[tag])
 
